@@ -65,9 +65,8 @@ func (m *sessionRepoTestDouble) SetExpiration(ctx context.Context, sessionID str
 }
 
 func TestCreateSessionStoresSessionWithDerivedDeviceInfo(t *testing.T) {
-	t.Setenv("REFRESH_TOKEN_EXP_HOURS", "1")
 	repo := &sessionRepoTestDouble{}
-	svc := NewSessionService(repo)
+	svc := NewSessionService(repo, time.Hour)
 
 	session, err := svc.CreateSession(context.Background(), &domainuser.Users{
 		Id:    "user-1",
@@ -90,6 +89,16 @@ func TestCreateSessionStoresSessionWithDerivedDeviceInfo(t *testing.T) {
 	}
 	if !session.ExpiresAt.After(time.Now()) {
 		t.Fatalf("expected future expiry, got %v", session.ExpiresAt)
+	}
+	if diff := time.Until(session.ExpiresAt) - time.Hour; diff > 5*time.Second || diff < -5*time.Second {
+		t.Fatalf("expected expiry about now+1h from the injected TTL, got %v", session.ExpiresAt)
+	}
+}
+
+func TestNewSessionServiceDefaultsNonPositiveRefreshTTL(t *testing.T) {
+	svc := NewSessionService(&sessionRepoTestDouble{}, 0)
+	if svc.RefreshTTL != 168*time.Hour {
+		t.Fatalf("expected default refresh TTL 168h, got %v", svc.RefreshTTL)
 	}
 }
 
@@ -116,7 +125,7 @@ func TestValidateSessionDeletesExpiredSession(t *testing.T) {
 		SessionID: "session-1",
 		ExpiresAt: time.Now().Add(-time.Minute),
 	}}
-	svc := NewSessionService(repo)
+	svc := NewSessionService(repo, time.Hour)
 
 	_, err := svc.ValidateSession(context.Background(), "access")
 	if err == nil || err.Error() != "session expired" {
@@ -132,7 +141,7 @@ func TestValidateSessionUpdatesActivityForValidSession(t *testing.T) {
 		SessionID: "session-1",
 		ExpiresAt: time.Now().Add(time.Hour),
 	}}
-	svc := NewSessionService(repo)
+	svc := NewSessionService(repo, time.Hour)
 
 	session, err := svc.ValidateSession(context.Background(), "access")
 	if err != nil {
@@ -149,7 +158,7 @@ func TestDestroyOtherSessionsKeepsCurrentSession(t *testing.T) {
 		{SessionID: "old-1"},
 		{SessionID: "old-2"},
 	}}
-	svc := NewSessionService(repo)
+	svc := NewSessionService(repo, time.Hour)
 
 	if err := svc.DestroyOtherSessions(context.Background(), "user-1", "current"); err != nil {
 		t.Fatalf("expected success, got %v", err)
@@ -166,7 +175,7 @@ func TestSessionServicePassThroughMethods(t *testing.T) {
 			{SessionID: "session-1", DeviceInfo: "Browser", IP: "127.0.0.1"},
 		},
 	}
-	svc := NewSessionService(repo)
+	svc := NewSessionService(repo, time.Hour)
 	ctx := context.Background()
 
 	infos, err := svc.GetUserSessions(ctx, "user-1", "session-1")

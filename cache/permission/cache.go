@@ -3,7 +3,6 @@ package permissioncache
 import (
 	"context"
 	"encoding/json"
-	"github.com/zazhedho/gokit/utils"
 	"strings"
 	"time"
 
@@ -36,8 +35,11 @@ func GetUserPermissionKeys(ctx context.Context, client *redis.Client, userID str
 	return permissionKeys, true
 }
 
-func SetUserPermissionKeys(ctx context.Context, client *redis.Client, userID string, permissionKeys []string) {
-	if client == nil {
+// SetUserPermissionKeys caches the keys for ttl. A non-positive ttl means no
+// caching: redis would otherwise treat 0 as "never expires" and serve stale
+// permissions indefinitely.
+func SetUserPermissionKeys(ctx context.Context, client *redis.Client, userID string, permissionKeys []string, ttl time.Duration) {
+	if client == nil || ttl <= 0 {
 		return
 	}
 
@@ -45,7 +47,7 @@ func SetUserPermissionKeys(ctx context.Context, client *redis.Client, userID str
 	if err != nil {
 		return
 	}
-	_ = client.Set(ctx, Key(userID), string(raw), TTL()).Err()
+	_ = client.Set(ctx, Key(userID), string(raw), ttl).Err()
 }
 
 func DeleteUserPermissionKeys(ctx context.Context, client *redis.Client, userIDs ...string) {
@@ -87,12 +89,4 @@ func DeleteAllUserPermissionKeys(ctx context.Context, client *redis.Client) {
 		}
 		cursor = nextCursor
 	}
-}
-
-func TTL() time.Duration {
-	fallback := time.Duration(utils.GetEnv("PERMISSION_CACHE_TTL_SECONDS", 300)) * time.Second
-	if fallback <= 0 {
-		fallback = 300 * time.Second
-	}
-	return utils.DurationFromEnv([]string{"PERMISSION_CACHE_TTL"}, fallback)
 }

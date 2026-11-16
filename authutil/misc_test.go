@@ -10,9 +10,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestJwtClaimsReadsAuthorizationHeader(t *testing.T) {
-	t.Setenv("JWT_KEY", "test-secret-must-be-at-least-32-bytes")
-	token, err := GenerateJwt(&domainuser.Users{
+func TestClaimsFromRequestReadsAuthorizationHeader(t *testing.T) {
+	tokens := newTestTokens(t)
+	token, err := tokens.Generate(&domainuser.Users{
 		Id:   "user-1",
 		Name: "Jane",
 		Role: RoleViewer,
@@ -26,7 +26,7 @@ func TestJwtClaimsReadsAuthorizationHeader(t *testing.T) {
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 	ctx.Request.Header.Set("Authorization", "Bearer "+token)
 
-	tokenString, claims, err := JwtClaims(ctx.Request)
+	tokenString, claims, err := tokens.ClaimsFromRequest(ctx.Request)
 	if err != nil || tokenString != token || claims["user_id"] == "" {
 		t.Fatalf("jwt claims: token=%q claims=%+v err=%v", tokenString, claims, err)
 	}

@@ -10,7 +10,6 @@ import (
 	domainuser "github.com/zazhedho/authkit/domain/user"
 	"github.com/zazhedho/authkit/dto"
 	servicereset "github.com/zazhedho/authkit/services/reset"
-	"github.com/zazhedho/authkit/settings"
 	"github.com/zazhedho/gokit/messages"
 	"github.com/zazhedho/gokit/response"
 	"github.com/zazhedho/gokit/utils"
@@ -26,9 +25,6 @@ import (
 )
 
 const (
-	defaultConfigPublicRegistrationEnabled = "auth.public_registration_enabled"
-	defaultConfigRegisterOTPEnabled        = "auth.register_otp_enabled"
-	defaultConfigPasswordResetEmailEnabled = "auth.password_reset_email_enabled"
 	publicRegistrationDisabledMessage      = "Public registration is currently disabled."
 	registrationOTPNotConfiguredMessage    = "registration OTP service is not configured"
 	passwordResetEmailNotConfiguredMessage = "password reset email service is not configured"
@@ -198,7 +194,7 @@ func (h *HandlerUser) forgotPasswordByEmail(ctx *gin.Context, req dto.ForgotPass
 	reqCtx := ctx.Request.Context()
 	normalizedEmail := utils.SanitizeEmail(req.Email)
 	if data, err := h.Service.GetUserByEmail(reqCtx, normalizedEmail); err == nil && data.Id != "" {
-		appName := utils.FirstNonEmptyString(utils.GetEnv("AUTH_EMAIL_APP_NAME", ""), utils.GetEnv("APP_NAME", "STARTER-KIT"))
+		appName := h.Settings.EmailAppName
 		if err := h.ResetService.RequestReset(reqCtx, normalizedEmail, appName); err != nil {
 			h.WriteAudit(ctx, domainaudit.AuditEvent{
 				Action: domainaudit.ActionUpdate, Resource: "user_password_reset", Status: domainaudit.StatusFailed,
@@ -227,7 +223,7 @@ func (h *HandlerUser) forgotPasswordByEmail(ctx *gin.Context, req dto.ForgotPass
 		Message: "Requested password reset email", AfterData: map[string]any{"email": normalizedEmail},
 	})
 	res := response.Response(http.StatusOK, "Password reset instructions sent to your email", logId, map[string]any{
-		"cooldown": int(settings.LoadPasswordResetConfig().Cooldown.Seconds()),
+		"cooldown": int(h.Settings.ResetCooldown.Seconds()),
 	})
 	logus.WriteLogWithContext(ctx, logus.LogLevelInfo, fmt.Sprintf("%s; Password reset instructions sent to email: %s", logPrefix, normalizedEmail))
 	ctx.JSON(http.StatusOK, res)
@@ -309,16 +305,16 @@ func (h *HandlerUser) isRuntimeConfigEnabled(ctx context.Context, configKey stri
 	return h.AppConfigService.IsEnabled(ctx, configKey, fallback)
 }
 
-func buildAuthTokenResponse(accessToken, refreshToken string) map[string]any {
+func (h *HandlerUser) buildAuthTokenResponse(accessToken, refreshToken string) map[string]any {
 	data := map[string]any{
 		"access_token":     accessToken,
 		"token_type":       "Bearer",
-		"expires_in_hours": utils.GetEnv("JWT_EXP", 24),
+		"expires_in_hours": int(h.Settings.AccessTTL.Hours()),
 	}
 
 	if refreshToken != "" {
 		data["refresh_token"] = refreshToken
-		data["refresh_expires_in_hours"] = utils.GetEnv("REFRESH_TOKEN_EXP_HOURS", 168)
+		data["refresh_expires_in_hours"] = int(h.Settings.RefreshTTL.Hours())
 	}
 
 	return data

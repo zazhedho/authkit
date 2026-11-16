@@ -112,12 +112,22 @@ func performMiddlewareRequestWithSetup(handlers []gin.HandlerFunc, setup func(*g
 	return rec
 }
 
+func testTokens(t *testing.T) *authutil.Tokens {
+	t.Helper()
+	tokens, err := authutil.NewTokens(authutil.TokenConfig{
+		Key:     "test-secret-must-be-at-least-32-bytes",
+		AppName: "test-app",
+	})
+	if err != nil {
+		t.Fatalf("failed to build tokens: %v", err)
+	}
+	return tokens
+}
+
 func testToken(t *testing.T, tokenType string, role string) string {
 	t.Helper()
-	t.Setenv("JWT_KEY", "test-secret-must-be-at-least-32-bytes")
-
 	claims := &authutil.AppClaims{TokenType: tokenType}
-	token, err := authutil.GenerateJwtWithClaims(&domainuser.Users{
+	token, err := testTokens(t).GenerateWithClaims(&domainuser.Users{
 		Id:   "user-1",
 		Name: "Jane",
 		Role: role,
@@ -129,7 +139,7 @@ func testToken(t *testing.T, tokenType string, role string) string {
 }
 
 func TestAuthMiddlewareAllowsValidAccessToken(t *testing.T) {
-	mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil)
+	mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
 	rec := performMiddlewareRequest(testToken(t, "access", authutil.RoleViewer), mdw.AuthMiddleware())
 
 	if rec.Code != http.StatusOK {
@@ -140,7 +150,7 @@ func TestAuthMiddlewareAllowsValidAccessToken(t *testing.T) {
 func TestAuthMiddlewareRejectsNonAccessToken(t *testing.T) {
 	for _, tokenType := range []string{authutil.TokenTypeRefresh, authutil.TokenTypePasswordReset} {
 		t.Run(tokenType, func(t *testing.T) {
-			mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil)
+			mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
 			rec := performMiddlewareRequest(testToken(t, tokenType, authutil.RoleViewer), mdw.AuthMiddleware())
 
 			if rec.Code != http.StatusUnauthorized {
@@ -151,7 +161,7 @@ func TestAuthMiddlewareRejectsNonAccessToken(t *testing.T) {
 }
 
 func TestAuthMiddlewareRejectsBlacklistedToken(t *testing.T) {
-	mdw := NewMiddleware(&authRepoTestDouble{blacklisted: true}, &permissionRepoTestDouble{}, nil)
+	mdw := NewMiddleware(&authRepoTestDouble{blacklisted: true}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
 	rec := performMiddlewareRequest(testToken(t, "access", authutil.RoleViewer), mdw.AuthMiddleware())
 
 	if rec.Code != http.StatusUnauthorized {
@@ -183,7 +193,7 @@ func TestAuthMiddlewareRejectsInvalidTokenAndBlacklistError(t *testing.T) {
 			if tt.name == "blacklist error" {
 				token = testToken(t, "access", authutil.RoleViewer)
 			}
-			mdw := NewMiddleware(tt.repo, &permissionRepoTestDouble{}, nil)
+			mdw := NewMiddleware(tt.repo, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
 			rec := performMiddlewareRequest(token, mdw.AuthMiddleware())
 			if rec.Code != tt.code {
 				t.Fatalf("expected %d, got %d: %s", tt.code, rec.Code, rec.Body.String())
@@ -237,7 +247,7 @@ func TestRoleMiddlewareBranches(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil)
+			mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
 			rec := performMiddlewareRequestWithSetup([]gin.HandlerFunc{mdw.RoleMiddleware(tt.allowed...)}, tt.setup)
 			if rec.Code != tt.code {
 				t.Fatalf("expected %d, got %d: %s", tt.code, rec.Code, rec.Body.String())
@@ -249,7 +259,7 @@ func TestRoleMiddlewareBranches(t *testing.T) {
 func TestPermissionMiddlewareAllowsOwnedPermission(t *testing.T) {
 	mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{
 		permissions: []domainpermission.Permission{{Resource: "users", Action: "list"}},
-	}, nil)
+	}, nil, testTokens(t), 2*time.Minute)
 
 	rec := performMiddlewareRequest(
 		testToken(t, "access", authutil.RoleViewer),
@@ -267,7 +277,7 @@ func TestPermissionMiddlewareUsesCachedPermissionsWhenAvailable(t *testing.T) {
 	repo := &permissionRepoTestDouble{
 		permissions: []domainpermission.Permission{{Resource: "users", Action: "delete"}},
 	}
-	mdw := NewMiddleware(&authRepoTestDouble{}, repo, nil)
+	mdw := NewMiddleware(&authRepoTestDouble{}, repo, nil, testTokens(t), 2*time.Minute)
 	mdw.PermissionCache = client
 	mock.ExpectGet("permission:user:user-1").SetVal(`["users:list"]`)
 
@@ -289,12 +299,11 @@ func TestPermissionMiddlewareUsesCachedPermissionsWhenAvailable(t *testing.T) {
 }
 
 func TestPermissionMiddlewareFallsBackAndCachesPermissionsOnCacheMiss(t *testing.T) {
-	t.Setenv("PERMISSION_CACHE_TTL", "2m")
 	client, mock := redismock.NewClientMock()
 	repo := &permissionRepoTestDouble{
 		permissions: []domainpermission.Permission{{Resource: "users", Action: "list"}},
 	}
-	mdw := NewMiddleware(&authRepoTestDouble{}, repo, nil)
+	mdw := NewMiddleware(&authRepoTestDouble{}, repo, nil, testTokens(t), 2*time.Minute)
 	mdw.PermissionCache = client
 	mock.ExpectGet("permission:user:user-1").RedisNil()
 	mock.ExpectSet("permission:user:user-1", `["users:list"]`, 2*time.Minute).SetVal("OK")
@@ -319,7 +328,7 @@ func TestPermissionMiddlewareFallsBackAndCachesPermissionsOnCacheMiss(t *testing
 func TestPermissionMiddlewareRejectsMissingPermission(t *testing.T) {
 	mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{
 		permissions: []domainpermission.Permission{{Resource: "users", Action: "view"}},
-	}, nil)
+	}, nil, testTokens(t), 2*time.Minute)
 
 	rec := performMiddlewareRequest(
 		testToken(t, "access", authutil.RoleViewer),
@@ -333,7 +342,7 @@ func TestPermissionMiddlewareRejectsMissingPermission(t *testing.T) {
 }
 
 func TestPermissionMiddlewareBypassesSuperadmin(t *testing.T) {
-	mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil)
+	mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
 	rec := performMiddlewareRequest(
 		testToken(t, "access", authutil.RoleSuperAdmin),
 		mdw.AuthMiddleware(),
@@ -380,7 +389,7 @@ func TestPermissionMiddlewareRejectsInvalidAuthData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil)
+			mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
 			rec := performMiddlewareRequestWithSetup([]gin.HandlerFunc{mdw.PermissionMiddleware("users", "read")}, tt.setup)
 			if rec.Code != tt.code {
 				t.Fatalf("expected %d, got %d: %s", tt.code, rec.Code, rec.Body.String())
@@ -401,7 +410,7 @@ func TestPermissionMiddlewareHandlesRepositoryErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{err: tt.err}, nil)
+			mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{err: tt.err}, nil, testTokens(t), 2*time.Minute)
 			rec := performMiddlewareRequest(
 				testToken(t, "access", authutil.RoleViewer),
 				mdw.AuthMiddleware(),

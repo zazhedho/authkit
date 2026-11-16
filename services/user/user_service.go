@@ -28,19 +28,38 @@ type ServiceUser struct {
 	RoleRepo        interfacerole.RepoRoleInterface
 	PermissionRepo  interfacepermission.RepoPermissionInterface
 	PermissionCache permissioncache.Invalidator
+	Tokens          *authutil.Tokens
+	// DefaultRole is the role given to public registrations; empty means viewer.
+	DefaultRole     string
+	GoogleClientIDs []string
 }
 
-func NewUserService(userRepo interfaceuser.RepoUserInterface, blacklistRepo interfaceauth.RepoAuthInterface, roleRepo interfacerole.RepoRoleInterface, permissionRepo interfacepermission.RepoPermissionInterface, invalidators ...permissioncache.Invalidator) *ServiceUser {
-	service := &ServiceUser{
-		UserRepo:       userRepo,
-		BlacklistRepo:  blacklistRepo,
-		RoleRepo:       roleRepo,
-		PermissionRepo: permissionRepo,
+// UserServiceOptions carries the explicit configuration of ServiceUser.
+type UserServiceOptions struct {
+	Tokens          *authutil.Tokens
+	DefaultRole     string
+	GoogleClientIDs []string
+	PermissionCache permissioncache.Invalidator
+}
+
+func NewUserService(userRepo interfaceuser.RepoUserInterface, blacklistRepo interfaceauth.RepoAuthInterface, roleRepo interfacerole.RepoRoleInterface, permissionRepo interfacepermission.RepoPermissionInterface, opts UserServiceOptions) *ServiceUser {
+	return &ServiceUser{
+		UserRepo:        userRepo,
+		BlacklistRepo:   blacklistRepo,
+		RoleRepo:        roleRepo,
+		PermissionRepo:  permissionRepo,
+		PermissionCache: opts.PermissionCache,
+		Tokens:          opts.Tokens,
+		DefaultRole:     opts.DefaultRole,
+		GoogleClientIDs: opts.GoogleClientIDs,
 	}
-	if len(invalidators) > 0 {
-		service.PermissionCache = invalidators[0]
+}
+
+func (s *ServiceUser) defaultRole() string {
+	if role := utils.NormalizeKey(s.DefaultRole); role != "" {
+		return role
 	}
-	return service
+	return authutil.RoleViewer
 }
 
 func (s *ServiceUser) RegisterUser(ctx context.Context, req dto.UserRegister) (domainuser.Users, error) {
@@ -68,7 +87,7 @@ func (s *ServiceUser) RegisterUser(ctx context.Context, req dto.UserRegister) (d
 
 	// SECURITY: Public registration always uses vendor role
 	// This prevents privilege escalation through request manipulation
-	roleName := authutil.RoleViewer
+	roleName := s.defaultRole()
 
 	roleId, _ := findRoleIDByName(ctx, s.RoleRepo, roleName)
 	var emailVerifiedAt *time.Time
@@ -130,7 +149,7 @@ func (s *ServiceUser) AdminCreateUser(ctx context.Context, req dto.AdminCreateUs
 		return domainuser.Users{}, err
 	}
 
-	if roleName != authutil.RoleViewer && !canAssignRole {
+	if roleName != s.defaultRole() && !canAssignRole {
 		return domainuser.Users{}, errors.New("access denied: missing permission users:assign_role")
 	}
 
@@ -197,7 +216,7 @@ func (s *ServiceUser) LoginUser(ctx context.Context, req dto.Login, logId string
 		return "", err
 	}
 
-	token, err := authutil.GenerateJwt(&data, logId)
+	token, err := s.Tokens.Generate(&data, logId)
 	if err != nil {
 		return "", err
 	}
@@ -206,7 +225,7 @@ func (s *ServiceUser) LoginUser(ctx context.Context, req dto.Login, logId string
 }
 
 func (s *ServiceUser) LogoutUser(ctx context.Context, token string) error {
-	expiresAt, err := authutil.JwtExpiresAt(token)
+	expiresAt, err := s.Tokens.ExpiresAt(token)
 	if err != nil {
 		return err
 	}
@@ -247,7 +266,7 @@ func (s *ServiceUser) ImpersonateUser(ctx context.Context, targetUserId string, 
 		return "", errors.New("cannot impersonate superadmin users")
 	}
 
-	return authutil.GenerateJwtWithClaims(&targetUser, logId, &authutil.AppClaims{
+	return s.Tokens.GenerateWithClaims(&targetUser, logId, &authutil.AppClaims{
 		IsImpersonated:   true,
 		OriginalUserId:   scope.UserID,
 		OriginalUsername: scope.Username,
@@ -272,7 +291,7 @@ func (s *ServiceUser) StopImpersonation(ctx context.Context, logId string) (stri
 		return "", err
 	}
 
-	return authutil.GenerateJwt(&originalUser, logId)
+	return s.Tokens.Generate(&originalUser, logId)
 }
 
 func (s *ServiceUser) GetUserById(ctx context.Context, id string) (domainuser.Users, error) {
@@ -430,7 +449,7 @@ func (s *ServiceUser) ForgotPassword(ctx context.Context, req dto.ForgotPassword
 		return "", nil
 	}
 
-	token, err := authutil.GeneratePasswordResetJwt(&data, "reset_password")
+	token, err := s.Tokens.GeneratePasswordReset(&data, "reset_password")
 	if err != nil {
 		return "", err
 	}
@@ -443,7 +462,7 @@ func (s *ServiceUser) ResetPassword(ctx context.Context, req dto.ResetPasswordRe
 		return err
 	}
 
-	claims, err := authutil.JwtClaim(req.Token)
+	claims, err := s.Tokens.Claims(req.Token)
 	if err != nil {
 		return errors.New("invalid or expired token")
 	}

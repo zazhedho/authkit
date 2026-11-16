@@ -5,6 +5,7 @@ import (
 	"errors"
 	domainappconfig "github.com/zazhedho/authkit/domain/appconfig"
 	"github.com/zazhedho/authkit/dto"
+	"github.com/zazhedho/authkit/settings"
 	"github.com/zazhedho/gokit/filter"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 type appConfigServiceUserTestDouble struct {
 	enabled bool
 	err     error
+	keys    []string
 }
 
 func (m *appConfigServiceUserTestDouble) GetAll(ctx context.Context, params filter.BaseParams) ([]domainappconfig.AppConfig, int64, error) {
@@ -49,6 +51,7 @@ func (m *appConfigServiceUserTestDouble) DecodeJSON(ctx context.Context, configK
 	return nil
 }
 func (m *appConfigServiceUserTestDouble) IsEnabled(ctx context.Context, configKey string, fallback bool) (bool, error) {
+	m.keys = append(m.keys, configKey)
 	if m.err != nil {
 		return false, m.err
 	}
@@ -56,10 +59,11 @@ func (m *appConfigServiceUserTestDouble) IsEnabled(ctx context.Context, configKe
 }
 
 func TestBuildAuthTokenResponse(t *testing.T) {
-	t.Setenv("JWT_EXP", "12")
-	t.Setenv("REFRESH_TOKEN_EXP_HOURS", "72")
+	handler := NewUserHandler(&userServiceTestDouble{}, nil, nil, nil, nil, UserHandlerOptions{
+		Settings: settings.UserHandler{AccessTTL: 12 * time.Hour, RefreshTTL: 72 * time.Hour},
+	})
 
-	got := buildAuthTokenResponse("access", "refresh")
+	got := handler.buildAuthTokenResponse("access", "refresh")
 	if got["access_token"] != "access" || got["refresh_token"] != "refresh" {
 		t.Fatalf("unexpected token response: %+v", got)
 	}
@@ -152,5 +156,56 @@ func TestRuntimeConfigAndThrottleResponses(t *testing.T) {
 	handler.respondThrottle(ctx, uuid.New(), 3*time.Second, "")
 	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "3" {
 		t.Fatalf("unexpected throttle response: code=%d headers=%v body=%s", rec.Code, rec.Header(), rec.Body.String())
+	}
+}
+
+func TestNewUserHandlerAppliesDefaultFlagKeysAndTTLs(t *testing.T) {
+	handler := NewUserHandler(&userServiceTestDouble{}, nil, nil, nil, nil, UserHandlerOptions{})
+	want := settings.DefaultFlagKeys()
+	if handler.Settings.Flags != want {
+		t.Fatalf("expected default flag keys %+v, got %+v", want, handler.Settings.Flags)
+	}
+	if handler.Settings.AccessTTL != 24*time.Hour || handler.Settings.RefreshTTL != 168*time.Hour {
+		t.Fatalf("expected default TTLs, got %v %v", handler.Settings.AccessTTL, handler.Settings.RefreshTTL)
+	}
+}
+
+func TestUserHandlerUsesInjectedFlagKeysAndEmailAppName(t *testing.T) {
+	appConfig := &appConfigServiceUserTestDouble{enabled: true}
+	otp := &otpServiceUserHandlerTestDouble{}
+	handler := newUserHandlerForTest()
+	handler.AppConfigService = appConfig
+	handler.OTPService = otp
+	handler.Settings.EmailAppName = "Injected Mail App"
+	handler.Settings.Flags = settings.FlagKeys{PublicRegistration: "custom.registration", RegisterOTP: "custom.otp", PasswordResetEmail: "custom.reset"}
+
+	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/register/otp/send", `{"email":"new@example.com"}`, nil)
+	handler.SendRegisterOTP(ctx)
+	assertUserHandlerStatus(t, rec, http.StatusOK)
+
+	if len(appConfig.keys) != 2 || appConfig.keys[0] != "custom.registration" || appConfig.keys[1] != "custom.otp" {
+		t.Fatalf("expected injected flag keys to be consulted, got %v", appConfig.keys)
+	}
+	if otp.sentAppName != "Injected Mail App" {
+		t.Fatalf("expected injected email app name, got %q", otp.sentAppName)
+	}
+}
+
+func TestForgotPasswordDevelopmentFallbackDependsOnInjectedAppEnv(t *testing.T) {
+	cases := map[string]int{
+		"development": http.StatusOK,
+		" Local ":     http.StatusOK,
+		"test":        http.StatusOK,
+		"production":  http.StatusServiceUnavailable,
+		"":            http.StatusServiceUnavailable,
+	}
+	for appEnv, want := range cases {
+		handler := newUserHandlerForTest()
+		handler.Settings.AppEnv = appEnv
+		ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/forgot-password", `{"email":"jane@example.com"}`, nil)
+		handler.ForgotPassword(ctx)
+		if rec.Code != want {
+			t.Fatalf("AppEnv %q: expected status %d, got %d body=%s", appEnv, want, rec.Code, rec.Body.String())
+		}
 	}
 }

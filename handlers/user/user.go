@@ -21,6 +21,7 @@ import (
 	"github.com/zazhedho/authkit/security"
 	serviceotp "github.com/zazhedho/authkit/services/otp"
 	serviceuser "github.com/zazhedho/authkit/services/user"
+	"github.com/zazhedho/authkit/settings"
 	"github.com/zazhedho/gokit/filter"
 	"github.com/zazhedho/gokit/handlercommon"
 	"github.com/zazhedho/gokit/messages"
@@ -44,12 +45,16 @@ type HandlerUser struct {
 	AppConfigService interfaceappconfig.ServiceAppConfigInterface
 	OTPService       interfaceotp.ServiceOTPInterface
 	ResetService     interfacereset.ServicePasswordResetInterface
+	Tokens           *authutil.Tokens
+	Settings         settings.UserHandler
 }
 
 type UserHandlerOptions struct {
 	AppConfigService interfaceappconfig.ServiceAppConfigInterface
 	OTPService       interfaceotp.ServiceOTPInterface
 	ResetService     interfacereset.ServicePasswordResetInterface
+	Tokens           *authutil.Tokens
+	Settings         settings.UserHandler
 }
 
 func NewUserHandler(
@@ -60,6 +65,25 @@ func NewUserHandler(
 	auditService interfaceaudit.ServiceAuditInterface,
 	options UserHandlerOptions,
 ) *HandlerUser {
+	userSettings := options.Settings
+	defaultFlags := settings.DefaultFlagKeys()
+	if userSettings.Flags.PublicRegistration == "" {
+		userSettings.Flags.PublicRegistration = defaultFlags.PublicRegistration
+	}
+	if userSettings.Flags.RegisterOTP == "" {
+		userSettings.Flags.RegisterOTP = defaultFlags.RegisterOTP
+	}
+	if userSettings.Flags.PasswordResetEmail == "" {
+		userSettings.Flags.PasswordResetEmail = defaultFlags.PasswordResetEmail
+	}
+
+	if userSettings.AccessTTL <= 0 {
+		userSettings.AccessTTL = authutil.DefaultAccessTTL
+	}
+	if userSettings.RefreshTTL <= 0 {
+		userSettings.RefreshTTL = authutil.DefaultRefreshTTL
+	}
+
 	return &HandlerUser{
 		Service:          s,
 		BlacklistRepo:    blacklistRepo,
@@ -69,6 +93,8 @@ func NewUserHandler(
 		AppConfigService: options.AppConfigService,
 		OTPService:       options.OTPService,
 		ResetService:     options.ResetService,
+		Tokens:           options.Tokens,
+		Settings:         userSettings,
 	}
 }
 
@@ -78,7 +104,7 @@ func (h *HandlerUser) Register(ctx *gin.Context) {
 	logPrefix := "[UserHandler][Register]"
 	reqCtx := ctx.Request.Context()
 
-	registerEnabled, err := h.isRuntimeConfigEnabled(reqCtx, utils.GetEnv("CONFIG_PUBLIC_REGISTRATION", defaultConfigPublicRegistrationEnabled), true)
+	registerEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.PublicRegistration, true)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
 		res := response.InternalServerError(logId)
@@ -95,7 +121,7 @@ func (h *HandlerUser) Register(ctx *gin.Context) {
 	}
 	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Request: %+v;", logPrefix, utils.JsonEncode(utils.RedactSensitivePayload(req))))
 
-	otpEnabled, err := h.isRuntimeConfigEnabled(reqCtx, utils.GetEnv("CONFIG_REGISTER_OTP", defaultConfigRegisterOTPEnabled), false)
+	otpEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.RegisterOTP, false)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
 		res := response.InternalServerError(logId)
@@ -189,14 +215,14 @@ func (h *HandlerUser) GetRegisterStatus(ctx *gin.Context) {
 	logPrefix := "[UserHandler][GetRegisterStatus]"
 	reqCtx := ctx.Request.Context()
 
-	registerEnabled, err := h.isRuntimeConfigEnabled(reqCtx, utils.GetEnv("CONFIG_PUBLIC_REGISTRATION", defaultConfigPublicRegistrationEnabled), true)
+	registerEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.PublicRegistration, true)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
 		res := response.InternalServerError(logId)
 		ctx.JSON(http.StatusInternalServerError, res)
 		return
 	}
-	otpEnabled, err := h.isRuntimeConfigEnabled(reqCtx, utils.GetEnv("CONFIG_REGISTER_OTP", defaultConfigRegisterOTPEnabled), false)
+	otpEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.RegisterOTP, false)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
 		res := response.InternalServerError(logId)
@@ -207,7 +233,7 @@ func (h *HandlerUser) GetRegisterStatus(ctx *gin.Context) {
 	res := response.Response(http.StatusOK, "Get register status successfully", logId, map[string]any{
 		"enabled":      registerEnabled,
 		"otp_enabled":  otpEnabled,
-		"otp_cooldown": utils.GetEnv("OTP_COOLDOWN_SECONDS", 60),
+		"otp_cooldown": int(h.Settings.OTPCooldown.Seconds()),
 	})
 	ctx.JSON(http.StatusOK, res)
 }
@@ -218,7 +244,7 @@ func (h *HandlerUser) SendRegisterOTP(ctx *gin.Context) {
 	logPrefix := "[UserHandler][SendRegisterOTP]"
 	reqCtx := ctx.Request.Context()
 
-	registerEnabled, err := h.isRuntimeConfigEnabled(reqCtx, utils.GetEnv("CONFIG_PUBLIC_REGISTRATION", defaultConfigPublicRegistrationEnabled), true)
+	registerEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.PublicRegistration, true)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
 		res := response.InternalServerError(logId)
@@ -234,7 +260,7 @@ func (h *HandlerUser) SendRegisterOTP(ctx *gin.Context) {
 		return
 	}
 
-	otpEnabled, err := h.isRuntimeConfigEnabled(reqCtx, utils.GetEnv("CONFIG_REGISTER_OTP", defaultConfigRegisterOTPEnabled), false)
+	otpEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.RegisterOTP, false)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
 		res := response.InternalServerError(logId)
@@ -269,7 +295,7 @@ func (h *HandlerUser) SendRegisterOTP(ctx *gin.Context) {
 		return
 	}
 
-	if err := h.OTPService.SendRegisterOTP(ctx.Request.Context(), normalizedEmail, utils.FirstNonEmptyString(utils.GetEnv("AUTH_EMAIL_APP_NAME", ""), utils.GetEnv("APP_NAME", "STARTER-KIT"))); err != nil {
+	if err := h.OTPService.SendRegisterOTP(ctx.Request.Context(), normalizedEmail, h.Settings.EmailAppName); err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionCreate,
 			Resource:     "user_registration_otp",
@@ -408,7 +434,7 @@ func (h *HandlerUser) Login(ctx *gin.Context) {
 
 	refreshToken := ""
 	if userErr == nil {
-		refreshToken, err = authutil.GenerateRefreshJwt(&loggedInUser, logId.String(), nil)
+		refreshToken, err = h.Tokens.GenerateRefresh(&loggedInUser, logId.String(), nil)
 		if err != nil {
 			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GenerateRefreshJwt; ERROR: %s;", logPrefix, err))
 			res := response.InternalServerError(logId)
@@ -433,7 +459,7 @@ func (h *HandlerUser) Login(ctx *gin.Context) {
 		},
 	})
 
-	data := buildAuthTokenResponse(token, refreshToken)
+	data := h.buildAuthTokenResponse(token, refreshToken)
 	res := response.Response(http.StatusOK, "success", logId, data)
 	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Response: %+v;", logPrefix, utils.JsonEncode(utils.RedactSensitivePayload(data))))
 	ctx.JSON(http.StatusOK, res)
@@ -448,7 +474,7 @@ func (h *HandlerUser) GoogleLogin(ctx *gin.Context) {
 		return
 	}
 
-	registerEnabled, err := h.isRuntimeConfigEnabled(reqCtx, utils.GetEnv("CONFIG_PUBLIC_REGISTRATION", defaultConfigPublicRegistrationEnabled), true)
+	registerEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.PublicRegistration, true)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
 		res := response.InternalServerError(logId)
@@ -497,7 +523,7 @@ func (h *HandlerUser) GoogleLogin(ctx *gin.Context) {
 		return
 	}
 
-	accessToken, err := authutil.GenerateJwt(&user, logId.String())
+	accessToken, err := h.Tokens.Generate(&user, logId.String())
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GenerateJwt; ERROR: %s;", logPrefix, err))
 		res := response.InternalServerError(logId)
@@ -505,7 +531,7 @@ func (h *HandlerUser) GoogleLogin(ctx *gin.Context) {
 		return
 	}
 
-	refreshToken, err := authutil.GenerateRefreshJwt(&user, logId.String(), nil)
+	refreshToken, err := h.Tokens.GenerateRefresh(&user, logId.String(), nil)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GenerateRefreshJwt; ERROR: %s;", logPrefix, err))
 		res := response.InternalServerError(logId)
@@ -545,7 +571,7 @@ func (h *HandlerUser) GoogleLogin(ctx *gin.Context) {
 		},
 	})
 
-	data := buildAuthTokenResponse(accessToken, refreshToken)
+	data := h.buildAuthTokenResponse(accessToken, refreshToken)
 	data["is_new_user"] = isNewUser
 	data["provider"] = "google"
 
@@ -563,7 +589,7 @@ func (h *HandlerUser) RefreshToken(ctx *gin.Context) {
 		return
 	}
 
-	tokenClaims, err := authutil.JwtClaim(req.RefreshToken)
+	tokenClaims, err := h.Tokens.Claims(req.RefreshToken)
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionRefresh,
@@ -651,7 +677,7 @@ func (h *HandlerUser) RefreshToken(ctx *gin.Context) {
 	}
 
 	claimsOverride := buildImpersonationClaimsOverrideFromClaims(tokenClaims)
-	accessToken, err := authutil.GenerateJwtWithClaims(&user, logId.String(), claimsOverride)
+	accessToken, err := h.Tokens.GenerateWithClaims(&user, logId.String(), claimsOverride)
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			ActorUserID:  userID,
@@ -669,7 +695,7 @@ func (h *HandlerUser) RefreshToken(ctx *gin.Context) {
 		return
 	}
 
-	refreshToken, err := authutil.GenerateRefreshJwt(&user, logId.String(), claimsOverride)
+	refreshToken, err := h.Tokens.GenerateRefresh(&user, logId.String(), claimsOverride)
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			ActorUserID:  userID,
@@ -707,7 +733,7 @@ func (h *HandlerUser) RefreshToken(ctx *gin.Context) {
 			return
 		}
 
-		refreshExpAt := time.Now().Add(time.Hour * time.Duration(utils.GetEnv("REFRESH_TOKEN_EXP_HOURS", 168)))
+		refreshExpAt := time.Now().Add(h.Settings.RefreshTTL)
 		if sessionErr = h.SessionSvc.RotateSessionTokens(reqCtx, session.SessionID, accessToken, refreshToken, refreshExpAt); sessionErr != nil {
 			h.WriteAudit(ctx, domainaudit.AuditEvent{
 				ActorUserID:  userID,
@@ -756,7 +782,7 @@ func (h *HandlerUser) RefreshToken(ctx *gin.Context) {
 		Message:     "Renewed login session",
 	})
 
-	res := response.Response(http.StatusOK, "Refresh token rotated successfully", logId, buildAuthTokenResponse(accessToken, refreshToken))
+	res := response.Response(http.StatusOK, "Refresh token rotated successfully", logId, h.buildAuthTokenResponse(accessToken, refreshToken))
 	ctx.JSON(http.StatusOK, res)
 }
 
@@ -932,7 +958,7 @@ func (h *HandlerUser) ImpersonateUser(ctx *gin.Context) {
 		},
 	})
 
-	res := response.Response(http.StatusOK, "Impersonation started successfully", logId, buildAuthTokenResponse(token, ""))
+	res := response.Response(http.StatusOK, "Impersonation started successfully", logId, h.buildAuthTokenResponse(token, ""))
 	ctx.JSON(http.StatusOK, res)
 }
 
@@ -983,7 +1009,7 @@ func (h *HandlerUser) StopImpersonation(ctx *gin.Context) {
 		},
 	})
 
-	res := response.Response(http.StatusOK, "Impersonation stopped successfully", logId, buildAuthTokenResponse(token, ""))
+	res := response.Response(http.StatusOK, "Impersonation stopped successfully", logId, h.buildAuthTokenResponse(token, ""))
 	ctx.JSON(http.StatusOK, res)
 }
 
@@ -1193,7 +1219,7 @@ func (h *HandlerUser) ForgotPassword(ctx *gin.Context) {
 		return
 	}
 
-	emailResetEnabled, err := h.isRuntimeConfigEnabled(reqCtx, utils.GetEnv("CONFIG_PASSWORD_RESET_EMAIL", defaultConfigPasswordResetEmailEnabled), false)
+	emailResetEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.PasswordResetEmail, false)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
 		res := response.InternalServerError(logId)
@@ -1205,7 +1231,7 @@ func (h *HandlerUser) ForgotPassword(ctx *gin.Context) {
 		return
 	}
 
-	appEnv := utils.NormalizeKey(utils.GetEnv("APP_ENV", ""))
+	appEnv := utils.NormalizeKey(h.Settings.AppEnv)
 	if appEnv != "development" && appEnv != "local" && appEnv != "test" {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Development password reset fallback is disabled in APP_ENV=%s", logPrefix, appEnv))
 		res := response.Response(http.StatusServiceUnavailable, messages.MsgSomethingWrong, logId, nil)
@@ -1256,7 +1282,7 @@ func (h *HandlerUser) ResetPassword(ctx *gin.Context) {
 		return
 	}
 
-	emailResetEnabled, err := h.isRuntimeConfigEnabled(reqCtx, utils.GetEnv("CONFIG_PASSWORD_RESET_EMAIL", defaultConfigPasswordResetEmailEnabled), false)
+	emailResetEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.PasswordResetEmail, false)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
 		res := response.InternalServerError(logId)
@@ -1283,7 +1309,7 @@ func (h *HandlerUser) ResetPassword(ctx *gin.Context) {
 		return
 	}
 	if h.SessionSvc != nil {
-		claims, err := authutil.JwtClaim(req.Token)
+		claims, err := h.Tokens.Claims(req.Token)
 		if err != nil {
 			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; JwtClaim after reset; ERROR: %s;", logPrefix, err))
 			res := response.InternalServerError(logId)

@@ -3,10 +3,10 @@ package servicesession
 import (
 	"context"
 	"fmt"
+	"github.com/zazhedho/authkit/authutil"
 	domainsession "github.com/zazhedho/authkit/domain/session"
 	domainuser "github.com/zazhedho/authkit/domain/user"
 	interfacesession "github.com/zazhedho/authkit/interfaces/session"
-	"github.com/zazhedho/gokit/utils"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,19 +14,25 @@ import (
 
 type ServiceSession struct {
 	SessionRepo interfacesession.RepoSessionInterface
+	RefreshTTL  time.Duration
 }
 
-func NewSessionService(sessionRepo interfacesession.RepoSessionInterface) *ServiceSession {
+// NewSessionService builds the session service; refreshTTL is the lifetime of a
+// session and falls back to authutil.DefaultRefreshTTL when not positive.
+func NewSessionService(sessionRepo interfacesession.RepoSessionInterface, refreshTTL time.Duration) *ServiceSession {
+	if refreshTTL <= 0 {
+		refreshTTL = authutil.DefaultRefreshTTL
+	}
 	return &ServiceSession{
 		SessionRepo: sessionRepo,
+		RefreshTTL:  refreshTTL,
 	}
 }
 
 func (s *ServiceSession) CreateSession(ctx context.Context, user *domainuser.Users, accessToken string, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error) {
 	sessionID := uuid.New().String()
 
-	refreshExpHours := utils.GetEnv("REFRESH_TOKEN_EXP_HOURS", 168)
-	expiresAt := time.Now().Add(time.Hour * time.Duration(refreshExpHours))
+	expiresAt := time.Now().Add(s.RefreshTTL)
 
 	userAgent := requestMeta.UserAgent
 	deviceInfo := requestMeta.DeviceInfo

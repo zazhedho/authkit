@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -31,7 +32,7 @@ func TestRequestLoggerAndRecoveryMiddleware(t *testing.T) {
 }
 
 func TestRoleMiddlewareAllowsAndRejectsRoles(t *testing.T) {
-	mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil)
+	mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
 
 	rec := performMiddlewareRequest(
 		testToken(t, "access", authutil.RoleAdmin),

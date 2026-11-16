@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/zazhedho/authkit/authutil"
 	domainuser "github.com/zazhedho/authkit/domain/user"
 	"github.com/zazhedho/authkit/dto"
 	"github.com/zazhedho/gokit/utils"
@@ -30,7 +29,7 @@ type googleTokenInfo struct {
 var googleIDTokenVerifier = verifyGoogleIDToken
 
 func (s *ServiceUser) LoginWithGoogle(ctx context.Context, req dto.GoogleLogin, metadata dto.LoginMetadata, allowRegistration bool) (domainuser.Users, bool, error) {
-	identity, err := googleIDTokenVerifier(ctx, req.IDToken)
+	identity, err := googleIDTokenVerifier(ctx, req.IDToken, s.GoogleClientIDs)
 	if err != nil {
 		return domainuser.Users{}, false, err
 	}
@@ -62,10 +61,10 @@ func (s *ServiceUser) LoginWithGoogle(ctx context.Context, req dto.GoogleLogin, 
 		return domainuser.Users{}, false, ErrPublicRegistrationDisabled
 	}
 
-	roleName := authutil.RoleViewer
+	roleName := s.defaultRole()
 	roleId, ok := findRoleIDByName(ctx, s.RoleRepo, roleName)
 	if !ok {
-		return domainuser.Users{}, false, errors.New("role viewer is not configured")
+		return domainuser.Users{}, false, fmt.Errorf("role %s is not configured", roleName)
 	}
 
 	passwordSeed := "Google-" + utils.CreateUUID() + "-" + fmt.Sprintf("%d", time.Now().UnixNano()) + "!"
@@ -107,12 +106,12 @@ func (s *ServiceUser) LoginWithGoogle(ctx context.Context, req dto.GoogleLogin, 
 	return user, true, nil
 }
 
-func verifyGoogleIDToken(ctx context.Context, idToken string) (googleTokenInfo, error) {
+func verifyGoogleIDToken(ctx context.Context, idToken string, clientIDs []string) (googleTokenInfo, error) {
 	if strings.TrimSpace(idToken) == "" {
 		return googleTokenInfo{}, ErrGoogleTokenInvalid
 	}
 
-	allowedAudiences := googleAllowedAudiences()
+	allowedAudiences := googleAllowedAudiences(clientIDs)
 	if len(allowedAudiences) == 0 {
 		return googleTokenInfo{}, ErrGoogleNotConfigured
 	}
@@ -155,23 +154,12 @@ func verifyGoogleIDToken(ctx context.Context, idToken string) (googleTokenInfo, 
 	return tokenInfo, nil
 }
 
-func googleAllowedAudiences() map[string]struct{} {
-	values := make(map[string]struct{})
-
-	rawList := utils.GetEnv("GOOGLE_CLIENT_IDS", "")
-	if rawList != "" {
-		for item := range strings.SplitSeq(rawList, ",") {
-			normalized := strings.TrimSpace(item)
-			if normalized != "" {
-				values[normalized] = struct{}{}
-			}
+func googleAllowedAudiences(clientIDs []string) map[string]struct{} {
+	values := make(map[string]struct{}, len(clientIDs))
+	for _, item := range clientIDs {
+		if normalized := strings.TrimSpace(item); normalized != "" {
+			values[normalized] = struct{}{}
 		}
 	}
-
-	single := utils.GetEnv("GOOGLE_CLIENT_ID", "")
-	if single != "" {
-		values[single] = struct{}{}
-	}
-
 	return values
 }

@@ -3,10 +3,8 @@ package mailer
 import (
 	"bytes"
 	"fmt"
-	"github.com/zazhedho/gokit/utils"
 	"html"
 	"net/smtp"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -25,49 +23,56 @@ type BrevoSender struct {
 	AppName      string
 }
 
-func NewBrevoSenderFromEnv() (*BrevoSender, error) {
-	port := defaultSMTPPort
-	if value := utils.GetEnv("SMTP_PORT", ""); value != "" {
-		if parsed, err := strconv.Atoi(value); err == nil {
-			port = parsed
-		}
-	}
+// BrevoConfig is the explicit SMTP configuration for BrevoSender. Host, Pass
+// and From are required; the remaining fields fall back to defaults.
+type BrevoConfig struct {
+	Host         string
+	Port         int
+	User, Pass   string
+	From         string
+	OTPSubject   string
+	ResetSubject string
+	AppName      string
+}
 
-	host := utils.GetEnv("SMTP_HOST", "")
-	user := utils.GetEnv("SMTP_USER", "")
-	pass := utils.GetEnv("SMTP_PASS", "")
-	from := utils.GetEnv("SMTP_FROM", "")
-	if host == "" || pass == "" || from == "" {
+// NewBrevoSender validates cfg and applies defaults. The OTP validity shown in
+// emails defaults to five minutes; set the TTL field on the returned sender to
+// show a different value.
+func NewBrevoSender(cfg BrevoConfig) (*BrevoSender, error) {
+	if cfg.Host == "" || cfg.Pass == "" || cfg.From == "" {
 		return nil, fmt.Errorf("smtp credentials not configured")
 	}
+
+	port := cfg.Port
+	if port <= 0 {
+		port = defaultSMTPPort
+	}
+	user := cfg.User
 	if user == "" {
 		user = "apikey"
 	}
-
-	subject := utils.GetEnv("SMTP_SUBJECT", "")
+	subject := cfg.OTPSubject
 	if subject == "" {
 		subject = "Your Registration OTP"
 	}
-
-	resetSubject := utils.GetEnv("RESET_SUBJECT", "")
+	resetSubject := cfg.ResetSubject
 	if resetSubject == "" {
 		resetSubject = "Reset Your Password"
 	}
-
-	appName := utils.GetEnv("AUTH_EMAIL_APP_NAME", "")
+	appName := cfg.AppName
 	if appName == "" {
 		appName = "Account Verification"
 	}
 
 	return &BrevoSender{
-		Host:         host,
+		Host:         cfg.Host,
 		Port:         port,
 		User:         user,
-		Pass:         pass,
-		From:         from,
+		Pass:         cfg.Pass,
+		From:         cfg.From,
 		Subject:      subject,
 		ResetSubject: resetSubject,
-		TTL:          utils.DurationFromEnv([]string{"OTP_TTL", "OTP_TTL_SECONDS"}, 5*time.Minute),
+		TTL:          5 * time.Minute,
 		AppName:      appName,
 	}, nil
 }

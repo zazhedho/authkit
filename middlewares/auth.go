@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -28,15 +29,23 @@ type Middleware struct {
 	BlacklistRepo   interfaceauth.RepoAuthInterface
 	PermissionRepo  interfacepermission.RepoPermissionInterface
 	PermissionCache *redis.Client
+	Tokens          *authutil.Tokens
+	// PermissionCacheTTL is how long cached permission keys live; a
+	// non-positive value disables caching.
+	PermissionCacheTTL time.Duration
 }
 
 func NewMiddleware(blacklistRepo interfaceauth.RepoAuthInterface,
 	permissionRepo interfacepermission.RepoPermissionInterface,
-	permissionCache *redis.Client) *Middleware {
+	permissionCache *redis.Client,
+	tokens *authutil.Tokens,
+	permissionCacheTTL time.Duration) *Middleware {
 	return &Middleware{
-		BlacklistRepo:   blacklistRepo,
-		PermissionRepo:  permissionRepo,
-		PermissionCache: permissionCache,
+		BlacklistRepo:      blacklistRepo,
+		PermissionRepo:     permissionRepo,
+		PermissionCache:    permissionCache,
+		Tokens:             tokens,
+		PermissionCacheTTL: permissionCacheTTL,
 	}
 }
 
@@ -51,7 +60,7 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 		logId = utils.GenerateLogId(ctx)
 		logPrefix = "[AuthMiddleware]"
 
-		tokenString, dataJWT, err := authutil.JwtClaims(ctx.Request)
+		tokenString, dataJWT, err := m.Tokens.ClaimsFromRequest(ctx.Request)
 		if err != nil {
 			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Invalid token; Error: %s;", logPrefix, err.Error()))
 			res := response.Unauthorized(logId, "Invalid or expired token. Please login again.")
@@ -244,7 +253,7 @@ func (m *Middleware) loadPermissionKeys(ctx context.Context, userID string) ([]s
 		return nil, err
 	}
 	keys := permissionKeysFromPermissions(permissions)
-	permissioncache.SetUserPermissionKeys(ctx, m.PermissionCache, userID, keys)
+	permissioncache.SetUserPermissionKeys(ctx, m.PermissionCache, userID, keys, m.PermissionCacheTTL)
 	return keys, nil
 }
 

@@ -14,33 +14,6 @@ func TestKey(t *testing.T) {
 	}
 }
 
-func TestTTLUsesDurationEnv(t *testing.T) {
-	t.Setenv("PERMISSION_CACHE_TTL", "2m")
-	t.Setenv("PERMISSION_CACHE_TTL_SECONDS", "5")
-
-	if got := TTL(); got != 2*time.Minute {
-		t.Fatalf("TTL() = %s", got)
-	}
-}
-
-func TestTTLFallsBackToSecondsEnv(t *testing.T) {
-	t.Setenv("PERMISSION_CACHE_TTL", "bad")
-	t.Setenv("PERMISSION_CACHE_TTL_SECONDS", "30")
-
-	if got := TTL(); got != 30*time.Second {
-		t.Fatalf("TTL() = %s", got)
-	}
-}
-
-func TestTTLFallsBackToFiveMinutes(t *testing.T) {
-	t.Setenv("PERMISSION_CACHE_TTL", "bad")
-	t.Setenv("PERMISSION_CACHE_TTL_SECONDS", "0")
-
-	if got := TTL(); got != 5*time.Minute {
-		t.Fatalf("TTL() = %s", got)
-	}
-}
-
 func TestGetUserPermissionKeys(t *testing.T) {
 	client, mock := redismock.NewClientMock()
 	ctx := context.Background()
@@ -82,14 +55,12 @@ func TestGetUserPermissionKeysMissOnInvalidJSON(t *testing.T) {
 }
 
 func TestSetUserPermissionKeys(t *testing.T) {
-	t.Setenv("PERMISSION_CACHE_TTL", "2m")
-
 	client, mock := redismock.NewClientMock()
 	ctx := context.Background()
 
 	mock.ExpectSet("permission:user:user-1", `["users:list"]`, 2*time.Minute).SetVal("OK")
 
-	SetUserPermissionKeys(ctx, client, "user-1", []string{"users:list"})
+	SetUserPermissionKeys(ctx, client, "user-1", []string{"users:list"}, 2*time.Minute)
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -117,6 +88,19 @@ func TestDeleteAllUserPermissionKeys(t *testing.T) {
 	mock.ExpectDel("permission:user:user-1").SetVal(1)
 
 	DeleteAllUserPermissionKeys(ctx, client)
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSetUserPermissionKeysSkipsCachingWithoutPositiveTTL(t *testing.T) {
+	client, mock := redismock.NewClientMock()
+	ctx := context.Background()
+
+	// No Set is expected: a zero TTL would make redis keep the key forever.
+	SetUserPermissionKeys(ctx, client, "user-1", []string{"users:list"}, 0)
+	SetUserPermissionKeys(ctx, client, "user-1", []string{"users:list"}, -time.Second)
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

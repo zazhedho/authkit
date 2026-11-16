@@ -13,6 +13,7 @@ import (
 	serviceotp "github.com/zazhedho/authkit/services/otp"
 	servicereset "github.com/zazhedho/authkit/services/reset"
 	serviceuser "github.com/zazhedho/authkit/services/user"
+	"github.com/zazhedho/authkit/settings"
 	"github.com/zazhedho/gokit/filter"
 	"github.com/zazhedho/gokit/messages"
 	"net/http"
@@ -189,6 +190,7 @@ func (m *blacklistRepoUserHandlerTestDouble) DeleteExpired(ctx context.Context, 
 
 type otpServiceUserHandlerTestDouble struct {
 	sentEmail     string
+	sentAppName   string
 	verifiedEmail string
 	err           error
 }
@@ -198,6 +200,7 @@ func (m *otpServiceUserHandlerTestDouble) SendRegisterOTP(ctx context.Context, e
 		return m.err
 	}
 	m.sentEmail = email
+	m.sentAppName = appName
 	return nil
 }
 func (m *otpServiceUserHandlerTestDouble) VerifyRegisterOTP(ctx context.Context, email, code string) error {
@@ -343,7 +346,7 @@ func newUserHandlerForTest() *HandlerUser {
 		Phone: "628123456789",
 		Role:  "user",
 	}}
-	return NewUserHandler(service, nil, nil, nil, nil, UserHandlerOptions{})
+	return NewUserHandler(service, nil, nil, nil, nil, testHandlerOptions())
 }
 
 func assertUserHandlerStatus(t *testing.T, rec *httptest.ResponseRecorder, want int) {
@@ -355,7 +358,7 @@ func assertUserHandlerStatus(t *testing.T, rec *httptest.ResponseRecorder, want 
 
 func TestNewUserHandlerWiresDependencies(t *testing.T) {
 	service := &userServiceTestDouble{}
-	handler := NewUserHandler(service, nil, nil, nil, nil, UserHandlerOptions{})
+	handler := NewUserHandler(service, nil, nil, nil, nil, testHandlerOptions())
 	if handler.Service != service {
 		t.Fatal("expected service to be assigned")
 	}
@@ -382,8 +385,8 @@ func TestUserHandlerPublicAndAdminFlows(t *testing.T) {
 }
 
 func TestUserHandlerGetRegisterStatusIncludesOTPConfig(t *testing.T) {
-	t.Setenv("OTP_COOLDOWN_SECONDS", "45")
 	handler := newUserHandlerForTest()
+	handler.Settings.OTPCooldown = 45 * time.Second
 	handler.AppConfigService = &appConfigServiceUserTestDouble{enabled: true}
 
 	ctx, rec := newUserHandlerTestContext(t, http.MethodGet, "/register/status", "", nil)
@@ -406,9 +409,6 @@ func TestUserHandlerGetRegisterStatusIncludesOTPConfig(t *testing.T) {
 }
 
 func TestUserHandlerAuthTokenFlows(t *testing.T) {
-	t.Setenv("JWT_KEY", "test-secret-must-be-at-least-32-bytes")
-	t.Setenv("JWT_EXP", "1")
-	t.Setenv("REFRESH_TOKEN_EXP_HOURS", "1")
 	handler := newUserHandlerForTest()
 	handler.BlacklistRepo = &blacklistRepoUserHandlerTestDouble{}
 	sessionSvc := &sessionServiceUserHandlerTestDouble{}
@@ -424,7 +424,7 @@ func TestUserHandlerAuthTokenFlows(t *testing.T) {
 	assertUserHandlerStatus(t, rec, http.StatusOK)
 
 	user := domainuser.Users{Id: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
-	refreshToken, err := authutil.GenerateRefreshJwt(&user, "log-1", nil)
+	refreshToken, err := testHandlerTokens().GenerateRefresh(&user, "log-1", nil)
 	if err != nil {
 		t.Fatalf("generate refresh token: %v", err)
 	}
@@ -440,7 +440,6 @@ func TestUserHandlerAuthTokenFlows(t *testing.T) {
 }
 
 func TestUserHandlerRegisterOTPAndStopImpersonationFlows(t *testing.T) {
-	t.Setenv("JWT_KEY", "test-secret-must-be-at-least-32-bytes")
 	otpService := &otpServiceUserHandlerTestDouble{}
 	handler := newUserHandlerForTest()
 	handler.AppConfigService = &appConfigServiceUserTestDouble{enabled: true}
@@ -509,8 +508,8 @@ func TestUserHandlerReadUpdateAndDeleteFlows(t *testing.T) {
 }
 
 func TestUserHandlerPasswordAndSessionFlows(t *testing.T) {
-	t.Setenv("APP_ENV", "test")
 	handler := newUserHandlerForTest()
+	handler.Settings.AppEnv = "test"
 	userID := uuid.NewString()
 
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/forgot-password", `{"email":"jane@example.com"}`, nil)
@@ -640,7 +639,6 @@ func TestUserHandlerRegistrationConfigBranches(t *testing.T) {
 }
 
 func TestUserHandlerServiceErrorBranches(t *testing.T) {
-	t.Setenv("APP_ENV", "test")
 	userID := uuid.NewString()
 	scope := authscope.New(userID, "Jane Doe", "user", nil)
 	service := &userServiceTestDouble{
@@ -653,7 +651,8 @@ func TestUserHandlerServiceErrorBranches(t *testing.T) {
 		},
 		err: errors.New("database down"),
 	}
-	handler := NewUserHandler(service, nil, nil, nil, nil, UserHandlerOptions{})
+	handler := NewUserHandler(service, nil, nil, nil, nil, testHandlerOptions())
+	handler.Settings.AppEnv = "test"
 
 	tests := []struct {
 		name   string
@@ -690,9 +689,6 @@ func TestUserHandlerServiceErrorBranches(t *testing.T) {
 }
 
 func TestUserHandlerAuthErrorBranches(t *testing.T) {
-	t.Setenv("JWT_KEY", "test-secret-must-be-at-least-32-bytes")
-	t.Setenv("JWT_EXP", "1")
-	t.Setenv("REFRESH_TOKEN_EXP_HOURS", "1")
 
 	handler := newUserHandlerForTest()
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/login", `{"password":"secret123"}`, nil)
@@ -712,22 +708,22 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 	handler.Login(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusTooManyRequests)
 
-	handler = NewUserHandler(&userServiceTestDouble{loginErr: errors.New(messages.ErrHashPassword)}, nil, nil, nil, nil, UserHandlerOptions{})
+	handler = NewUserHandler(&userServiceTestDouble{loginErr: errors.New(messages.ErrHashPassword)}, nil, nil, nil, nil, testHandlerOptions())
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/login", `{"identifier":"jane@example.com","password":"secret123"}`, nil)
 	handler.Login(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
 
-	handler = NewUserHandler(&userServiceTestDouble{loginErr: gorm.ErrRecordNotFound}, nil, nil, &loginLimiterUserHandlerTestDouble{registerBlocked: true, ttl: time.Minute}, nil, UserHandlerOptions{})
+	handler = NewUserHandler(&userServiceTestDouble{loginErr: gorm.ErrRecordNotFound}, nil, nil, &loginLimiterUserHandlerTestDouble{registerBlocked: true, ttl: time.Minute}, nil, testHandlerOptions())
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/login", `{"identifier":"jane@example.com","password":"secret123"}`, nil)
 	handler.Login(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusTooManyRequests)
 
-	handler = NewUserHandler(&userServiceTestDouble{loginErr: errors.New("database down")}, nil, nil, &loginLimiterUserHandlerTestDouble{isBlockedErr: errors.New("redis down")}, nil, UserHandlerOptions{})
+	handler = NewUserHandler(&userServiceTestDouble{loginErr: errors.New("database down")}, nil, nil, &loginLimiterUserHandlerTestDouble{isBlockedErr: errors.New("redis down")}, nil, testHandlerOptions())
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/login", `{"identifier":"jane@example.com","password":"secret123"}`, nil)
 	handler.Login(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
 
-	handler = NewUserHandler(&userServiceTestDouble{googleErr: serviceuser.ErrGoogleNotConfigured}, nil, nil, nil, nil, UserHandlerOptions{})
+	handler = NewUserHandler(&userServiceTestDouble{googleErr: serviceuser.ErrGoogleNotConfigured}, nil, nil, nil, nil, testHandlerOptions())
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/google/login", `{"id_token":"token"}`, nil)
 	handler.GoogleLogin(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusServiceUnavailable)
@@ -735,7 +731,7 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 	handler = newUserHandlerForTest()
 	handler.BlacklistRepo = &blacklistRepoUserHandlerTestDouble{blacklisted: true}
 	user := domainuser.Users{Id: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
-	refreshToken, err := authutil.GenerateRefreshJwt(&user, "log-1", nil)
+	refreshToken, err := testHandlerTokens().GenerateRefresh(&user, "log-1", nil)
 	if err != nil {
 		t.Fatalf("generate refresh token: %v", err)
 	}
@@ -743,7 +739,7 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 	handler.RefreshToken(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusUnauthorized)
 
-	accessToken, err := authutil.GenerateJwt(&user, "log-1")
+	accessToken, err := testHandlerTokens().Generate(&user, "log-1")
 	if err != nil {
 		t.Fatalf("generate access token: %v", err)
 	}
@@ -757,7 +753,7 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 	handler.RefreshToken(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
 
-	handler = NewUserHandler(&userServiceTestDouble{err: gorm.ErrRecordNotFound}, &blacklistRepoUserHandlerTestDouble{}, nil, nil, nil, UserHandlerOptions{})
+	handler = NewUserHandler(&userServiceTestDouble{err: gorm.ErrRecordNotFound}, &blacklistRepoUserHandlerTestDouble{}, nil, nil, nil, testHandlerOptions())
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/refresh-token", `{"refresh_token":"`+refreshToken+`"}`, nil)
 	handler.RefreshToken(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusNotFound)
@@ -835,7 +831,7 @@ func TestUserHandlerOTPErrorBranches(t *testing.T) {
 func TestUserHandlerNotFoundAndValidationErrorBranches(t *testing.T) {
 	userID := uuid.NewString()
 	scope := authscope.New(userID, "Jane Doe", "user", nil)
-	handler := NewUserHandler(&userServiceTestDouble{err: gorm.ErrRecordNotFound}, nil, nil, nil, nil, UserHandlerOptions{})
+	handler := NewUserHandler(&userServiceTestDouble{err: gorm.ErrRecordNotFound}, nil, nil, nil, nil, testHandlerOptions())
 
 	tests := []struct {
 		name   string
@@ -865,18 +861,18 @@ func TestUserHandlerNotFoundAndValidationErrorBranches(t *testing.T) {
 		})
 	}
 
-	handler = NewUserHandler(&userServiceTestDouble{err: errors.New(messages.ErrHashPassword)}, nil, nil, nil, nil, UserHandlerOptions{})
+	handler = NewUserHandler(&userServiceTestDouble{err: errors.New(messages.ErrHashPassword)}, nil, nil, nil, nil, testHandlerOptions())
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPatch, "/me/password", `{"current_password":"bad","new_password":"secret456"}`, &scope)
 	handler.ChangePassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
 
-	handler = NewUserHandler(&userServiceTestDouble{err: errors.New("cannot impersonate superadmin users")}, nil, nil, nil, nil, UserHandlerOptions{})
+	handler = NewUserHandler(&userServiceTestDouble{err: errors.New("cannot impersonate superadmin users")}, nil, nil, nil, nil, testHandlerOptions())
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/users/"+userID+"/impersonate", "", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: userID}}
 	handler.ImpersonateUser(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusForbidden)
 
-	handler = NewUserHandler(&userServiceTestDouble{err: errors.New("database down")}, nil, nil, nil, nil, UserHandlerOptions{})
+	handler = NewUserHandler(&userServiceTestDouble{err: errors.New("database down")}, nil, nil, nil, nil, testHandlerOptions())
 	impersonated := authscope.New("target-1", "Target", "viewer", nil)
 	impersonated.IsImpersonated = true
 	impersonated.OriginalUserID = "admin-1"
@@ -890,8 +886,8 @@ func TestUserHandlerNotFoundAndValidationErrorBranches(t *testing.T) {
 }
 
 func TestUserHandlerEmailPasswordResetBranches(t *testing.T) {
-	t.Setenv("RESET_COOLDOWN", "2m")
 	handler := newUserHandlerForTest()
+	handler.Settings.ResetCooldown = 2 * time.Minute
 	handler.AppConfigService = &appConfigServiceUserTestDouble{enabled: true}
 
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/forgot-password", `{"email":"jane@example.com"}`, nil)
@@ -931,19 +927,18 @@ func TestUserHandlerEmailPasswordResetBranches(t *testing.T) {
 	handler.ResetPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusOK)
 
-	handler = NewUserHandler(&userServiceTestDouble{err: gorm.ErrDuplicatedKey}, nil, nil, nil, nil, UserHandlerOptions{AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: &resetServiceUserHandlerTestDouble{email: "jane@example.com"}})
+	handler = NewUserHandler(&userServiceTestDouble{err: gorm.ErrDuplicatedKey}, nil, nil, nil, nil, UserHandlerOptions{Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: &resetServiceUserHandlerTestDouble{email: "jane@example.com"}})
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"reset-token","new_password":"secret456"}`, nil)
 	handler.ResetPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
 }
 
 func TestUserHandlerResetPasswordRevokesSessions(t *testing.T) {
-	t.Setenv("JWT_KEY", "test-secret-must-be-at-least-32-bytes")
 
 	user := domainuser.Users{Id: "user-1", Email: "jane@example.com", Role: authutil.RoleViewer}
 	service := &userServiceTestDouble{user: user}
 	sessionSvc := &sessionServiceUserHandlerTestDouble{}
-	handler := NewUserHandler(service, nil, sessionSvc, nil, nil, UserHandlerOptions{AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: &resetServiceUserHandlerTestDouble{email: user.Email}})
+	handler := NewUserHandler(service, nil, sessionSvc, nil, nil, UserHandlerOptions{Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: &resetServiceUserHandlerTestDouble{email: user.Email}})
 
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"reset-token","new_password":"secret456"}`, nil)
 	handler.ResetPassword(ctx)
@@ -952,21 +947,40 @@ func TestUserHandlerResetPasswordRevokesSessions(t *testing.T) {
 		t.Fatalf("expected email reset to revoke sessions for %q, got %q", user.Id, sessionSvc.destroyedUserID)
 	}
 
-	handler = NewUserHandler(service, nil, &sessionServiceUserHandlerTestDouble{destroyAllErr: errors.New("session revoke failed")}, nil, nil, UserHandlerOptions{AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: &resetServiceUserHandlerTestDouble{email: user.Email}})
+	handler = NewUserHandler(service, nil, &sessionServiceUserHandlerTestDouble{destroyAllErr: errors.New("session revoke failed")}, nil, nil, UserHandlerOptions{Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: &resetServiceUserHandlerTestDouble{email: user.Email}})
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"reset-token","new_password":"secret456"}`, nil)
 	handler.ResetPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
 
-	token, err := authutil.GenerateJwt(&user, "reset_password")
+	token, err := testHandlerTokens().Generate(&user, "reset_password")
 	if err != nil {
 		t.Fatalf("generate reset token: %v", err)
 	}
 	sessionSvc = &sessionServiceUserHandlerTestDouble{}
-	handler = NewUserHandler(service, nil, sessionSvc, nil, nil, UserHandlerOptions{AppConfigService: &appConfigServiceUserTestDouble{enabled: false}})
+	handler = NewUserHandler(service, nil, sessionSvc, nil, nil, UserHandlerOptions{Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: false}})
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"`+token+`","new_password":"secret456"}`, nil)
 	handler.ResetPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusOK)
 	if sessionSvc.destroyedUserID != user.Id {
 		t.Fatalf("expected jwt reset to revoke sessions for %q, got %q", user.Id, sessionSvc.destroyedUserID)
 	}
+}
+
+func testHandlerTokens() *authutil.Tokens {
+	tokens, err := authutil.NewTokens(authutil.TokenConfig{
+		Key:     "test-secret-must-be-at-least-32-bytes",
+		AppName: "test-app",
+	})
+	if err != nil {
+		panic(err)
+	}
+	return tokens
+}
+
+func testUserSettings() settings.UserHandler {
+	return settings.UserHandler{EmailAppName: "test-app", AccessTTL: time.Hour, RefreshTTL: time.Hour}
+}
+
+func testHandlerOptions() UserHandlerOptions {
+	return UserHandlerOptions{Tokens: testHandlerTokens(), Settings: testUserSettings()}
 }
