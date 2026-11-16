@@ -51,3 +51,20 @@ func TestGetAuthDataReadsStringKeyGetter(t *testing.T) {
 		t.Fatalf("expected auth data from string-keyed getter, got %v", got)
 	}
 }
+
+type anyKeyCtx struct {
+	context.Context
+	data map[any]any
+}
+
+func (c anyKeyCtx) Get(key any) (any, bool) {
+	v, ok := c.data[key]
+	return v, ok
+}
+
+func TestGetAuthDataReadsAnyKeyGetterContext(t *testing.T) {
+	ctx := anyKeyCtx{Context: context.Background(), data: map[any]any{CtxKeyAuthData: map[string]any{"user_id": "any-key"}}}
+	if got := GetAuthData(ctx); got["user_id"] != "any-key" {
+		t.Fatalf("expected auth data from any-keyed getter, got %v", got)
+	}
+}
