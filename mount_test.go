@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -130,8 +131,11 @@ func TestMountCanServeTwoGroups(t *testing.T) {
 }
 
 func TestMountedRoutesMatchStarterKitRouter(t *testing.T) {
-	const source = "/Users/zaqiakhana/Code/Project/starter-kit/internal/router/router.go"
-	raw, err := os.ReadFile(source)
+	dir := os.Getenv("AUTHKIT_STARTER_KIT_DIR")
+	if dir == "" {
+		t.Skip("AUTHKIT_STARTER_KIT_DIR is not set")
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "internal", "router", "router.go")) //nolint:gosec // test-only path from the environment
 	if err != nil {
 		t.Skipf("starter-kit router not available: %v", err)
 	}
