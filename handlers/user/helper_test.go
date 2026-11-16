@@ -168,6 +168,18 @@ func TestNewUserHandlerAppliesDefaultFlagKeysAndTTLs(t *testing.T) {
 	if handler.Settings.AccessTTL != 24*time.Hour || handler.Settings.RefreshTTL != 168*time.Hour {
 		t.Fatalf("expected default TTLs, got %v %v", handler.Settings.AccessTTL, handler.Settings.RefreshTTL)
 	}
+	if handler.Settings.OTPCooldown != 60*time.Second || handler.Settings.ResetCooldown != 60*time.Second {
+		t.Fatalf("expected default 60s cooldowns, got %v %v", handler.Settings.OTPCooldown, handler.Settings.ResetCooldown)
+	}
+}
+
+func TestNewUserHandlerKeepsExplicitCooldowns(t *testing.T) {
+	handler := NewUserHandler(&userServiceTestDouble{}, nil, nil, nil, nil, UserHandlerOptions{
+		Settings: settings.UserHandler{OTPCooldown: 45 * time.Second, ResetCooldown: 2 * time.Minute},
+	})
+	if handler.Settings.OTPCooldown != 45*time.Second || handler.Settings.ResetCooldown != 2*time.Minute {
+		t.Fatalf("explicit cooldowns were overwritten: %v %v", handler.Settings.OTPCooldown, handler.Settings.ResetCooldown)
+	}
 }
 
 func TestUserHandlerUsesInjectedFlagKeysAndEmailAppName(t *testing.T) {

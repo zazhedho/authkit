@@ -63,8 +63,21 @@ func NewTokens(cfg TokenConfig) (*Tokens, error) {
 	return t, nil
 }
 
-func (t *Tokens) AccessTTL() time.Duration  { return t.accessTTL }
-func (t *Tokens) RefreshTTL() time.Duration { return t.refreshTTL }
+// AccessTTL and RefreshTTL return the defaults on a nil receiver, matching the
+// other methods' fail-closed handling of a missing *Tokens.
+func (t *Tokens) AccessTTL() time.Duration {
+	if t == nil {
+		return DefaultAccessTTL
+	}
+	return t.accessTTL
+}
+
+func (t *Tokens) RefreshTTL() time.Duration {
+	if t == nil {
+		return DefaultRefreshTTL
+	}
+	return t.refreshTTL
+}
 
 func (t *Tokens) Generate(user *domainuser.Users, logID string) (string, error) {
 	return t.GenerateWithClaims(user, logID, nil)

@@ -3,6 +3,7 @@ package servicereset
 import (
 	"context"
 	"errors"
+	interfacereset "github.com/zazhedho/authkit/interfaces/reset"
 	"github.com/zazhedho/authkit/settings"
 	"testing"
 	"time"
@@ -280,5 +281,44 @@ func TestThrottleErrorString(t *testing.T) {
 	err := &ThrottleError{Reason: "rate_limit"}
 	if got := err.Error(); got != "reset throttled: rate_limit" {
 		t.Fatalf("expected rate limit throttle message, got %q", got)
+	}
+}
+
+// untouchableResetRepo panics on any repository call, so a test fails loudly if
+// the service reaches the repo.
+type untouchableResetRepo struct {
+	interfacereset.RepoPasswordResetInterface
+}
+
+func callWithoutRepoAccess(t *testing.T, call func() error) error {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("service touched the repository with an empty secret: %v", r)
+		}
+	}()
+	return call()
+}
+
+func TestResetServiceRefusesEmptySecretBeforeTouchingRepo(t *testing.T) {
+	for _, secret := range []string{"", "   "} {
+		cfg := resetTestConfig()
+		cfg.Secret = secret
+		svc := NewPasswordResetService(untouchableResetRepo{}, &resetSenderTestDouble{}, cfg)
+
+		err := callWithoutRepoAccess(t, func() error {
+			return svc.RequestReset(context.Background(), "jane@example.com", "Starter")
+		})
+		if !errors.Is(err, ErrResetNotConfigured) {
+			t.Fatalf("RequestReset with secret %q: expected not configured, got %v", secret, err)
+		}
+
+		err = callWithoutRepoAccess(t, func() error {
+			_, verifyErr := svc.VerifyReset(context.Background(), "some-token")
+			return verifyErr
+		})
+		if !errors.Is(err, ErrResetNotConfigured) {
+			t.Fatalf("VerifyReset with secret %q: expected not configured, got %v", secret, err)
+		}
 	}
 }

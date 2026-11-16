@@ -3,6 +3,7 @@ package serviceuser
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/zazhedho/authkit/authscope"
 	"github.com/zazhedho/authkit/authutil"
 	permissioncache "github.com/zazhedho/authkit/cache/permission"
@@ -55,11 +56,15 @@ func NewUserService(userRepo interfaceuser.RepoUserInterface, blacklistRepo inte
 	}
 }
 
+// defaultRole is the role given to public registrations. The privileged roles
+// are never accepted here, even if configured: they fall back to viewer so a
+// misconfiguration cannot turn public sign-up into privilege escalation.
 func (s *ServiceUser) defaultRole() string {
-	if role := utils.NormalizeKey(s.DefaultRole); role != "" {
-		return role
+	role := utils.NormalizeKey(s.DefaultRole)
+	if role == "" || role == authutil.RoleSuperAdmin || role == authutil.RoleAdmin {
+		return authutil.RoleViewer
 	}
-	return authutil.RoleViewer
+	return role
 }
 
 func (s *ServiceUser) RegisterUser(ctx context.Context, req dto.UserRegister) (domainuser.Users, error) {
@@ -89,7 +94,10 @@ func (s *ServiceUser) RegisterUser(ctx context.Context, req dto.UserRegister) (d
 	// This prevents privilege escalation through request manipulation
 	roleName := s.defaultRole()
 
-	roleId, _ := findRoleIDByName(ctx, s.RoleRepo, roleName)
+	roleId, ok := findRoleIDByName(ctx, s.RoleRepo, roleName)
+	if !ok {
+		return domainuser.Users{}, fmt.Errorf("role %s is not configured", roleName)
+	}
 	var emailVerifiedAt *time.Time
 	if req.EmailVerified {
 		emailVerifiedAt = new(time.Now())

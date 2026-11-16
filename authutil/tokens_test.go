@@ -324,3 +324,13 @@ func TestGetAuthTokenStripsBearerPrefix(t *testing.T) {
 		t.Fatalf("expected stripped bearer token, got %q", got)
 	}
 }
+
+func TestNilTokensTTLsFallBackToDefaults(t *testing.T) {
+	var tokens *Tokens
+	if tokens.AccessTTL() != 24*time.Hour {
+		t.Fatalf("expected default access TTL on nil receiver, got %v", tokens.AccessTTL())
+	}
+	if tokens.RefreshTTL() != 168*time.Hour {
+		t.Fatalf("expected default refresh TTL on nil receiver, got %v", tokens.RefreshTTL())
+	}
+}

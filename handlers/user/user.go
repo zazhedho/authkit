@@ -36,6 +36,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// defaultCooldown is the OTP / password reset resend cooldown the old env-based
+// code reported when nothing was configured.
+const defaultCooldown = 60 * time.Second
+
 type HandlerUser struct {
 	Service       interfaceuser.ServiceUserInterface
 	BlacklistRepo interfaceauth.RepoAuthInterface
@@ -82,6 +86,12 @@ func NewUserHandler(
 	}
 	if userSettings.RefreshTTL <= 0 {
 		userSettings.RefreshTTL = authutil.DefaultRefreshTTL
+	}
+	if userSettings.OTPCooldown <= 0 {
+		userSettings.OTPCooldown = defaultCooldown
+	}
+	if userSettings.ResetCooldown <= 0 {
+		userSettings.ResetCooldown = defaultCooldown
 	}
 
 	return &HandlerUser{

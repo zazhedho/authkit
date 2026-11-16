@@ -889,7 +889,9 @@ func TestRegisterUserValidationAndRepositoryErrors(t *testing.T) {
 		t.Fatalf("expected weak password error, got %v", err)
 	}
 
-	service = newTestUserService(t, &userRepoMock{storeErr: errors.New("insert failed")}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
+	service = newTestUserService(t, &userRepoMock{storeErr: errors.New("insert failed")}, &authRepoMock{}, &roleRepoUserMock{roles: map[string]domainrole.Role{
+		authutil.RoleViewer: {Id: "role-viewer", Name: authutil.RoleViewer},
+	}}, &permissionRepoUserMock{})
 	_, err = service.RegisterUser(context.Background(), dto.UserRegister{
 		Name:          "Jane Doe",
 		Email:         "jane@example.com",
@@ -1189,5 +1191,73 @@ func TestLoginWithGooglePassesConfiguredClientIDsAndDefaultRole(t *testing.T) {
 	}
 	if len(gotIDs) != 2 || gotIDs[0] != "client-a" || gotIDs[1] != "client-b" {
 		t.Fatalf("expected configured client ids to reach the verifier, got %v", gotIDs)
+	}
+}
+
+func TestRegisterUserTreatsPrivilegedDefaultRoleAsViewer(t *testing.T) {
+	for _, configured := range []string{"superadmin", "admin", " SuperAdmin ", "ADMIN"} {
+		service := &ServiceUser{
+			Tokens:      testUserTokens(t),
+			DefaultRole: configured,
+			UserRepo:    &userRepoMock{},
+			RoleRepo: &roleRepoUserMock{roles: map[string]domainrole.Role{
+				authutil.RoleViewer:     {Id: "role-viewer", Name: authutil.RoleViewer},
+				authutil.RoleSuperAdmin: {Id: "role-superadmin", Name: authutil.RoleSuperAdmin},
+				authutil.RoleAdmin:      {Id: "role-admin", Name: authutil.RoleAdmin},
+			}},
+			BlacklistRepo:  &authRepoMock{},
+			PermissionRepo: &permissionRepoUserMock{},
+		}
+
+		user, err := service.RegisterUser(context.Background(), dto.UserRegister{
+			Name: "Jane Doe", Email: "jane@example.com", Phone: "08123456789", Password: "Password1!",
+		})
+		if err != nil {
+			t.Fatalf("DefaultRole %q: expected success, got %v", configured, err)
+		}
+		if user.Role != authutil.RoleViewer || user.RoleId == nil || *user.RoleId != "role-viewer" {
+			t.Fatalf("DefaultRole %q: expected a viewer, got role=%q roleId=%v", configured, user.Role, user.RoleId)
+		}
+	}
+}
+
+func TestPrivilegedDefaultRoleDoesNotSkipAssignRoleCheck(t *testing.T) {
+	service := &ServiceUser{
+		Tokens:      testUserTokens(t),
+		DefaultRole: "admin",
+		UserRepo:    &userRepoMock{},
+		RoleRepo: &roleRepoUserMock{roles: map[string]domainrole.Role{
+			authutil.RoleAdmin: {Id: "role-admin", Name: authutil.RoleAdmin},
+		}},
+		BlacklistRepo:  &authRepoMock{},
+		PermissionRepo: &permissionRepoUserMock{},
+	}
+	_, err := service.AdminCreateUser(authContext("creator-1", "Admin", authutil.RoleAdmin), dto.AdminCreateUser{
+		Name: "Jane Doe", Email: "jane@example.com", Phone: "08123456789", Password: "Password1!", Role: authutil.RoleAdmin,
+	})
+	if err == nil || err.Error() != "access denied: missing permission users:assign_role" {
+		t.Fatalf("expected assign_role to be required for admin even when configured as default, got %v", err)
+	}
+}
+
+func TestRegisterUserFailsWhenDefaultRoleDoesNotExist(t *testing.T) {
+	userRepo := &userRepoMock{}
+	service := &ServiceUser{
+		Tokens:         testUserTokens(t),
+		DefaultRole:    "ghost",
+		UserRepo:       userRepo,
+		RoleRepo:       &roleRepoUserMock{roles: map[string]domainrole.Role{}},
+		BlacklistRepo:  &authRepoMock{},
+		PermissionRepo: &permissionRepoUserMock{},
+	}
+
+	_, err := service.RegisterUser(context.Background(), dto.UserRegister{
+		Name: "Jane Doe", Email: "jane@example.com", Phone: "08123456789", Password: "Password1!",
+	})
+	if err == nil || err.Error() != "role ghost is not configured" {
+		t.Fatalf("expected missing default role error, got %v", err)
+	}
+	if userRepo.user.Id != "" {
+		t.Fatalf("expected no user to be stored, got %+v", userRepo.user)
 	}
 }

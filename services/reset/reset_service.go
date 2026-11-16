@@ -42,8 +42,15 @@ func NewPasswordResetService(repo interfacereset.RepoPasswordResetInterface, sen
 	return &ServiceReset{Repo: repo, Sender: sender, Config: cfg}
 }
 
+// missingSecret reports an unusable (empty or blank) hashing secret. The
+// service must never hash with an empty key, so every entry point treats it as
+// "not configured".
+func (s *ServiceReset) missingSecret() bool {
+	return strings.TrimSpace(s.Config.Secret) == ""
+}
+
 func (s *ServiceReset) RequestReset(ctx context.Context, email, appName string) error {
-	if s == nil || s.Repo == nil || s.Sender == nil {
+	if s == nil || s.Repo == nil || s.Sender == nil || s.missingSecret() {
 		return ErrResetNotConfigured
 	}
 
@@ -98,7 +105,7 @@ func (s *ServiceReset) RequestReset(ctx context.Context, email, appName string) 
 }
 
 func (s *ServiceReset) VerifyReset(ctx context.Context, token string) (string, error) {
-	if s == nil || s.Repo == nil {
+	if s == nil || s.Repo == nil || s.missingSecret() {
 		return "", ErrResetNotConfigured
 	}
 

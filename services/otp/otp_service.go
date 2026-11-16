@@ -44,8 +44,15 @@ func NewOTPService(repo interfaceotp.RepoOTPInterface, sender mailer.Sender, cfg
 	return &ServiceOTP{Repo: repo, Sender: sender, Config: cfg}
 }
 
+// missingSecret reports an unusable (empty or blank) signing secret. The
+// service must never hash or verify with an empty key, so every entry point
+// treats it as "not configured".
+func (s *ServiceOTP) missingSecret() bool {
+	return strings.TrimSpace(s.Config.Secret) == ""
+}
+
 func (s *ServiceOTP) SendRegisterOTP(ctx context.Context, email, appName string) error {
-	if s == nil || s.Repo == nil || s.Sender == nil {
+	if s == nil || s.Repo == nil || s.Sender == nil || s.missingSecret() {
 		return ErrOTPNotConfigured
 	}
 
@@ -103,7 +110,7 @@ func (s *ServiceOTP) SendRegisterOTP(ctx context.Context, email, appName string)
 }
 
 func (s *ServiceOTP) VerifyRegisterOTP(ctx context.Context, email, code string) error {
-	if s == nil || s.Repo == nil {
+	if s == nil || s.Repo == nil || s.missingSecret() {
 		return ErrOTPNotConfigured
 	}
 

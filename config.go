@@ -152,6 +152,10 @@ func (c Config) Validate() error {
 	if _, err := authutil.NewTokens(authutil.TokenConfig{Key: c.JWTKey, AppName: c.AppName}); err != nil {
 		return fmt.Errorf("authkit: JWTKey: %w", err)
 	}
+	switch role := strings.ToLower(strings.TrimSpace(c.DefaultRole)); role {
+	case authutil.RoleSuperAdmin, authutil.RoleAdmin:
+		return fmt.Errorf("authkit: DefaultRole must not be a privileged role (%q): public registrations would receive it", role)
+	}
 	if c.Redis != nil && c.Mailer != nil {
 		if strings.TrimSpace(c.OTP.Secret) == "" {
 			return errors.New("authkit: OTP.Secret is required when Redis and Mailer are set")

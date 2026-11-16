@@ -3,6 +3,7 @@ package serviceotp
 import (
 	"context"
 	"errors"
+	interfaceotp "github.com/zazhedho/authkit/interfaces/otp"
 	"github.com/zazhedho/authkit/settings"
 	"testing"
 	"time"
@@ -305,5 +306,41 @@ func TestThrottleErrorString(t *testing.T) {
 	err := &ThrottleError{Reason: "cooldown"}
 	if got := err.Error(); got != "otp throttled: cooldown" {
 		t.Fatalf("expected cooldown throttle message, got %q", got)
+	}
+}
+
+// untouchableOTPRepo panics on any repository call, so a test fails loudly if
+// the service reaches the repo.
+type untouchableOTPRepo struct{ interfaceotp.RepoOTPInterface }
+
+func callWithoutRepoAccess(t *testing.T, call func() error) error {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("service touched the repository with an empty secret: %v", r)
+		}
+	}()
+	return call()
+}
+
+func TestOTPServiceRefusesEmptySecretBeforeTouchingRepo(t *testing.T) {
+	for _, secret := range []string{"", "   "} {
+		cfg := otpTestConfig()
+		cfg.Secret = secret
+		svc := NewOTPService(untouchableOTPRepo{}, &otpSenderTestDouble{}, cfg)
+
+		err := callWithoutRepoAccess(t, func() error {
+			return svc.SendRegisterOTP(context.Background(), "jane@example.com", "Starter")
+		})
+		if !errors.Is(err, ErrOTPNotConfigured) {
+			t.Fatalf("SendRegisterOTP with secret %q: expected not configured, got %v", secret, err)
+		}
+
+		err = callWithoutRepoAccess(t, func() error {
+			return svc.VerifyRegisterOTP(context.Background(), "jane@example.com", "123456")
+		})
+		if !errors.Is(err, ErrOTPNotConfigured) {
+			t.Fatalf("VerifyRegisterOTP with secret %q: expected not configured, got %v", secret, err)
+		}
 	}
 }
