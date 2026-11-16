@@ -20,6 +20,7 @@ const (
 var (
 	ErrJWTKeyNotConfigured = errors.New("jwt key is not configured")
 	ErrJWTKeyTooShort      = fmt.Errorf("jwt key must be at least %d characters", minJWTKeyLength)
+	ErrAppNameRequired     = errors.New("app name is required to bind tokens to the issuing application")
 )
 
 type AppClaims struct {

@@ -19,7 +19,10 @@ const (
 )
 
 // TokenConfig is the explicit configuration for Tokens. Key is required and
-// must be at least 32 characters; zero TTLs fall back to the defaults.
+// must be at least 32 characters. AppName is required: it is written to the iss
+// and aud claims of every token and must match on verification, so a token
+// issued by one application is rejected by another even when they share a key.
+// Zero TTLs fall back to the defaults.
 type TokenConfig struct {
 	Key        string
 	AppName    string
@@ -31,6 +34,7 @@ type TokenConfig struct {
 // Tokens issues and verifies HS256 JWTs with an injected key and TTLs.
 type Tokens struct {
 	key        []byte
+	appName    string
 	accessTTL  time.Duration
 	refreshTTL time.Duration
 	resetTTL   time.Duration
@@ -45,8 +49,14 @@ func NewTokens(cfg TokenConfig) (*Tokens, error) {
 		return nil, ErrJWTKeyTooShort
 	}
 
+	appName := strings.TrimSpace(cfg.AppName)
+	if appName == "" {
+		return nil, ErrAppNameRequired
+	}
+
 	t := &Tokens{
 		key:        []byte(key),
+		appName:    appName,
 		accessTTL:  cfg.AccessTTL,
 		refreshTTL: cfg.RefreshTTL,
 		resetTTL:   cfg.ResetTTL,
@@ -108,6 +118,8 @@ func (t *Tokens) GenerateWithClaims(user *domainuser.Users, logID string, claims
 		Role:      user.Role,
 		TokenType: TokenTypeAccess,
 		RegisteredClaims: &jwt.RegisteredClaims{
+			Issuer:    t.appName,
+			Audience:  jwt.ClaimStrings{t.appName},
 			ID:        logID,
 			ExpiresAt: jwt.NewNumericDate(accessExp),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -142,6 +154,8 @@ func (t *Tokens) GenerateRefresh(user *domainuser.Users, logID string, claimsOve
 		Role:      user.Role,
 		TokenType: TokenTypeRefresh,
 		RegisteredClaims: &jwt.RegisteredClaims{
+			Issuer:    t.appName,
+			Audience:  jwt.ClaimStrings{t.appName},
 			ID:        logID,
 			ExpiresAt: jwt.NewNumericDate(refreshExp),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -172,22 +186,24 @@ func (t *Tokens) Claims(tokenString string) (map[string]any, error) {
 		return nil, ErrJWTKeyNotConfigured
 	}
 
+	// Claims is the only place a JWT is parsed. Issuer and audience are required
+	// and compared exactly, so tokens from another application (or legacy tokens
+	// without these claims) are rejected on every verification path.
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return "", fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 
 		return t.key, nil
-	})
-
-	if err != nil || !token.Valid {
+	}, jwt.WithIssuer(t.appName), jwt.WithAudience(t.appName))
+	if err != nil {
 		return nil, err
 	}
 
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 		return claims, nil
 	}
-	return nil, err
+	return nil, errors.New("invalid token")
 }
 
 func (t *Tokens) ExpiresAt(tokenString string) (time.Time, error) {

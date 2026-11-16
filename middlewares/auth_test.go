@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/zazhedho/authkit/authutil"
 	domainauth "github.com/zazhedho/authkit/domain/auth"
@@ -10,11 +11,13 @@ import (
 	"github.com/zazhedho/gokit/filter"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	redismock "github.com/go-redis/redismock/v9"
+	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
 )
 
@@ -420,5 +423,86 @@ func TestPermissionMiddlewareHandlesRepositoryErrors(t *testing.T) {
 				t.Fatalf("expected %d, got %d: %s", tt.code, rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+func foreignAppToken(t *testing.T, role string) string {
+	t.Helper()
+	other, err := authutil.NewTokens(authutil.TokenConfig{
+		Key:     "test-secret-must-be-at-least-32-bytes",
+		AppName: "other-app",
+	})
+	if err != nil {
+		t.Fatalf("failed to build tokens: %v", err)
+	}
+	token, err := other.GenerateWithClaims(&domainuser.Users{Id: "user-1", Name: "Jane", Role: role}, "log-1", &authutil.AppClaims{TokenType: authutil.TokenTypeAccess})
+	if err != nil {
+		t.Fatalf("failed to generate token: %v", err)
+	}
+	return token
+}
+
+// errorBody decodes an error response and drops the per-request log id so two
+// responses can be compared for identical shape and message.
+func errorBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
+	}
+	delete(body, "log_id")
+	return body
+}
+
+func TestAuthMiddlewareRejectsTokenFromOtherApp(t *testing.T) {
+	for _, role := range []string{authutil.RoleViewer, authutil.RoleSuperAdmin} {
+		t.Run(role, func(t *testing.T) {
+			next := false
+			mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
+			rec := performMiddlewareRequest(foreignAppToken(t, role), mdw.AuthMiddleware(), func(ctx *gin.Context) { next = true })
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if next {
+				t.Fatal("next handler must not run for a token from another app")
+			}
+
+			// The response must not reveal that the issuer/audience was the problem.
+			badSig, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": "user-1"}).SignedString([]byte("a-different-secret-of-at-least-32-bytes"))
+			if err != nil {
+				t.Fatalf("sign: %v", err)
+			}
+			badRec := performMiddlewareRequest(badSig, mdw.AuthMiddleware())
+			if badRec.Code != http.StatusUnauthorized {
+				t.Fatalf("expected 401 for bad signature, got %d", badRec.Code)
+			}
+			got, want := errorBody(t, rec), errorBody(t, badRec)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("foreign-app response %v differs from bad-signature response %v", got, want)
+			}
+		})
+	}
+}
+
+func TestAuthMiddlewareRejectsLegacyTokenWithoutIssuer(t *testing.T) {
+	claims := jwt.MapClaims{
+		"user_id":    "user-1",
+		"username":   "Jane",
+		"role":       authutil.RoleViewer,
+		"token_type": authutil.TokenTypeAccess,
+		"jti":        "log-1",
+		"exp":        jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		"iat":        jwt.NewNumericDate(time.Now()),
+	}
+	legacy, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte("test-secret-must-be-at-least-32-bytes"))
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
+	rec := performMiddlewareRequest(legacy, mdw.AuthMiddleware())
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

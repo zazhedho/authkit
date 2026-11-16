@@ -18,11 +18,13 @@ import (
 	"github.com/zazhedho/gokit/messages"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
 	"gorm.io/gorm"
@@ -983,4 +985,66 @@ func testUserSettings() settings.UserHandler {
 
 func testHandlerOptions() UserHandlerOptions {
 	return UserHandlerOptions{Tokens: testHandlerTokens(), Settings: testUserSettings()}
+}
+
+func otherAppTokens() *authutil.Tokens {
+	tokens, err := authutil.NewTokens(authutil.TokenConfig{
+		Key:     "test-secret-must-be-at-least-32-bytes",
+		AppName: "other-app",
+	})
+	if err != nil {
+		panic(err)
+	}
+	return tokens
+}
+
+// errorBodyWithoutLogID decodes a response and drops the per-request log id so
+// two responses can be compared for identical shape and message.
+func errorBodyWithoutLogID(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
+	}
+	delete(body, "log_id")
+	return body
+}
+
+func TestRefreshTokenRejectsTokenFromOtherApp(t *testing.T) {
+	user := domainuser.Users{Id: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
+	foreign, err := otherAppTokens().GenerateRefresh(&user, "log-1", nil)
+	if err != nil {
+		t.Fatalf("generate refresh token: %v", err)
+	}
+	badSignature, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": user.Id}).SignedString([]byte("a-different-secret-of-at-least-32-bytes"))
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+
+	sessionSvc := &sessionServiceUserHandlerTestDouble{}
+	handler := newUserHandlerForTest()
+	handler.SessionSvc = sessionSvc
+	handler.BlacklistRepo = &blacklistRepoUserHandlerTestDouble{}
+	userSvc := handler.Service.(*userServiceTestDouble)
+
+	ctx, foreignRec := newUserHandlerTestContext(t, http.MethodPost, "/refresh-token", `{"refresh_token":"`+foreign+`"}`, nil)
+	handler.RefreshToken(ctx)
+	assertUserHandlerStatus(t, foreignRec, http.StatusUnauthorized)
+	if sessionSvc.rotatedAccess != "" || sessionSvc.rotatedRefresh != "" {
+		t.Fatal("expected no new tokens for a refresh token from another app")
+	}
+	if userSvc.logoutToken != "" {
+		t.Fatal("expected the foreign token not to be blacklisted")
+	}
+	if strings.Contains(foreignRec.Body.String(), "access_token") {
+		t.Fatalf("response must not carry tokens: %s", foreignRec.Body.String())
+	}
+
+	ctx, badRec := newUserHandlerTestContext(t, http.MethodPost, "/refresh-token", `{"refresh_token":"`+badSignature+`"}`, nil)
+	handler.RefreshToken(ctx)
+	assertUserHandlerStatus(t, badRec, http.StatusUnauthorized)
+	got, want := errorBodyWithoutLogID(t, foreignRec), errorBodyWithoutLogID(t, badRec)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("foreign-app response %v differs from bad-signature response %v", got, want)
+	}
 }

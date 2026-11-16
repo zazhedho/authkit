@@ -233,7 +233,7 @@ func TestExpiresAt(t *testing.T) {
 func TestExpiresAtRequiresExpClaim(t *testing.T) {
 	tokens := newTestTokens(t)
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": "user-1"})
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": "user-1", "iss": "test-app", "aud": []string{"test-app"}})
 	tokenString, err := token.SignedString([]byte(testJWTKey))
 	if err != nil {
 		t.Fatalf("failed to sign test token: %v", err)
@@ -332,5 +332,145 @@ func TestNilTokensTTLsFallBackToDefaults(t *testing.T) {
 	}
 	if tokens.RefreshTTL() != 168*time.Hour {
 		t.Fatalf("expected default refresh TTL on nil receiver, got %v", tokens.RefreshTTL())
+	}
+}
+
+func newTokensForApp(t *testing.T, app string) *Tokens {
+	t.Helper()
+	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: app})
+	if err != nil {
+		t.Fatalf("NewTokens(%q): %v", app, err)
+	}
+	return tokens
+}
+
+// issueEachTokenType returns one token of every type the issuer can mint.
+func issueEachTokenType(t *testing.T, tokens *Tokens) map[string]string {
+	t.Helper()
+	user := &domainuser.Users{Id: "user-1", Name: "Jane", Role: RoleViewer}
+	access, err := tokens.Generate(user, "log-1")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	refresh, err := tokens.GenerateRefresh(user, "log-1", nil)
+	if err != nil {
+		t.Fatalf("GenerateRefresh: %v", err)
+	}
+	reset, err := tokens.GeneratePasswordReset(user, "log-1")
+	if err != nil {
+		t.Fatalf("GeneratePasswordReset: %v", err)
+	}
+	return map[string]string{"access": access, "refresh": refresh, "reset": reset}
+}
+
+func TestTokensCarryIssuerAndAudience(t *testing.T) {
+	a := newTokensForApp(t, "app-a")
+	for name, token := range issueEachTokenType(t, a) {
+		t.Run(name, func(t *testing.T) {
+			claims, err := a.Claims(token)
+			if err != nil {
+				t.Fatalf("Claims: %v", err)
+			}
+			if claims["iss"] != "app-a" {
+				t.Fatalf("expected iss app-a, got %v", claims["iss"])
+			}
+			aud, ok := claims["aud"].([]any)
+			if !ok || len(aud) != 1 || aud[0] != "app-a" {
+				t.Fatalf("expected aud [app-a], got %v", claims["aud"])
+			}
+		})
+	}
+}
+
+func TestClaimsRejectsTokenFromOtherApp(t *testing.T) {
+	a := newTokensForApp(t, "app-a")
+	b := newTokensForApp(t, "app-b")
+	for name, token := range issueEachTokenType(t, a) {
+		t.Run(name, func(t *testing.T) {
+			if _, err := b.Claims(token); err == nil {
+				t.Fatal("expected token from another app to be rejected")
+			}
+			if _, err := b.ExpiresAt(token); err == nil {
+				t.Fatal("expected ExpiresAt to reject token from another app")
+			}
+		})
+	}
+}
+
+func TestClaimsRejectsTokenWithoutIssuerOrAudience(t *testing.T) {
+	b := newTokensForApp(t, "app-b")
+	exp := jwt.NewNumericDate(time.Now().Add(time.Hour))
+	cases := map[string]jwt.MapClaims{
+		"neither":             {"user_id": "user-1", "exp": exp},
+		"issuer only":         {"user_id": "user-1", "exp": exp, "iss": "app-b"},
+		"audience only":       {"user_id": "user-1", "exp": exp, "aud": []string{"app-b"}},
+		"wrong issuer":        {"user_id": "user-1", "exp": exp, "iss": "app-a", "aud": []string{"app-b"}},
+		"wrong audience":      {"user_id": "user-1", "exp": exp, "iss": "app-b", "aud": []string{"app-a"}},
+		"empty audience list": {"user_id": "user-1", "exp": exp, "iss": "app-b", "aud": []string{}},
+		"different case":      {"user_id": "user-1", "exp": exp, "iss": "APP-B", "aud": []string{"app-b"}},
+	}
+	for name, claims := range cases {
+		t.Run(name, func(t *testing.T) {
+			signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(testJWTKey))
+			if err != nil {
+				t.Fatalf("sign: %v", err)
+			}
+			if _, err := b.Claims(signed); err == nil {
+				t.Fatal("expected token to be rejected")
+			}
+		})
+	}
+}
+
+func TestClaimsAcceptsOwnToken(t *testing.T) {
+	a := newTokensForApp(t, "app-a")
+	for name, token := range issueEachTokenType(t, a) {
+		t.Run(name, func(t *testing.T) {
+			if _, err := a.Claims(token); err != nil {
+				t.Fatalf("expected own token to be accepted, got %v", err)
+			}
+		})
+	}
+}
+
+func TestClaimsAcceptsAudienceListContainingApp(t *testing.T) {
+	b := newTokensForApp(t, "app-b")
+	claims := jwt.MapClaims{
+		"user_id": "user-1",
+		"exp":     jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		"iss":     "app-b",
+		"aud":     []string{"other-service", "app-b"},
+	}
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(testJWTKey))
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	if _, err := b.Claims(signed); err != nil {
+		t.Fatalf("expected audience list containing the app to be accepted, got %v", err)
+	}
+}
+
+func TestNewTokensRequiresAppName(t *testing.T) {
+	for _, name := range []string{"", "  "} {
+		tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: name})
+		if !errors.Is(err, ErrAppNameRequired) {
+			t.Fatalf("AppName %q: expected ErrAppNameRequired, got %v", name, err)
+		}
+		if tokens != nil {
+			t.Fatalf("AppName %q: expected nil tokens on error", name)
+		}
+	}
+}
+
+func TestNewTokensTrimsAppName(t *testing.T) {
+	padded := newTokensForApp(t, "  app-a  ")
+	exact := newTokensForApp(t, "app-a")
+	token := issueEachTokenType(t, padded)["access"]
+	claims, err := exact.Claims(token)
+	if err != nil {
+		t.Fatalf("expected trimmed app name to match, got %v", err)
+	}
+	if claims["iss"] != "app-a" {
+		t.Fatalf("expected iss app-a, got %v", claims["iss"])
 	}
 }

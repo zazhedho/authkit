@@ -1261,3 +1261,50 @@ func TestRegisterUserFailsWhenDefaultRoleDoesNotExist(t *testing.T) {
 		t.Fatalf("expected no user to be stored, got %+v", userRepo.user)
 	}
 }
+
+func otherAppUserTokens(t *testing.T) *authutil.Tokens {
+	t.Helper()
+	tokens, err := authutil.NewTokens(authutil.TokenConfig{Key: testUserJWTKey, AppName: "other-app"})
+	if err != nil {
+		t.Fatalf("failed to build tokens: %v", err)
+	}
+	return tokens
+}
+
+func TestResetPasswordRejectsTokenFromOtherApp(t *testing.T) {
+	password, err := bcrypt.GenerateFromPassword([]byte("OldPassword1!"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	resetUser := domainuser.Users{Id: "user-1", Email: "jane@example.com", Password: string(password), Role: authutil.RoleViewer}
+	foreign, err := otherAppUserTokens(t).GeneratePasswordReset(&resetUser, "reset_password")
+	if err != nil {
+		t.Fatalf("generate reset token: %v", err)
+	}
+
+	userRepo := &userRepoMock{user: resetUser}
+	service := newTestUserService(t, userRepo, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
+	err = service.ResetPassword(context.Background(), dto.ResetPasswordRequest{Token: foreign, NewPassword: "Password1!"})
+	if err == nil || err.Error() != "invalid or expired token" {
+		t.Fatalf("expected invalid token error, got %v", err)
+	}
+	if userRepo.updated.Id != "" {
+		t.Fatal("expected password to stay unchanged for a reset token from another app")
+	}
+}
+
+func TestLogoutUserRejectsTokenFromOtherApp(t *testing.T) {
+	user := domainuser.Users{Id: "user-1", Email: "jane@example.com", Role: authutil.RoleViewer}
+	foreign, err := otherAppUserTokens(t).Generate(&user, "logout-test")
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+	authRepo := &authRepoMock{}
+	service := newTestUserService(t, &userRepoMock{}, authRepo, &roleRepoUserMock{}, &permissionRepoUserMock{})
+	if err := service.LogoutUser(context.Background(), foreign); err == nil {
+		t.Fatal("expected logout to reject a token from another app")
+	}
+	if authRepo.stored.Token != "" {
+		t.Fatal("expected a foreign token not to be written to the blacklist")
+	}
+}
