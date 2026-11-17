@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/zazhedho/authkit/moduleseed"
+	"github.com/zazhedho/authkit/internal/moduleseed"
 	"log"
 	"os"
 	"strings"

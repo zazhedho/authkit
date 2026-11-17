@@ -1,3 +1,9 @@
+// Package authkit assembles users, auth sessions, RBAC, an audit trail and app
+// configuration for gin services from explicit configuration. Everything is
+// imported from this one path: build a Config (ConfigFromEnv is optional), call
+// New, run Kit.Migrate, then Kit.Mount the routes and protect your own routes
+// with Kit.Auth, Kit.Can and Kit.Role. Request-time code never reads the
+// environment: ConfigFromEnv (config.go) is the only place that does.
 package authkit
 
 import (
@@ -6,44 +12,43 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/zazhedho/authkit/authscope"
-	"github.com/zazhedho/authkit/authutil"
-	permissioncache "github.com/zazhedho/authkit/cache/permission"
-	handlerappconfig "github.com/zazhedho/authkit/handlers/appconfig"
-	handleraudit "github.com/zazhedho/authkit/handlers/audit"
-	handlermenu "github.com/zazhedho/authkit/handlers/menu"
-	handlerpermission "github.com/zazhedho/authkit/handlers/permission"
-	handlerrole "github.com/zazhedho/authkit/handlers/role"
-	handlersession "github.com/zazhedho/authkit/handlers/session"
-	handleruser "github.com/zazhedho/authkit/handlers/user"
-	interfaceappconfig "github.com/zazhedho/authkit/interfaces/appconfig"
-	interfaceaudit "github.com/zazhedho/authkit/interfaces/audit"
-	interfacesession "github.com/zazhedho/authkit/interfaces/session"
-	interfaceuser "github.com/zazhedho/authkit/interfaces/user"
+	"github.com/zazhedho/authkit/internal/authscope"
+	"github.com/zazhedho/authkit/internal/authutil"
+	permissioncache "github.com/zazhedho/authkit/internal/cache/permission"
 	"github.com/zazhedho/authkit/internal/devenv"
-	"github.com/zazhedho/authkit/middlewares"
-	repoappconfig "github.com/zazhedho/authkit/repositories/appconfig"
-	repoaudit "github.com/zazhedho/authkit/repositories/audit"
-	repoauth "github.com/zazhedho/authkit/repositories/auth"
-	repomenu "github.com/zazhedho/authkit/repositories/menu"
-	repootp "github.com/zazhedho/authkit/repositories/otp"
-	repopermission "github.com/zazhedho/authkit/repositories/permission"
-	reporeset "github.com/zazhedho/authkit/repositories/reset"
-	reporole "github.com/zazhedho/authkit/repositories/role"
-	reposession "github.com/zazhedho/authkit/repositories/session"
-	repouser "github.com/zazhedho/authkit/repositories/user"
-	"github.com/zazhedho/authkit/security"
-	serviceappconfig "github.com/zazhedho/authkit/services/appconfig"
-	serviceaudit "github.com/zazhedho/authkit/services/audit"
-	servicemenu "github.com/zazhedho/authkit/services/menu"
-	serviceotp "github.com/zazhedho/authkit/services/otp"
-	servicepermission "github.com/zazhedho/authkit/services/permission"
-	servicereset "github.com/zazhedho/authkit/services/reset"
-	servicerole "github.com/zazhedho/authkit/services/role"
-	servicesession "github.com/zazhedho/authkit/services/session"
-	serviceuser "github.com/zazhedho/authkit/services/user"
-	"github.com/zazhedho/authkit/settings"
-	gokitmiddlewares "github.com/zazhedho/gokit/middlewares"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	handlerappconfig "github.com/zazhedho/authkit/internal/handlers/appconfig"
+	handleraudit "github.com/zazhedho/authkit/internal/handlers/audit"
+	handlermenu "github.com/zazhedho/authkit/internal/handlers/menu"
+	handlerpermission "github.com/zazhedho/authkit/internal/handlers/permission"
+	handlerrole "github.com/zazhedho/authkit/internal/handlers/role"
+	handlersession "github.com/zazhedho/authkit/internal/handlers/session"
+	handleruser "github.com/zazhedho/authkit/internal/handlers/user"
+	interfacesession "github.com/zazhedho/authkit/internal/interfaces/session"
+	interfaceuser "github.com/zazhedho/authkit/internal/interfaces/user"
+	"github.com/zazhedho/authkit/internal/middlewares"
+	repoappconfig "github.com/zazhedho/authkit/internal/repositories/appconfig"
+	repoaudit "github.com/zazhedho/authkit/internal/repositories/audit"
+	repoauth "github.com/zazhedho/authkit/internal/repositories/auth"
+	repomenu "github.com/zazhedho/authkit/internal/repositories/menu"
+	repootp "github.com/zazhedho/authkit/internal/repositories/otp"
+	repopermission "github.com/zazhedho/authkit/internal/repositories/permission"
+	reporeset "github.com/zazhedho/authkit/internal/repositories/reset"
+	reporole "github.com/zazhedho/authkit/internal/repositories/role"
+	reposession "github.com/zazhedho/authkit/internal/repositories/session"
+	repouser "github.com/zazhedho/authkit/internal/repositories/user"
+	"github.com/zazhedho/authkit/internal/security"
+	serviceappconfig "github.com/zazhedho/authkit/internal/services/appconfig"
+	serviceaudit "github.com/zazhedho/authkit/internal/services/audit"
+	servicemenu "github.com/zazhedho/authkit/internal/services/menu"
+	serviceotp "github.com/zazhedho/authkit/internal/services/otp"
+	servicepermission "github.com/zazhedho/authkit/internal/services/permission"
+	servicereset "github.com/zazhedho/authkit/internal/services/reset"
+	servicerole "github.com/zazhedho/authkit/internal/services/role"
+	servicesession "github.com/zazhedho/authkit/internal/services/session"
+	serviceuser "github.com/zazhedho/authkit/internal/services/user"
+	"github.com/zazhedho/authkit/internal/settings"
+	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 )
 
@@ -55,9 +60,9 @@ type Kit struct {
 	tokens     *authutil.Tokens
 	middleware *middlewares.Middleware
 
-	users     interfaceuser.ServiceUserInterface
-	audit     interfaceaudit.ServiceAuditInterface
-	appConfig interfaceappconfig.ServiceAppConfigInterface
+	users     interfaceuser.ServiceUserInterface // kept for white-box wiring tests
+	audit     AuditService
+	appConfig AppConfigService
 
 	userHandler       *handleruser.HandlerUser
 	roleHandler       *handlerrole.RoleHandler
@@ -179,7 +184,7 @@ func New(cfg Config) (*Kit, error) {
 		appConfigHandler:  handlerappconfig.NewAppConfigHandler(appConfigSvc, auditSvc),
 		auditHandler:      handleraudit.NewAuditHandler(auditSvc),
 		sessionHandler:    sessionHdlr,
-		registerLimiter:   gokitmiddlewares.IPRateLimitMiddleware(cfg.Redis, "user_register", cfg.Register.Limit, cfg.Register.Window),
+		registerLimiter:   gokit.IPRateLimitMiddleware(cfg.Redis, "user_register", cfg.Register.Limit, cfg.Register.Window),
 	}, nil
 }
 
@@ -199,19 +204,20 @@ func (k *Kit) Role(allowed ...string) gin.HandlerFunc {
 	return k.middleware.RoleMiddleware(allowed...)
 }
 
-// Users returns the user service.
-func (k *Kit) Users() interfaceuser.ServiceUserInterface { return k.users }
-
 // Audit returns the audit service.
-func (k *Kit) Audit() interfaceaudit.ServiceAuditInterface { return k.audit }
+func (k *Kit) Audit() AuditService { return k.audit }
 
 // AppConfig returns the app-config service.
-func (k *Kit) AppConfig() interfaceappconfig.ServiceAppConfigInterface { return k.appConfig }
+func (k *Kit) AppConfig() AppConfigService { return k.appConfig }
 
-// Tokens returns the token issuer and verifier built from the configuration.
-func (k *Kit) Tokens() *authutil.Tokens { return k.tokens }
+// IssueAccessToken issues a normal access token for userID, name and role
+// through the Kit's own token service, so it passes Auth like one from login.
+// It does not check that the user exists; it is meant for tests and tooling.
+func (k *Kit) IssueAccessToken(userID, name, role string) (string, error) {
+	return k.tokens.Generate(&domainuser.Users{Id: userID, Name: name, Role: role}, "authkit-issued")
+}
 
 // ScopeFrom returns the scope stored on ctx. After Auth alone it has the
 // identity and role but an empty permission set, so Has is false for every
 // non-superadmin; Can loads the user's permissions into the scope.
-func ScopeFrom(ctx context.Context) authscope.Scope { return authscope.FromContext(ctx) }
+func ScopeFrom(ctx context.Context) Scope { return authscope.FromContext(ctx) }
