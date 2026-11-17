@@ -66,6 +66,30 @@ func TestBuildMailerMessagesEscapeHTMLAndIncludeFallbackMinutes(t *testing.T) {
 	}
 }
 
+func TestBuildOTPMessageStatesConfiguredTTL(t *testing.T) {
+	msg := string(buildOTPMessage("from@example.com", "to@example.com", "Subject", "App", "123456", 10*time.Minute))
+	if strings.Count(msg, "expires in 10 minutes") != 2 || strings.Contains(msg, "5 minutes") {
+		t.Fatalf("otp message does not state the configured 10 minutes:\n%s", msg)
+	}
+}
+
+func TestBrevoSenderOTPUsesArgumentTTLAndFallsBack(t *testing.T) {
+	s := &BrevoSender{From: "a@example.com", Subject: "S", AppName: "App", TTL: 7 * time.Minute}
+	if got := string(s.otpMessage("to@example.com", "123456", "", 10*time.Minute)); !strings.Contains(got, "expires in 10 minutes") {
+		t.Fatalf("argument TTL not used:\n%s", got)
+	}
+	if got := string(s.otpMessage("to@example.com", "123456", "", 0)); !strings.Contains(got, "expires in 7 minutes") {
+		t.Fatalf("fallback TTL not used:\n%s", got)
+	}
+}
+
+func TestMIMEBoundaryIsAuthkitScoped(t *testing.T) {
+	msg := string(buildOTPMessage("a@example.com", "b@example.com", "S", "App", "1", time.Minute))
+	if !strings.Contains(msg, "boundary=authkit-mail-boundary") || strings.Contains(msg, "starter-kit") {
+		t.Fatalf("unexpected boundary:\n%s", msg)
+	}
+}
+
 func TestExtractEmailAndDurationFromEnv(t *testing.T) {
 	if got := extractEmail("Starter <noreply@example.com>"); got != "noreply@example.com" {
 		t.Fatalf("unexpected extracted email: %q", got)
@@ -94,7 +118,7 @@ func TestBrevoSenderSendMethodsReturnSMTPError(t *testing.T) {
 		AppName:      "Starter",
 	}
 
-	if err := sender.SendOTP("to@example.com", "123456", ""); err == nil {
+	if err := sender.SendOTP("to@example.com", "123456", "", 0); err == nil {
 		t.Fatal("expected otp smtp error")
 	}
 	if err := sender.SendPasswordReset("to@example.com", "token", "", "", 0); err == nil {

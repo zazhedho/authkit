@@ -19,7 +19,10 @@ import (
 	"github.com/zazhedho/authkit/settings"
 )
 
-type sentOTP struct{ to, code, appName string }
+type sentOTP struct {
+	to, code, appName string
+	ttl               time.Duration
+}
 type sentReset struct {
 	to, token, appName, url string
 	ttl                     time.Duration
@@ -32,10 +35,10 @@ type recordingMailer struct {
 	resets []sentReset
 }
 
-func (m *recordingMailer) SendOTP(to, code, appName string) error {
+func (m *recordingMailer) SendOTP(to, code, appName string, ttl time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.otps = append(m.otps, sentOTP{to, code, appName})
+	m.otps = append(m.otps, sentOTP{to, code, appName, ttl})
 	return nil
 }
 
@@ -279,6 +282,9 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 		sent := mailer.lastOTP(t)
 		if sent.appName != "Wiring Mail" || sent.to != "otp1@example.test" {
 			t.Errorf("sent = %+v, want appName Wiring Mail (EmailAppName)", sent)
+		}
+		if sent.ttl != 111*time.Second {
+			t.Errorf("mailer got ttl %v, want the configured OTP.TTL 111s", sent.ttl)
 		}
 		stored, err := mr.Get("otp:register:otp1@example.test")
 		if err != nil {

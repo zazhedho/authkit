@@ -3,6 +3,7 @@ package authkit
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zazhedho/authkit/authscope"
@@ -19,6 +20,7 @@ import (
 	interfaceaudit "github.com/zazhedho/authkit/interfaces/audit"
 	interfacesession "github.com/zazhedho/authkit/interfaces/session"
 	interfaceuser "github.com/zazhedho/authkit/interfaces/user"
+	"github.com/zazhedho/authkit/internal/devenv"
 	"github.com/zazhedho/authkit/middlewares"
 	repoappconfig "github.com/zazhedho/authkit/repositories/appconfig"
 	repoaudit "github.com/zazhedho/authkit/repositories/audit"
@@ -42,6 +44,7 @@ import (
 	serviceuser "github.com/zazhedho/authkit/services/user"
 	"github.com/zazhedho/authkit/settings"
 	gokitmiddlewares "github.com/zazhedho/gokit/middlewares"
+	"github.com/zazhedho/logus"
 )
 
 // Kit is the assembled users, auth and RBAC module. Build it once with New and
@@ -67,6 +70,22 @@ type Kit struct {
 	registerLimiter gin.HandlerFunc
 }
 
+// startupWarnings returns the warnings New logs for risky configuration. They
+// never contain configuration values other than the fixed AppEnv names.
+func startupWarnings(appEnv string, redisNil bool) []string {
+	var out []string
+	if devenv.IsDev(appEnv) {
+		out = append(out, "authkit: AppEnv is a development value ("+strings.Join(devenv.Values, ", ")+"): "+
+			"when the email password reset flag is disabled, POST /user/forgot-password returns a password reset token "+
+			"directly in the API response for any registered email; never enable this mode on a reachable server")
+	}
+	if redisNil {
+		out = append(out, "authkit: Redis is not configured: login rate limiting, register rate limiting, "+
+			"sessions, OTP and email password reset are inactive")
+	}
+	return out
+}
+
 // New validates cfg (after applying defaults) and wires every repository,
 // service, handler and middleware once. It never queries or migrates the
 // database, and a nil Redis or nil Mailer is allowed: without Redis there is no
@@ -76,6 +95,10 @@ func New(cfg Config) (*Kit, error) {
 	cfg = cfg.withDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
+	}
+
+	for _, w := range startupWarnings(cfg.AppEnv, cfg.Redis == nil) {
+		logus.WriteLog(logus.LogLevelWarn, w)
 	}
 
 	tokens, err := authutil.NewTokens(authutil.TokenConfig{

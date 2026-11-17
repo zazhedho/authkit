@@ -45,6 +45,24 @@ type Config struct {
 	Flags                           settings.FlagKeys
 }
 
+// String implements fmt.Stringer. It reports whether each secret is set but
+// never prints one, and leaves out DB, Redis and Mailer internals, so a config
+// that is logged or printed with %v or %+v cannot leak credentials.
+func (c Config) String() string {
+	set := func(v string) string {
+		if strings.TrimSpace(v) == "" {
+			return "unset"
+		}
+		return "set"
+	}
+	return fmt.Sprintf("authkit.Config{AppName:%q AppEnv:%q JWTKey:%s OTP.Secret:%s Reset.Secret:%s Redis:%t Mailer:%t}",
+		c.AppName, c.AppEnv, set(c.JWTKey), set(c.OTP.Secret), set(c.Reset.Secret), c.Redis != nil, c.Mailer != nil)
+}
+
+// GoString implements fmt.GoStringer with the same redaction as String, so %#v
+// is safe too.
+func (c Config) GoString() string { return c.String() }
+
 const (
 	defaultPermissionCacheTTL = 300 * time.Second
 	defaultLoginLimit         = 5
@@ -139,9 +157,12 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
-// Validate checks a config that has already had defaults applied. The OTP and
-// password reset secrets are only required when both Redis and Mailer are set,
-// because those services are inert (never sign or verify anything) otherwise.
+// Validate expects defaults to be applied already, as New does before calling
+// it. It checks that DB and AppName are set, that JWTKey is a valid signing key
+// (at least 32 characters), that DefaultRole is not a privileged role, and that
+// OTP.Secret and Reset.Secret are set when both Redis and Mailer are. Those
+// secrets are only required then, because the OTP and password reset services
+// are inert (never sign or verify anything) otherwise.
 func (c Config) Validate() error {
 	if c.DB == nil {
 		return errors.New("authkit: DB is required")

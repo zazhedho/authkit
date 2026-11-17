@@ -18,6 +18,7 @@ import (
 	interfacereset "github.com/zazhedho/authkit/interfaces/reset"
 	interfacesession "github.com/zazhedho/authkit/interfaces/session"
 	interfaceuser "github.com/zazhedho/authkit/interfaces/user"
+	"github.com/zazhedho/authkit/internal/devenv"
 	"github.com/zazhedho/authkit/security"
 	serviceotp "github.com/zazhedho/authkit/services/otp"
 	serviceuser "github.com/zazhedho/authkit/services/user"
@@ -1242,7 +1243,7 @@ func (h *HandlerUser) ForgotPassword(ctx *gin.Context) {
 	}
 
 	appEnv := utils.NormalizeKey(h.Settings.AppEnv)
-	if appEnv != "development" && appEnv != "local" && appEnv != "test" {
+	if !devenv.IsDev(appEnv) {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Development password reset fallback is disabled in APP_ENV=%s", logPrefix, appEnv))
 		res := response.Response(http.StatusServiceUnavailable, messages.MsgSomethingWrong, logId, nil)
 		res.Error = response.Errors{Code: http.StatusServiceUnavailable, Message: "Password reset service is temporarily unavailable."}

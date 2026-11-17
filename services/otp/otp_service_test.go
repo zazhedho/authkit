@@ -99,10 +99,12 @@ type otpSenderTestDouble struct {
 	to      string
 	code    string
 	appName string
+	ttl     time.Duration
 	err     error
 }
 
-func (m *otpSenderTestDouble) SendOTP(to, code, appName string) error {
+func (m *otpSenderTestDouble) SendOTP(to, code, appName string, ttl time.Duration) error {
+	m.ttl = ttl
 	m.to = to
 	m.code = code
 	m.appName = appName
@@ -131,6 +133,9 @@ func TestSendRegisterOTPStoresHashedOTPAndSendsNormalizedEmail(t *testing.T) {
 
 	if sender.to != "jane.doe@example.com" || sender.appName != "Starter" {
 		t.Fatalf("unexpected sender call: %+v", sender)
+	}
+	if sender.ttl != 5*time.Minute {
+		t.Fatalf("sender got ttl %v, want the configured 5m", sender.ttl)
 	}
 	if len(sender.code) != 6 {
 		t.Fatalf("expected six digit code, got %q", sender.code)

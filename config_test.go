@@ -2,6 +2,7 @@ package authkit
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -17,7 +18,7 @@ const testJWTKey = "test-secret-must-be-at-least-32-bytes"
 
 type mailerTestDouble struct{}
 
-func (mailerTestDouble) SendOTP(string, string, string) error { return nil }
+func (mailerTestDouble) SendOTP(string, string, string, time.Duration) error { return nil }
 func (mailerTestDouble) SendPasswordReset(string, string, string, string, time.Duration) error {
 	return nil
 }
@@ -398,5 +399,24 @@ func TestConfigFromEnvPermissionCacheTTL(t *testing.T) {
 				t.Fatalf("PermissionCacheTTL = %s, want %s", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestConfigPrintingRedactsSecrets(t *testing.T) {
+	cfg := validConfig()
+	cfg.JWTKey = "jwt-secret-value-0123456789abcdefghij"
+	cfg.OTP.Secret = "otp-secret-value-xyz"
+	cfg.Reset.Secret = "reset-secret-value-xyz"
+	out := fmt.Sprintf("%v %+v %#v %s", cfg, cfg, cfg, &cfg)
+	for _, secret := range []string{cfg.JWTKey, cfg.OTP.Secret, cfg.Reset.Secret} {
+		if strings.Contains(out, secret) {
+			t.Fatalf("printed config leaks %q: %s", secret, out)
+		}
+	}
+	if !strings.Contains(out, "JWTKey:set") {
+		t.Fatalf("printed config should report that JWTKey is set: %s", out)
+	}
+	if empty := fmt.Sprint(Config{}); !strings.Contains(empty, "JWTKey:unset") {
+		t.Fatalf("empty config should report unset: %s", empty)
 	}
 }

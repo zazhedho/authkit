@@ -32,7 +32,9 @@ var ErrLegacySchemaIncomplete = errors.New("authkit: existing schema is missing 
 
 // ErrMigrationsDirty is returned by Migrate when the version table records a
 // failed migration. Migrate never repairs it: fix the database by hand, then
-// correct or delete the version record.
+// set the record to the last fully applied version and clear its dirty flag.
+// Never delete the record: a missing record next to existing tables makes the
+// database look unmigrated to authkit.
 var ErrMigrationsDirty = errors.New("authkit: migrations are in a dirty state")
 
 //go:embed migrations/*.sql
@@ -42,7 +44,9 @@ func embeddedSource() (source.Driver, error) { return iofs.New(migrationsFS, "mi
 
 // Migrate brings the database to the schema authkit needs, using the embedded
 // migrations and the MigrationsTable version table in the connection's current
-// schema. It is safe to call on every start and from several instances at once.
+// schema. It is safe to call on every start. Instances that start at the same
+// time serialize on an advisory lock and all succeed; run it on a direct
+// database connection, not through a transaction-pooling proxy.
 //
 //   - Empty database: applies all migrations.
 //   - Database that already has the users table but no version record (created
@@ -55,8 +59,8 @@ func embeddedSource() (source.Driver, error) { return iofs.New(migrationsFS, "mi
 //   - Database with a version record: applies pending migrations. A dirty
 //     record is reported as ErrMigrationsDirty.
 //
-// ctx bounds the schema inspection only; a migration that has started is not
-// canceled mid-statement. Run Migrate before the host project's migrations.
+// ctx bounds the schema inspection only; waiting for the advisory lock and a
+// migration that has started are not canceled by it. Run Migrate before the host project's migrations.
 // The caller's database handle stays open.
 func (k *Kit) Migrate(ctx context.Context) error {
 	return migrateUp(ctx, k.cfg.DB, embeddedSource)
@@ -119,7 +123,7 @@ func migrateUp(ctx context.Context, gdb *gorm.DB, newSource func() (source.Drive
 }
 
 func dirtyError(version int) error {
-	return fmt.Errorf("%w: table %q records a failed migration at version %d; repair the database by hand and then fix or delete that record",
+	return fmt.Errorf("%w: table %q records a failed migration at version %d; repair the database by hand, then set the record to the last fully applied version and clear its dirty flag (never delete the record: a missing record next to existing tables makes the database look unmigrated)",
 		ErrMigrationsDirty, MigrationsTable, version)
 }
 
@@ -155,7 +159,9 @@ func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`)
 // detectLegacy reports whether the database was created before authkit: the
 // users table exists in the current schema and no version has been recorded. It
 // returns ErrLegacySchemaIncomplete (and creates nothing) when such a database
-// lacks part of the baseline schema, and ErrMigrationsDirty for a dirty record.
+// lacks part of the baseline schema. A version table that holds any row means
+// "not legacy", dirty or not: a dirty row may belong to an instance that is
+// migrating right now, so the dirty verdict is left to the locked Up().
 //
 // The two table lookups are one statement, hence one snapshot: the library
 // creates the version table before the first migration creates users, so a
@@ -177,18 +183,13 @@ func detectLegacy(ctx context.Context, conn *sql.Conn) (bool, error) {
 
 	hasVersion := false
 	if hasVersionTable {
-		var (
-			version int
-			dirty   bool
-		)
+		var one int
 		err := conn.QueryRowContext(ctx,
-			`SELECT version, dirty FROM `+quoteIdent(schema.String)+`.`+quoteIdent(MigrationsTable)+` LIMIT 1`).Scan(&version, &dirty)
+			`SELECT 1 FROM `+quoteIdent(schema.String)+`.`+quoteIdent(MigrationsTable)+` LIMIT 1`).Scan(&one)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 		case err != nil:
 			return false, fmt.Errorf("authkit: migrate: %w", err)
-		case dirty:
-			return false, dirtyError(version)
 		default:
 			hasVersion = true
 		}
@@ -213,7 +214,11 @@ func detectLegacy(ctx context.Context, conn *sql.Conn) (bool, error) {
 
 func currentColumns(ctx context.Context, conn *sql.Conn) (map[string][]string, error) {
 	rows, err := conn.QueryContext(ctx,
-		`SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema()`)
+		`SELECT c.relname, a.attname
+		 FROM pg_catalog.pg_attribute a
+		 JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+		 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = current_schema() AND c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped`)
 	if err != nil {
 		return nil, fmt.Errorf("authkit: migrate: %w", err)
 	}
@@ -233,10 +238,13 @@ func currentColumns(ctx context.Context, conn *sql.Conn) (map[string][]string, e
 }
 
 // presentTables reports whether the users and version tables exist in the
-// current schema, from a single statement.
+// current schema, from a single statement. It reads pg_catalog, which, unlike
+// information_schema, shows every table whatever the role's privileges.
 func presentTables(ctx context.Context, conn *sql.Conn) (hasUsers, hasVersionTable bool, err error) {
 	rows, err := conn.QueryContext(ctx,
-		`SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name IN ('users', $1)`,
+		`SELECT c.relname FROM pg_catalog.pg_class c
+		 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = current_schema() AND c.relkind IN ('r', 'p') AND c.relname IN ('users', $1)`,
 		MigrationsTable)
 	if err != nil {
 		return false, false, fmt.Errorf("authkit: migrate: %w", err)

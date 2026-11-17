@@ -52,20 +52,30 @@ func testSchema(t *testing.T) (db *gorm.DB, schema string, admin *gorm.DB) {
 	}
 	t.Cleanup(func() { _ = admin.Exec(`DROP SCHEMA IF EXISTS ` + schema + ` CASCADE`).Error })
 
+	return openSchemaDB(t, dsn, "", schema), schema, admin
+}
+
+// openSchemaDB opens a new connection pool whose search_path is schema, as
+// user when it is not empty.
+func openSchemaDB(t *testing.T, dsn, user, schema string) *gorm.DB {
+	t.Helper()
 	u, err := url.Parse(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if user != "" {
+		u.User = url.UserPassword(user, "pw-"+user)
+	}
 	q := u.Query()
 	q.Set("search_path", schema)
 	u.RawQuery = q.Encode()
-	db, err = gorm.Open(postgres.Open(u.String()), &gorm.Config{Logger: logger.Discard})
+	db, err := gorm.Open(postgres.Open(u.String()), &gorm.Config{Logger: logger.Discard})
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
 	sqlDB, _ := db.DB()
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	return db, schema, admin
+	return db
 }
 
 func testKit(t *testing.T, db *gorm.DB) *Kit {
@@ -211,8 +221,14 @@ func TestMigrateEmptyDatabase(t *testing.T) {
 	if v, dirty, rows := versionRow(t, db); v != BaselineVersion || dirty || rows != 1 {
 		t.Fatalf("version = %d dirty=%v rows=%d, want %d false 1", v, dirty, rows, BaselineVersion)
 	}
-	if missing := missingFromSchema(baselineSchema, actualSchema(t, db)); len(missing) != 0 {
+	actual := actualSchema(t, db)
+	if missing := missingFromSchema(baselineSchema, actual); len(missing) != 0 {
 		t.Fatalf("baselineSchema does not match the SQL, missing %v", missing)
+	}
+	// Reverse direction: everything the SQL created must be in baselineSchema.
+	delete(actual, MigrationsTable)
+	if extra := missingFromSchema(actual, baselineSchema); len(extra) != 0 {
+		t.Fatalf("the SQL creates tables or columns that baselineSchema lacks: %v", extra)
 	}
 	before := counts(t, db)
 
@@ -441,5 +457,132 @@ func TestMigrateIgnoresUsersTableInOtherSchema(t *testing.T) {
 	}
 	if missing := missingFromSchema(baselineSchema, actualSchema(t, db)); len(missing) != 0 {
 		t.Fatalf("schema incomplete: %v", missing)
+	}
+}
+
+// The unlocked detection must not turn a dirty row into an error: another
+// instance may be mid-migration. The verdict comes from the locked Up().
+func TestDetectLegacyDirtyRowIsNotAnError(t *testing.T) {
+	t.Parallel()
+	db, _, _ := testSchema(t)
+	if err := db.Exec(`CREATE TABLE ` + MigrationsTable + ` (version bigint not null primary key, dirty boolean not null)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO ` + MigrationsTable + ` VALUES (1, true)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, _ := db.DB()
+	conn, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	legacy, err := detectLegacy(context.Background(), conn)
+	if err != nil || legacy {
+		t.Fatalf("detectLegacy = %v, %v; want false, nil", legacy, err)
+	}
+}
+
+func TestMigrateDirtyErrorStillMatchesSentinel(t *testing.T) {
+	t.Parallel()
+	db, _, _ := testSchema(t)
+	if err := db.Exec(`CREATE TABLE ` + MigrationsTable + ` (version bigint not null primary key, dirty boolean not null)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO ` + MigrationsTable + ` VALUES (3, true)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	err := testKit(t, db).Migrate(context.Background())
+	if !errors.Is(err, ErrMigrationsDirty) || !strings.Contains(err.Error(), MigrationsTable) {
+		t.Fatalf("err = %v, want ErrMigrationsDirty naming %s", err, MigrationsTable)
+	}
+	if strings.Contains(err.Error(), "delete") && !strings.Contains(err.Error(), "never delete") {
+		t.Fatalf("advice must not suggest deleting the record: %v", err)
+	}
+}
+
+func TestMigrateConcurrentFirstStart(t *testing.T) {
+	t.Parallel()
+	_, dsn := adminDB(t)
+	ref, _, _ := testSchema(t)
+	if err := testKit(t, ref).Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := counts(t, ref)
+
+	db, schema, admin := testSchema(t)
+	const n = 4
+	kits := make([]*Kit, n)
+	for i := range kits {
+		kits[i] = testKit(t, openSchemaDB(t, dsn, "", schema))
+	}
+	start := make(chan struct{})
+	errs := make(chan error, n)
+	for _, k := range kits {
+		go func(k *Kit) {
+			<-start
+			errs <- k.Migrate(context.Background())
+		}(k)
+	}
+	close(start)
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("Migrate: %v", err)
+		}
+	}
+	if v, dirty, rows := versionRow(t, db); v != BaselineVersion || dirty || rows != 1 {
+		t.Fatalf("version = %d dirty=%v rows=%d, want %d false 1", v, dirty, rows, BaselineVersion)
+	}
+	if got := counts(t, db); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("seed counts differ from a single instance: %v vs %v", got, want)
+	}
+	if !lockFree(t, admin, schema) {
+		t.Fatal("advisory lock leaked")
+	}
+}
+
+// Table presence must not depend on the role's privileges: information_schema
+// hides tables the role cannot access.
+func TestPresenceDetectionIgnoresPrivileges(t *testing.T) {
+	t.Parallel()
+	db, schema, admin := testSchema(t)
+	applyBaselineDirectly(t, db)
+	_, dsn := adminDB(t)
+
+	role := "authkit_r_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
+	if err := admin.Exec(fmt.Sprintf(`CREATE ROLE %s LOGIN PASSWORD 'pw-%s'`, role, role)).Error; err != nil {
+		t.Skipf("cannot create role: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = admin.Exec(`DROP OWNED BY ` + role).Error
+		_ = admin.Exec(`DROP ROLE IF EXISTS ` + role).Error
+	})
+	if err := admin.Exec(fmt.Sprintf(`GRANT USAGE ON SCHEMA %s TO %s`, schema, role)).Error; err != nil {
+		t.Fatal(err)
+	}
+	low := openSchemaDB(t, dsn, role, schema)
+	sqlDB, _ := low.DB()
+	conn, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	// Precondition: the role really cannot see the table through information_schema.
+	var visible int
+	if err := conn.QueryRowContext(context.Background(),
+		`SELECT count(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'users'`).Scan(&visible); err != nil || visible != 0 {
+		t.Fatalf("precondition: information_schema shows users to the role (n=%d err=%v)", visible, err)
+	}
+	hasUsers, _, err := presentTables(context.Background(), conn)
+	if err != nil || !hasUsers {
+		t.Fatalf("presentTables hasUsers=%v err=%v; want true", hasUsers, err)
+	}
+	cols, err := currentColumns(context.Background(), conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if missing := missingFromSchema(baselineSchema, cols); len(missing) != 0 {
+		t.Fatalf("columns hidden from the low-privilege role: %v", missing)
 	}
 }

@@ -36,8 +36,8 @@ type BrevoConfig struct {
 }
 
 // NewBrevoSender validates cfg and applies defaults. The OTP validity shown in
-// emails defaults to five minutes; set the TTL field on the returned sender to
-// show a different value.
+// emails defaults to five minutes only when SendOTP is given no positive ttl;
+// the OTP service always passes the configured one.
 func NewBrevoSender(cfg BrevoConfig) (*BrevoSender, error) {
 	if cfg.Host == "" || cfg.Pass == "" || cfg.From == "" {
 		return nil, fmt.Errorf("smtp credentials not configured")
@@ -77,12 +77,20 @@ func NewBrevoSender(cfg BrevoConfig) (*BrevoSender, error) {
 	}, nil
 }
 
-func (s *BrevoSender) SendOTP(to, code, appName string) error {
+// SendOTP sends the code, stating ttl as its validity. When ttl is not
+// positive the sender's own TTL field is used.
+func (s *BrevoSender) SendOTP(to, code, appName string, ttl time.Duration) error {
+	return s.send(to, s.otpMessage(to, code, appName, ttl))
+}
+
+func (s *BrevoSender) otpMessage(to, code, appName string, ttl time.Duration) []byte {
 	if strings.TrimSpace(appName) == "" {
 		appName = s.AppName
 	}
-	msg := buildOTPMessage(s.From, to, s.Subject, appName, code, s.TTL)
-	return s.send(to, msg)
+	if ttl <= 0 {
+		ttl = s.TTL
+	}
+	return buildOTPMessage(s.From, to, s.Subject, appName, code, ttl)
 }
 
 func (s *BrevoSender) SendPasswordReset(to, token, appName, resetURL string, ttl time.Duration) error {
@@ -136,7 +144,7 @@ func buildPasswordResetMessage(from, to, subject, appName, token, resetURL strin
 }
 
 func buildMultipartMessage(from, to, subject, textBody, htmlBody string) []byte {
-	boundary := "starter-kit-mail-boundary"
+	boundary := "authkit-mail-boundary"
 
 	var buf bytes.Buffer
 	buf.WriteString("From: " + from + "\r\n")
