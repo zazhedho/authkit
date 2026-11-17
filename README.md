@@ -7,6 +7,10 @@ OTP and password reset e-mail, roles, permissions, menus, runtime app
 configuration, audit trails, an HTTP route set, and the middleware to protect
 your own routes. Database tables ship as embedded migrations.
 
+Everything is imported from one path, `github.com/zazhedho/authkit`; all
+implementation lives under `internal/` and is not importable. Upgrading from
+v0.1.x? See "Upgrading from v0.1.x" at the end.
+
 authkit builds on two sibling modules: [`github.com/zazhedho/gokit`](https://github.com/zazhedho/gokit)
 (request ids, rate limiting, response helpers, generic repositories) and
 [`github.com/zazhedho/logus`](https://github.com/zazhedho/logus) (logging). Read the "Security defaults"
@@ -24,11 +28,12 @@ package main
 import (
 	"context"
 	"log"
+	"os"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/zazhedho/authkit"
-	"github.com/zazhedho/authkit/mailer"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -42,7 +47,11 @@ func main() {
 	cfg := authkit.ConfigFromEnv() // optional: fill the Config yourself instead
 	cfg.DB = db
 	cfg.Redis = redis.NewClient(&redis.Options{Addr: "localhost:6379"}) // optional
-	if m, err := mailer.NewBrevoSenderFromEnv(); err == nil {          // optional
+	port, _ := strconv.Atoi(os.Getenv("SMTP_PORT"))
+	if m, err := authkit.NewBrevoMailer(authkit.BrevoConfig{ // optional
+		Host: os.Getenv("SMTP_HOST"), Port: port, User: os.Getenv("SMTP_USER"),
+		Pass: os.Getenv("SMTP_PASS"), From: os.Getenv("SMTP_FROM"),
+	}); err == nil {
 		cfg.Mailer = m
 	}
 
@@ -98,20 +107,78 @@ func listTrips(c *gin.Context) {
 
 `Can` and `Role` must come after `Auth`. Superadmin bypasses both. `ScopeFrom`
 returns identity and role after `Auth`; permissions are only populated by `Can`. Permissions are
-plain rows (`resource`, `action`); add yours with the `moduleseed` helper (see
-Extending). `kit.Users()`, `kit.Audit()`, `kit.AppConfig()` and `kit.Tokens()`
-expose the underlying services.
+plain rows (`resource`, `action`); add yours with `cmd/module-seed` (see
+Extending). `kit.Audit()` and `kit.AppConfig()` expose the audit and app-config
+services (`authkit.AuditService`, `authkit.AppConfigService`).
+`kit.IssueAccessToken(userID, name, role)` issues a normal access token for a
+user through the Kit's own token service; it is meant for tests and tooling.
+
+## Public types
+
+Besides `Kit` and `Config`, the root package exports these helpers (all in
+`types.go`).
+
+`Scope`, `NewScope`, `WithScope`: the authenticated identity of a request.
+
+```go
+ctx := authkit.WithScope(context.Background(),
+	authkit.NewScope("user-1", "Ada", authkit.RoleStaff, []string{"trips:view"}))
+scope := authkit.ScopeFrom(ctx)
+ok := scope.Has("trips", "view") // true
+```
+
+`AuditEvent`, `Action*`, `Status*`, `AuditService`, `AuditWriter`,
+`NewAuditWriter`: write audit trail entries from your own handlers.
+
+```go
+audit := authkit.NewAuditWriter(kit.Audit(), "TripHandler")
+
+func createTrip(c *gin.Context) {
+	// ... create the trip ...
+	audit.WriteAudit(c, authkit.AuditEvent{
+		Action:   authkit.ActionCreate,
+		Resource: "trips",
+		Status:   authkit.StatusSuccess,
+	})
+}
+```
+
+`RequestLogger`: a gin middleware that logs every request.
+
+```go
+r.Use(authkit.RequestLogger())
+```
+
+`RoleSuperAdmin`, `RoleAdmin`, `RoleStaff`, `RoleMember`, `RoleViewer`: the
+built-in role names.
+
+```go
+api.GET("/reports", kit.Auth(), kit.Role(authkit.RoleAdmin, authkit.RoleStaff), reports)
+```
+
+`Mailer`, `BrevoConfig`, `NewBrevoMailer`: send OTP and password reset e-mail.
+
+```go
+m, err := authkit.NewBrevoMailer(authkit.BrevoConfig{
+	Host: "smtp-relay.brevo.com", User: "login", Pass: "key", From: "no-reply@example.com",
+})
+```
+
+`AppConfigService`: read and update runtime app configuration.
+
+```go
+var appConfig authkit.AppConfigService = kit.AppConfig()
+```
 
 ## Configuration
 
 The nested config types (`OTPConfig`, `PasswordResetConfig`, `LoginLimit`,
-`RateLimit`, `FlagKeys`) live in the `settings` package
-(`github.com/zazhedho/authkit/settings`). Printing a `Config` with `%v`, `%+v`
+`RateLimit`, `FlagKeys`) are exported by the root package. Printing a `Config` with `%v`, `%+v`
 or `%#v` redacts `JWTKey`, `OTP.Secret` and `Reset.Secret`.
 
 `authkit.Config` is explicit; `authkit.ConfigFromEnv()` fills it from environment
 variables and is the only code in the module that reads the environment (plus
-the optional `mailer.NewBrevoSenderFromEnv`). `DB`, `Redis` and `Mailer` are
+nothing else in the public API). `DB`, `Redis` and `Mailer` are
 never read from the environment. Zero or negative numbers and durations mean
 "use the default": a limiter can not be disabled by setting its variable to 0.
 When both durations and seconds variables exist, the duration form wins.
@@ -154,8 +221,8 @@ When both durations and seconds variables exist, the duration form wins.
 The `Flags` values are keys of rows in `app_configs`, which admins change at
 runtime through the `/config` routes. The Brevo mailer has its own variables
 (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `SMTP_SUBJECT`,
-`RESET_SUBJECT`); see `mailer.BrevoConfig` to build it without the environment,
-or implement the `authkit.Mailer` interface yourself. Custom mailers implement
+`RESET_SUBJECT`); read them yourself and pass an `authkit.BrevoConfig` to
+`authkit.NewBrevoMailer` (the module no longer reads them for you), or implement the `authkit.Mailer` interface yourself. Custom mailers implement
 both `SendOTP(to, code, appName string, ttl time.Duration) error` (`ttl` is the
 configured `OTP.TTL`; state it in the message) and
 `SendPasswordReset(to, token, appName, resetURL string, ttl time.Duration) error`.
@@ -276,7 +343,7 @@ Call `Mount` once per group; mounting twice makes gin panic on duplicate routes.
 
 ## Migrations
 
-`kit.Migrate(ctx)` applies the embedded migrations (`migrations/`, nine tables:
+`kit.Migrate(ctx)` applies the embedded migrations (`internal/migrations/`, nine tables:
 `users`, `blacklist`, `roles`, `permissions`, `menu_items`, `role_permissions`,
 `role_menus`, `audit_trails`, `app_configs`, plus the seed rows for the system
 roles, menus and permissions). It keeps its own version table,
@@ -337,11 +404,11 @@ from your pool and leaves your `*sql.DB` open.
   trips -display-name Trips -path /trips` prints SQL that inserts the menu,
   permissions and role grants for a module (`-actions`, `-grant-roles`,
   `-icon`, `-order-index` and `-parent-name` adjust it). Put the output in your own
-  migration. The same is available as `moduleseed.RenderSQL`.
-- **Without `Mount`.** Everything `Mount` wires is built from exported
-  packages: `services/...`, `handlers/...`, `repositories/...` and
-  `middlewares`. Construct the handlers you want and register them on your own
-  router and path layout.
+  migration.
+- **Without `Mount`.** The handlers, services and repositories are internal
+  and not importable. Use `Mount` for the route set and `Auth`, `Can` and
+  `Role` for your own routes; mount it on a group (for example `/api`) to place
+  it in your path layout.
 
 ## Development
 
@@ -349,8 +416,47 @@ from your pool and leaves your `*sql.DB` open.
 go build ./... && go vet ./... && go test -race -count=1 ./...
 ```
 
+The module layout is the root package (`authkit.go`, `config.go`, `mount.go`,
+`migrate.go`, `types.go`), `cmd/module-seed`, and everything else under
+`internal/`.
+
 Integration tests for `Migrate` need a disposable PostgreSQL and are skipped
 without `AUTHKIT_TEST_DATABASE_URL`, for example
 `postgres://postgres:test@127.0.0.1:55432/postgres?sslmode=disable`. Each test
 creates and drops its own schema. `AUTHKIT_STARTER_KIT_DIR` enables a test that
 compares the embedded migrations with the original project's copy.
+
+## Upgrading from v0.1.x
+
+v0.2.0 is a breaking release: every sub-package became `internal/`, and the
+public API is the root package only. Change imports to
+`github.com/zazhedho/authkit` and rename:
+
+| v0.1.x import path and name | v0.2.0 |
+|---|---|
+| `authscope.Scope` | `authkit.Scope` |
+| `authscope.New(...)` | `authkit.NewScope(...)` |
+| `authscope.WithContext(ctx, scope)` | `authkit.WithScope(ctx, scope)` |
+| `authscope.FromContext(ctx)` | `authkit.ScopeFrom(ctx)` |
+| `domain/audit` `AuditEvent` | `authkit.AuditEvent` |
+| `domain/audit` `ActionCreate`, `ActionUpdate`, `ActionDelete`, `ActionAssign`, `ActionLogin`, `ActionLogout`, `ActionRefresh` | `authkit.Action*` |
+| `domain/audit` `StatusSuccess`, `StatusFailed` | `authkit.Status*` |
+| `interfaces/audit` `ServiceAuditInterface` | `authkit.AuditService` |
+| `interfaces/appconfig` `ServiceAppConfigInterface` | `authkit.AppConfigService` |
+| `handlers/auditwriter` `AuditWriter`, `NewAuditWriter` | `authkit.AuditWriter`, `authkit.NewAuditWriter` |
+| `middlewares.RequestLogger` | `authkit.RequestLogger` |
+| `authutil.RoleSuperAdmin`, `RoleAdmin`, `RoleStaff`, `RoleMember`, `RoleViewer` | `authkit.Role*` |
+| `mailer.BrevoConfig` | `authkit.BrevoConfig` |
+| `mailer.NewBrevoSender` | `authkit.NewBrevoMailer` (returns `authkit.Mailer`) |
+| `mailer.NewBrevoSenderFromEnv` | removed; read the `SMTP_*` variables yourself and call `authkit.NewBrevoMailer` |
+| `settings.OTPConfig`, `PasswordResetConfig`, `LoginLimit`, `RateLimit`, `FlagKeys` | `authkit.OTPConfig`, `PasswordResetConfig`, `LoginLimit`, `RateLimit`, `FlagKeys` |
+| `Kit.Users()` | removed |
+| `Kit.Tokens()` | removed; use `Kit.IssueAccessToken(userID, name, role)` to get an access token for tests and tooling |
+| `moduleseed` | internal; use `go run github.com/zazhedho/authkit/cmd/module-seed` |
+
+Everything else (`domain`, `dto`, `handlers`, `interfaces`, `repositories`,
+`services`, `security`, `cache`, `authutil`, `configvalue`, `middlewares`) is
+internal and no longer importable. Behavior, routes, permissions, JSON,
+migrations, configuration defaults and environment variable names are
+unchanged. The module now requires `github.com/zazhedho/gokit` v0.2.0 (one
+package) and `github.com/zazhedho/logus` v0.1.1.
