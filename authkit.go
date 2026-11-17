@@ -211,5 +211,7 @@ func (k *Kit) AppConfig() interfaceappconfig.ServiceAppConfigInterface { return 
 // Tokens returns the token issuer and verifier built from the configuration.
 func (k *Kit) Tokens() *authutil.Tokens { return k.tokens }
 
-// ScopeFrom returns the authenticated scope that Auth (and Can) stored on ctx.
+// ScopeFrom returns the scope stored on ctx. After Auth alone it has the
+// identity and role but an empty permission set, so Has is false for every
+// non-superadmin; Can loads the user's permissions into the scope.
 func ScopeFrom(ctx context.Context) authscope.Scope { return authscope.FromContext(ctx) }

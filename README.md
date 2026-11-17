@@ -7,13 +7,14 @@ OTP and password reset e-mail, roles, permissions, menus, runtime app
 configuration, audit trails, an HTTP route set, and the middleware to protect
 your own routes. Database tables ship as embedded migrations.
 
-authkit builds on two sibling modules: [`github.com/zazhedho/gokit`](../gokit)
+authkit builds on two sibling modules: [`github.com/zazhedho/gokit`](https://github.com/zazhedho/gokit)
 (request ids, rate limiting, response helpers, generic repositories) and
-[`github.com/zazhedho/logus`](../logus) (logging). Read the "Security defaults"
+[`github.com/zazhedho/logus`](https://github.com/zazhedho/logus) (logging). Read the "Security defaults"
 section of gokit's README (trusted proxies, fail-open rate limiting, `limit=-1`,
 CORS) before exposing the routes; it applies to authkit unchanged.
 
-Requires PostgreSQL. Redis and a mailer are optional.
+Requires PostgreSQL 13 or newer. Redis and a mailer are optional. Read
+"Known limitations and security notes" below before deploying.
 
 ## Quick start
 
@@ -54,6 +55,9 @@ func main() {
 	}
 
 	r := gin.New()
+	// Set your reverse proxy CIDRs instead when behind a proxy; rate limits and
+	// audit IPs depend on it.
+	r.SetTrustedProxies(nil)
 	kit.Mount(r.Group("/api"))
 	log.Fatal(r.Run(":8080"))
 }
@@ -63,6 +67,8 @@ Order matters: build the `Kit`, run `Migrate`, then run your own migrations
 (they may reference `users` and `roles`), then `Mount`.
 
 ## Protecting your own routes
+
+Routes, as a fragment of your `main` (after `kit.Mount`):
 
 ```go
 api := r.Group("/api")
@@ -75,19 +81,33 @@ api.POST("/trips", kit.Auth(), kit.Can("trips", "create"), createTrip)
 
 // Authenticated and one of the given roles.
 api.GET("/reports", kit.Auth(), kit.Role("admin", "staff"), reports)
+```
 
+A handler, as a complete function (add `net/http`, `github.com/gin-gonic/gin`
+and `github.com/zazhedho/authkit` to your imports):
+
+```go
 func listTrips(c *gin.Context) {
-	scope := authkit.ScopeFrom(c.Request.Context()) // UserID, Username, Role, Permissions, impersonation fields
-	_ = scope
+	scope := authkit.ScopeFrom(c.Request.Context()) // UserID, Username, Role, impersonation fields
+	// After kit.Auth() alone the permission set is EMPTY, so scope.Has is false
+	// for every non-superadmin. kit.Can(...) loads the permissions; behind it,
+	// scope.Has("trips", "create") reflects the user's real grants.
+	c.JSON(http.StatusOK, gin.H{"user": scope.UserID, "role": scope.Role})
 }
 ```
 
-`Can` and `Role` must come after `Auth`. Superadmin bypasses both. Permissions are
+`Can` and `Role` must come after `Auth`. Superadmin bypasses both. `ScopeFrom`
+returns identity and role after `Auth`; permissions are only populated by `Can`. Permissions are
 plain rows (`resource`, `action`); add yours with the `moduleseed` helper (see
 Extending). `kit.Users()`, `kit.Audit()`, `kit.AppConfig()` and `kit.Tokens()`
 expose the underlying services.
 
 ## Configuration
+
+The nested config types (`OTPConfig`, `PasswordResetConfig`, `LoginLimit`,
+`RateLimit`, `FlagKeys`) live in the `settings` package
+(`github.com/zazhedho/authkit/settings`). Printing a `Config` with `%v`, `%+v`
+or `%#v` redacts `JWTKey`, `OTP.Secret` and `Reset.Secret`.
 
 `authkit.Config` is explicit; `authkit.ConfigFromEnv()` fills it from environment
 variables and is the only code in the module that reads the environment (plus
@@ -135,7 +155,10 @@ The `Flags` values are keys of rows in `app_configs`, which admins change at
 runtime through the `/config` routes. The Brevo mailer has its own variables
 (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `SMTP_SUBJECT`,
 `RESET_SUBJECT`); see `mailer.BrevoConfig` to build it without the environment,
-or implement the `authkit.Mailer` interface yourself.
+or implement the `authkit.Mailer` interface yourself. Custom mailers implement
+both `SendOTP(to, code, appName string, ttl time.Duration) error` (`ttl` is the
+configured `OTP.TTL`; state it in the message) and
+`SendPasswordReset(to, token, appName, resetURL string, ttl time.Duration) error`.
 
 ### What needs Redis
 
@@ -214,6 +237,43 @@ Call `Mount` once per group; mounting twice makes gin panic on duplicate routes.
 - **Rate limiting fails open** if Redis is unavailable, and proxy and CORS
   behaviour come from gokit; see its "Security defaults" section.
 
+## Known limitations and security notes
+
+- **Development password-reset path.** When `AppEnv` is `development`, `local`
+  or `test` and the `auth.password_reset_email_enabled` flag is off,
+  `POST /user/forgot-password` returns a valid reset token in the response for
+  any registered email. Never set those values on a reachable deployment. `New`
+  logs a warning when `AppEnv` is one of them.
+- **Logout and sessions.** Logout blacklists only the presented access token.
+  Without Redis sessions the refresh token stays valid until it expires.
+  Password reset revokes only Redis sessions.
+- **Access token claims are trusted until expiry.** The `role` claim (including
+  the superadmin bypass) is trusted until the token expires; role changes and
+  account deletion do not revoke issued tokens. The default access token
+  lifetime is 24h, so set a short `AccessTokenTTL`. `expires_in_hours` in
+  responses is whole hours and reports 0 for lifetimes under an hour.
+- **Permission cache.** Permission checks for non-superadmin roles are cached in
+  Redis for `PermissionCacheTTL` (default 300s). Changes made outside the API
+  (direct SQL, seeds) can be stale for up to that long.
+- **Redis keys are not namespaced per application.** Use a separate Redis
+  database (or ACL key prefix) per application. Sharing one Redis DB shares the
+  login and register limiter counters and the OTP and reset throttling state,
+  and one application's permission-cache invalidation evicts the others'.
+- **Rate limiting.** Limiters key on the client IP as gin reports it (see
+  `SetTrustedProxies` in the quick start) and fail open. Without Redis there is
+  no login or register limiting.
+- **Runtime flags.** Public registration is ON by default (the baseline seeds
+  `auth.public_registration_enabled = true`). Email password reset is OFF until
+  `auth.password_reset_email_enabled` is true AND Redis, a mailer and
+  `Reset.Secret` are configured; with the flag off and a non-development
+  `AppEnv`, `POST /user/forgot-password` responds 503.
+- **Startup warnings.** `New` logs one warning when `AppEnv` is a development
+  value and one when `Redis` is nil.
+- **Deferred to a later release.** Live account and session checks on every
+  request; refresh-token revocation on logout and credential change;
+  exact-algorithm and required-expiry JWT validation; per-account login
+  limiting; hashing of stored tokens.
+
 ## Migrations
 
 `kit.Migrate(ctx)` applies the embedded migrations (`migrations/`, nine tables:
@@ -222,8 +282,10 @@ Call `Mount` once per group; mounting twice makes gin panic on duplicate routes.
 roles, menus and permissions). It keeps its own version table,
 `authkit_schema_migrations`, in the connection's current schema, so it never
 collides with your project's `schema_migrations`. It is idempotent and safe to
-call on every start, also from several instances at once (it takes the
-migration library's advisory lock).
+call on every start. Instances that start at the same time serialize on the
+migration library's advisory lock: one applies the migrations and the others
+wait, then find nothing to do, and all return nil (covered by
+`TestMigrateConcurrentFirstStart`).
 
 What it does depends on the database:
 
@@ -232,7 +294,7 @@ What it does depends on the database:
 | Empty (no `users` table, no version record) | Applies all migrations; version table ends at 4. |
 | Existing, from before authkit (has `users`, no version record), schema complete | Records version 4 **without running the baseline SQL**, then applies any later authkit migration. |
 | Existing, schema incomplete | Returns an error wrapping `ErrLegacySchemaIncomplete` that lists the missing `table` or `table.column`. Nothing is changed and no version table is created. |
-| Has a version record | Applies pending migrations. A dirty record returns `ErrMigrationsDirty` naming the table; authkit never repairs it. |
+| Has a version record | Applies pending migrations. A dirty record, reported once the lock is held, returns `ErrMigrationsDirty` naming the table; authkit never repairs it. |
 
 The baseline is not replayed on existing databases because its seed is not
 idempotent: it computes role grants from whatever is in `permissions` when it
@@ -243,10 +305,26 @@ uses (`current_schema()`), by comparing the expected columns, not by trusting
 that a `users` table exists. An empty version table next to existing data (an
 interrupted stamp) is treated like a missing one.
 
-Run `Migrate` before your own migrations. `ctx` bounds the schema inspection and
-the connection checkout; once the migration step starts it is not cancellable
-mid-statement. `Migrate` runs on its own connection from your pool and leaves
-your `*sql.DB` open.
+Run `Migrate` before your own migrations. `Migrate` runs on its own connection
+from your pool and leaves your `*sql.DB` open.
+
+- **Use a direct database connection.** The advisory lock is session-level, which
+  does not work through transaction-pooling proxies such as pgbouncer in
+  transaction mode.
+- **`ctx` does not bound the lock wait.** It bounds the schema inspection and the
+  connection checkout; waiting for another instance's lock, and a migration that
+  has started, are not cancelled by it.
+- **The legacy check compares table and column names only**, not types, indexes
+  or constraints. Table presence is read from the PostgreSQL catalog, so it does
+  not depend on the role's privileges.
+- **PostgreSQL 13 or newer** is required (the baseline uses `gen_random_uuid()`).
+- **Adopting projects must delete their own copies of the baseline migrations**
+  (users, RBAC, audit trails, app configs). Re-running those files replays the
+  seed data. Keep only your own migrations in your directory.
+- **Dirty record.** If `ErrMigrationsDirty` is returned, repair the database by
+  hand, then set the record in `authkit_schema_migrations` to the last fully
+  applied version and clear the dirty flag. Never delete the record: a missing
+  record next to existing tables makes the database look unmigrated to authkit.
 
 ## Extending
 
