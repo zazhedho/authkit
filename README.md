@@ -18,7 +18,7 @@ section of gokit's README (trusted proxies, fail-open rate limiting, `limit=-1`,
 CORS) before exposing the routes; it applies to authkit unchanged.
 
 Requires PostgreSQL 13 or newer. Redis and a mailer are optional. Read
-"Known limitations and security notes" below before deploying.
+"Security notes and known limitations" below before deploying.
 
 ## Quick start
 
@@ -285,7 +285,7 @@ limiter and sessions work and OTP and reset e-mail stay inactive.
 
 Call `Mount` once per group; mounting twice makes gin panic on duplicate routes.
 
-## Security notes
+## Security notes and known limitations
 
 - **Tokens are bound to `AppName`.** Access, refresh and reset tokens carry
   `AppName` as `iss` and `aud` and are rejected unless both match. Tokens issued
@@ -304,13 +304,10 @@ Call `Mount` once per group; mounting twice makes gin panic on duplicate routes.
 - **Rate limiting fails open** if Redis is unavailable, and proxy and CORS
   behaviour come from gokit; see its "Security defaults" section.
 
-## Known limitations and security notes
-
 - **Development password-reset path.** When `AppEnv` is `development`, `local`
   or `test` and the `auth.password_reset_email_enabled` flag is off,
   `POST /user/forgot-password` returns a valid reset token in the response for
-  any registered email. Never set those values on a reachable deployment. `New`
-  logs a warning when `AppEnv` is one of them.
+  any registered email. Never set those values on a reachable deployment.
 - **Logout and sessions.** Logout blacklists only the presented access token.
   Without Redis sessions the refresh token stays valid until it expires.
   Password reset revokes only Redis sessions.
@@ -327,8 +324,8 @@ Call `Mount` once per group; mounting twice makes gin panic on duplicate routes.
   login and register limiter counters and the OTP and reset throttling state,
   and one application's permission-cache invalidation evicts the others'.
 - **Rate limiting.** Limiters key on the client IP as gin reports it (see
-  `SetTrustedProxies` in the quick start) and fail open. Without Redis there is
-  no login or register limiting.
+  `SetTrustedProxies` in the quick start). Without Redis there is no login or
+  register limiting.
 - **Runtime flags.** Public registration is ON by default (the baseline seeds
   `auth.public_registration_enabled = true`). Email password reset is OFF until
   `auth.password_reset_email_enabled` is true AND Redis, a mailer and
@@ -423,8 +420,7 @@ The module layout is the root package (`authkit.go`, `config.go`, `mount.go`,
 Integration tests for `Migrate` need a disposable PostgreSQL and are skipped
 without `AUTHKIT_TEST_DATABASE_URL`, for example
 `postgres://postgres:test@127.0.0.1:55432/postgres?sslmode=disable`. Each test
-creates and drops its own schema. `AUTHKIT_STARTER_KIT_DIR` enables a test that
-compares the embedded migrations with the original project's copy.
+creates and drops its own schema.
 
 ## Upgrading from v0.1.x
 

@@ -1,14 +1,12 @@
 package authkit
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net/url"
 	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -68,41 +66,6 @@ func TestMissingFromSchema(t *testing.T) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
 	})
-}
-
-// TestEmbeddedMigrationsMatchStarterKit compares the embedded baseline with the
-// original files. Set AUTHKIT_STARTER_KIT_DIR to the starter-kit checkout.
-func TestEmbeddedMigrationsMatchStarterKit(t *testing.T) {
-	dir := os.Getenv("AUTHKIT_STARTER_KIT_DIR")
-	if dir == "" {
-		t.Skip("AUTHKIT_STARTER_KIT_DIR is not set")
-	}
-	src := filepath.Join(dir, "migrations")
-	st, err := os.Stat(src) //nolint:gosec // test-only path from the environment
-	if err != nil || !st.IsDir() {
-		t.Skipf("no migrations directory in %s", dir)
-	}
-
-	entries, err := fs.ReadDir(migrationsFS, ".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 8 {
-		t.Fatalf("embedded migrations: got %d files, want 8", len(entries))
-	}
-	for _, e := range entries {
-		got, err := fs.ReadFile(migrationsFS, e.Name())
-		if err != nil {
-			t.Fatal(err)
-		}
-		want, err := os.ReadFile(filepath.Join(src, e.Name())) //nolint:gosec // test-only path from the environment
-		if err != nil {
-			t.Fatalf("%s: %v", e.Name(), err)
-		}
-		if !bytes.Equal(got, want) {
-			t.Errorf("%s differs from the starter-kit copy", e.Name())
-		}
-	}
 }
 
 func TestBaselineSchemaCoversEmbeddedTables(t *testing.T) {

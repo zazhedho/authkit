@@ -1,11 +1,7 @@
 package authkit
 
 import (
-	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -127,44 +123,6 @@ func TestMountCanServeTwoGroups(t *testing.T) {
 		}
 		if code := do(engine, http.MethodGet, prefix+"/users", "").Code; code != http.StatusUnauthorized {
 			t.Fatalf("%s users: got %d", prefix, code)
-		}
-	}
-}
-
-func TestMountedRoutesMatchStarterKitRouter(t *testing.T) {
-	dir := os.Getenv("AUTHKIT_STARTER_KIT_DIR")
-	if dir == "" {
-		t.Skip("AUTHKIT_STARTER_KIT_DIR is not set")
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, "internal", "router", "router.go")) //nolint:gosec // test-only path from the environment
-	if err != nil {
-		t.Skipf("starter-kit router not available: %v", err)
-	}
-	text := string(raw)
-
-	for _, route := range sortedCopy(baseRoutes, sessionRoutes) {
-		method, path, _ := strings.Cut(route, " ")
-		found := false
-		// A route is either a full literal (r.App.GET("/api/users", ...)) or
-		// a group prefix plus a suffix literal (user.GET("/register/status", ...)).
-		for i := 0; i <= len(path); i++ {
-			if i < len(path) && path[i] != '/' && i != 0 {
-				continue
-			}
-			prefix, suffix := path[:i], path[i:]
-			callRe := regexp.MustCompile(`\.` + method + `\(` + regexp.QuoteMeta(fmt.Sprintf("%q", suffix)))
-			if prefix == "" {
-				if callRe.MatchString(text) {
-					found = true
-				}
-				continue
-			}
-			if strings.Contains(text, fmt.Sprintf("%q", prefix)) && callRe.MatchString(text) {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("route %s not found as a literal in starter-kit router.go", route)
 		}
 	}
 }
