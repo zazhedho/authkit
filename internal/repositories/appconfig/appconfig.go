@@ -4,7 +4,7 @@ import (
 	"context"
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
-	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
+	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 
 	"gorm.io/gorm"
@@ -19,7 +19,7 @@ func NewRepository(db *gorm.DB) *Repository {
 }
 
 func (r *Repository) GetAll(ctx context.Context, req dtoappconfig.ListRequest) (ret []domainappconfig.AppConfig, totalData int64, err error) {
-	return r.Repository.GetAll(ctx, reposhared.BaseParams(req), gokit.QueryOptions{
+	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
 		Search:          gokit.BuildSearchFunc("config_key", "display_name", "category"),
 		AllowedFilters:  []string{"category", "is_active"},
 		FilterSanitizer: gokit.WhitelistStringFilter,
@@ -36,7 +36,7 @@ func (r *Repository) GetAll(ctx context.Context, req dtoappconfig.ListRequest) (
 }
 
 func translateErr(err error) error {
-	return reposhared.Gorm(err, domainappconfig.ErrNotFound, nil)
+	return repositoryshared.Gorm(err, domainappconfig.ErrNotFound, nil)
 }
 
 func (r *Repository) GetByID(ctx context.Context, id string) (domainappconfig.AppConfig, error) {

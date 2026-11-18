@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
@@ -23,3 +24,12 @@ type PermissionCache interface {
 	Get(ctx context.Context, userID string) ([]string, bool)
 	Set(ctx context.Context, userID string, keys []string, ttl time.Duration)
 }
+
+// TokenVerifier reads and verifies the bearer token of a request.
+type TokenVerifier interface {
+	ClaimsFromRequest(request *http.Request) (string, map[string]any, error)
+}
+
+// tokenTypeAccess is the token_type claim of an access token. The token
+// package issues it; the middleware only accepts that value.
+const tokenTypeAccess = "access"

@@ -4,15 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/zazhedho/authkit/internal/config"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainotp "github.com/zazhedho/authkit/internal/domain/otp"
+	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"net/http"
@@ -26,6 +25,35 @@ import (
 // none is configured.
 const defaultCooldown = 60 * time.Second
 
+// Defaults applied when Settings leaves a value unset; the root package
+// applies the same ones to its Config, and a test keeps them in step.
+const (
+	defaultAccessTTL  = 24 * time.Hour
+	defaultRefreshTTL = 168 * time.Hour
+
+	defaultFlagPublicRegistration = "auth.public_registration_enabled"
+	defaultFlagRegisterOTP        = "auth.register_otp_enabled"
+	defaultFlagPasswordResetEmail = "auth.password_reset_email_enabled"
+)
+
+// FlagKeys are the runtime app-config keys the handler consults.
+type FlagKeys struct {
+	PublicRegistration string
+	RegisterOTP        string
+	PasswordResetEmail string
+}
+
+// Settings carries the values the handler needs at request time.
+type Settings struct {
+	AppEnv, EmailAppName  string
+	AccessTTL, RefreshTTL time.Duration
+	OTPCooldown           time.Duration
+	// ResetCooldown is the resend cooldown reported by the forgot-password
+	// email flow.
+	ResetCooldown time.Duration
+	Flags         FlagKeys
+}
+
 type Handler struct {
 	Service      Service
 	SessionSvc   SessionService
@@ -34,16 +62,16 @@ type Handler struct {
 	AppConfigService AppConfigService
 	OTPService       OTPService
 	ResetService     ResetService
-	Tokens           *token.Tokens
-	Settings         config.UserHandler
+	Tokens           TokenIssuer
+	Settings         Settings
 }
 
 type Options struct {
 	AppConfigService AppConfigService
 	OTPService       OTPService
 	ResetService     ResetService
-	Tokens           *token.Tokens
-	Settings         config.UserHandler
+	Tokens           TokenIssuer
+	Settings         Settings
 }
 
 func New(
@@ -54,22 +82,21 @@ func New(
 	options Options,
 ) *Handler {
 	userSettings := options.Settings
-	defaultFlags := config.DefaultFlagKeys()
 	if userSettings.Flags.PublicRegistration == "" {
-		userSettings.Flags.PublicRegistration = defaultFlags.PublicRegistration
+		userSettings.Flags.PublicRegistration = defaultFlagPublicRegistration
 	}
 	if userSettings.Flags.RegisterOTP == "" {
-		userSettings.Flags.RegisterOTP = defaultFlags.RegisterOTP
+		userSettings.Flags.RegisterOTP = defaultFlagRegisterOTP
 	}
 	if userSettings.Flags.PasswordResetEmail == "" {
-		userSettings.Flags.PasswordResetEmail = defaultFlags.PasswordResetEmail
+		userSettings.Flags.PasswordResetEmail = defaultFlagPasswordResetEmail
 	}
 
 	if userSettings.AccessTTL <= 0 {
-		userSettings.AccessTTL = token.DefaultAccessTTL
+		userSettings.AccessTTL = defaultAccessTTL
 	}
 	if userSettings.RefreshTTL <= 0 {
-		userSettings.RefreshTTL = token.DefaultRefreshTTL
+		userSettings.RefreshTTL = defaultRefreshTTL
 	}
 	if userSettings.OTPCooldown <= 0 {
 		userSettings.OTPCooldown = defaultCooldown
@@ -427,7 +454,7 @@ func (h *Handler) Login(ctx *gin.Context) {
 
 	refreshToken := ""
 	if userErr == nil {
-		refreshToken, err = h.Tokens.GenerateRefresh(&loggedInUser, logId.String(), nil)
+		refreshToken, err = h.Tokens.GenerateRefresh(loggedInUser.Id, loggedInUser.Name, loggedInUser.Role, logId.String())
 		if err != nil {
 			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GenerateRefreshJwt; ERROR: %s;", logPrefix, err))
 			res := gokit.InternalServerError(logId)
@@ -516,7 +543,7 @@ func (h *Handler) GoogleLogin(ctx *gin.Context) {
 		return
 	}
 
-	accessToken, err := h.Tokens.Generate(&user, logId.String())
+	accessToken, err := h.Tokens.Generate(user.Id, user.Name, user.Role, logId.String())
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GenerateJwt; ERROR: %s;", logPrefix, err))
 		res := gokit.InternalServerError(logId)
@@ -524,7 +551,7 @@ func (h *Handler) GoogleLogin(ctx *gin.Context) {
 		return
 	}
 
-	refreshToken, err := h.Tokens.GenerateRefresh(&user, logId.String(), nil)
+	refreshToken, err := h.Tokens.GenerateRefresh(user.Id, user.Name, user.Role, logId.String())
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GenerateRefreshJwt; ERROR: %s;", logPrefix, err))
 		res := gokit.InternalServerError(logId)
@@ -669,8 +696,8 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 		return
 	}
 
-	claimsOverride := buildImpersonationClaimsOverrideFromClaims(tokenClaims)
-	accessToken, err := h.Tokens.GenerateWithClaims(&user, logId.String(), claimsOverride)
+	imp := impersonationFromClaims(tokenClaims)
+	accessToken, err := h.issueAccessToken(&user, logId.String(), imp)
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			ActorUserID:  userID,
@@ -688,7 +715,7 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 		return
 	}
 
-	refreshToken, err := h.Tokens.GenerateRefresh(&user, logId.String(), claimsOverride)
+	refreshToken, err := h.issueRefreshToken(&user, logId.String(), imp)
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			ActorUserID:  userID,
@@ -1225,7 +1252,7 @@ func (h *Handler) ForgotPassword(ctx *gin.Context) {
 	}
 
 	appEnv := gokit.NormalizeKey(h.Settings.AppEnv)
-	if !config.IsDev(appEnv) {
+	if !domainreset.IsDevEnv(appEnv) {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Development password reset fallback is disabled in APP_ENV=%s", logPrefix, appEnv))
 		res := gokit.Response(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logId, nil)
 		res.Error = gokit.Errors{Code: http.StatusServiceUnavailable, Message: "Password reset service is temporarily unavailable."}

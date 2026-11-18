@@ -4,7 +4,7 @@ import (
 	"context"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
-	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
+	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 
 	"gorm.io/gorm"
@@ -21,7 +21,7 @@ func NewRepository(db *gorm.DB) *Repository {
 }
 
 func translateErr(err error) error {
-	return reposhared.Gorm(err, domainrole.ErrNotFound, domainrole.ErrDuplicate)
+	return repositoryshared.Gorm(err, domainrole.ErrNotFound, domainrole.ErrDuplicate)
 }
 
 func (r *Repository) Store(ctx context.Context, role domainrole.Role) error {
@@ -47,7 +47,7 @@ func (r *Repository) GetByName(ctx context.Context, name string) (ret domainrole
 }
 
 func (r *Repository) GetAll(ctx context.Context, req dtorole.ListRequest) (ret []domainrole.Role, totalData int64, err error) {
-	return r.Repository.GetAll(ctx, reposhared.BaseParams(req), gokit.QueryOptions{
+	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
 		Search:         gokit.BuildSearchFunc("name", "display_name", "description"),
 		AllowedFilters: []string{"id", "name", "display_name", "is_system", "created_at", "updated_at"},
 		AllowedOrderColumns: []string{

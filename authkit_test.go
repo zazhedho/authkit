@@ -342,9 +342,9 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 			issue func() (string, error)
 			want  time.Duration
 		}{
-			"access":         {func() (string, error) { return kit.tokens.Generate(u, "log") }, 7 * time.Hour},
-			"refresh":        {func() (string, error) { return kit.tokens.GenerateRefresh(u, "log", nil) }, 50 * time.Hour},
-			"password reset": {func() (string, error) { return kit.tokens.GeneratePasswordReset(u, "log") }, 333 * time.Second},
+			"access":         {func() (string, error) { return kit.tokens.Generate(u.Id, u.Name, u.Role, "log") }, 7 * time.Hour},
+			"refresh":        {func() (string, error) { return kit.tokens.GenerateRefresh(u.Id, u.Name, u.Role, "log") }, 50 * time.Hour},
+			"password reset": {func() (string, error) { return kit.tokens.GeneratePasswordReset(u.Id, u.Name, u.Role, "log") }, 333 * time.Second},
 		} {
 			tok, err := tc.issue()
 			if err != nil {
@@ -362,7 +362,7 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		tok, err := foreign.Generate(&domainuser.Users{Id: "x", Role: "viewer"}, "log")
+		tok, err := foreign.Generate("x", "", "viewer", "log")
 		if err != nil {
 			t.Fatal(err)
 		}

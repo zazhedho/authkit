@@ -41,9 +41,9 @@ type PermissionRepository interface {
 
 // TokenIssuer issues and reads the JWTs the user flows need.
 type TokenIssuer interface {
-	Generate(user *domainuser.Users, logID string) (string, error)
-	GenerateImpersonated(user *domainuser.Users, logID, originalUserID, originalUsername, originalRole string) (string, error)
-	GeneratePasswordReset(user *domainuser.Users, logID string) (string, error)
+	Generate(userID, username, role, logID string) (string, error)
+	GenerateImpersonated(userID, username, role, logID, originalUserID, originalUsername, originalRole string) (string, error)
+	GeneratePasswordReset(userID, username, role, logID string) (string, error)
 	Claims(tokenString string) (map[string]any, error)
 	ExpiresAt(tokenString string) (time.Time, error)
 	IsPasswordResetClaims(claims map[string]any) bool

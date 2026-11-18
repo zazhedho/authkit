@@ -68,3 +68,12 @@ type ResetService interface {
 	RequestReset(ctx context.Context, email, appName string) error
 	VerifyReset(ctx context.Context, token string) (string, error)
 }
+
+// TokenIssuer issues and reads the JWTs the login and refresh flows need.
+type TokenIssuer interface {
+	Generate(userID, username, role, logID string) (string, error)
+	GenerateRefresh(userID, username, role, logID string) (string, error)
+	GenerateImpersonated(userID, username, role, logID, originalUserID, originalUsername, originalRole string) (string, error)
+	GenerateRefreshImpersonated(userID, username, role, logID, originalUserID, originalUsername, originalRole string) (string, error)
+	Claims(tokenString string) (map[string]any, error)
+}

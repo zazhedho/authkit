@@ -5,7 +5,7 @@ import (
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
-	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
+	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 
 	"gorm.io/gorm"
@@ -20,7 +20,7 @@ func NewRepository(db *gorm.DB) *Repository {
 }
 
 func translateErr(err error) error {
-	return reposhared.Gorm(err, domainpermission.ErrNotFound, domainpermission.ErrDuplicate)
+	return repositoryshared.Gorm(err, domainpermission.ErrNotFound, domainpermission.ErrDuplicate)
 }
 
 func (r *Repository) Store(ctx context.Context, permission domainpermission.Permission) error {
@@ -46,7 +46,7 @@ func (r *Repository) GetByName(ctx context.Context, name string) (ret domainperm
 }
 
 func (r *Repository) GetAll(ctx context.Context, req dtopermission.ListRequest) (ret []domainpermission.Permission, totalData int64, err error) {
-	return r.Repository.GetAll(ctx, reposhared.BaseParams(req), gokit.QueryOptions{
+	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
 		Search:         gokit.BuildSearchFunc("name", "display_name", "description", "resource"),
 		AllowedFilters: []string{"id", "name", "display_name", "resource", "action", "created_at", "updated_at"},
 		AllowedOrderColumns: []string{
@@ -70,7 +70,7 @@ func (r *Repository) GetUserPermissions(ctx context.Context, userId string) (ret
 		Role   string
 	}
 	if err = r.DB.WithContext(ctx).Table("users").Select("role_id, role").Where("id = ?", userId).First(&user).Error; err != nil {
-		return nil, reposhared.Gorm(err, domainuser.ErrNotFound, nil)
+		return nil, repositoryshared.Gorm(err, domainuser.ErrNotFound, nil)
 	}
 
 	if user.Role == domainuser.RoleSuperAdmin {

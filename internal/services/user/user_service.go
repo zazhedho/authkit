@@ -225,7 +225,7 @@ func (s *Service) LoginUser(ctx context.Context, req dtouser.Login, logId string
 		return "", err
 	}
 
-	token, err := s.Tokens.Generate(&data, logId)
+	token, err := s.Tokens.Generate(data.Id, data.Name, data.Role, logId)
 	if err != nil {
 		return "", err
 	}
@@ -274,7 +274,7 @@ func (s *Service) ImpersonateUser(ctx context.Context, actor domainauth.Actor, t
 		return "", errors.New("cannot impersonate superadmin users")
 	}
 
-	return s.Tokens.GenerateImpersonated(&targetUser, logId, actor.UserID, actor.Username, actor.Role)
+	return s.Tokens.GenerateImpersonated(targetUser.Id, targetUser.Name, targetUser.Role, logId, actor.UserID, actor.Username, actor.Role)
 }
 
 func (s *Service) StopImpersonation(ctx context.Context, actor domainauth.Actor, logId string) (string, error) {
@@ -293,7 +293,7 @@ func (s *Service) StopImpersonation(ctx context.Context, actor domainauth.Actor,
 		return "", err
 	}
 
-	return s.Tokens.Generate(&originalUser, logId)
+	return s.Tokens.Generate(originalUser.Id, originalUser.Name, originalUser.Role, logId)
 }
 
 func (s *Service) GetUserById(ctx context.Context, id string) (domainuser.Users, error) {
@@ -449,7 +449,7 @@ func (s *Service) ForgotPassword(ctx context.Context, req dtouser.ForgotPassword
 		return "", nil
 	}
 
-	token, err := s.Tokens.GeneratePasswordReset(&data, "reset_password")
+	token, err := s.Tokens.GeneratePasswordReset(data.Id, data.Name, data.Role, "reset_password")
 	if err != nil {
 		return "", err
 	}

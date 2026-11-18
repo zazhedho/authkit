@@ -7,6 +7,7 @@ import (
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
+	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -59,7 +60,7 @@ func (m *appConfigServiceUserTestDouble) IsEnabled(ctx context.Context, configKe
 
 func TestBuildAuthTokenResponse(t *testing.T) {
 	handler := New(&userServiceTestDouble{}, nil, nil, nil, Options{
-		Settings: config.UserHandler{AccessTTL: 12 * time.Hour, RefreshTTL: 72 * time.Hour},
+		Settings: Settings{AccessTTL: 12 * time.Hour, RefreshTTL: 72 * time.Hour},
 	})
 
 	got := handler.buildAuthTokenResponse("access", "refresh")
@@ -113,19 +114,19 @@ func TestImpersonationErrorResponseMapping(t *testing.T) {
 	}
 }
 
-func TestBuildImpersonationClaimsOverrideFromClaims(t *testing.T) {
-	if got := buildImpersonationClaimsOverrideFromClaims(nil); got != nil {
-		t.Fatalf("expected nil claims override, got %+v", got)
+func TestImpersonationFromClaims(t *testing.T) {
+	if got := impersonationFromClaims(nil); got != nil {
+		t.Fatalf("expected nil impersonation, got %+v", got)
 	}
 
-	got := buildImpersonationClaimsOverrideFromClaims(map[string]any{
+	got := impersonationFromClaims(map[string]any{
 		"is_impersonated":   true,
 		"original_user_id":  "admin-1",
 		"original_username": "Admin",
 		"original_role":     "admin",
 	})
-	if got == nil || !got.IsImpersonated || got.OriginalUserId != "admin-1" {
-		t.Fatalf("unexpected claims override: %+v", got)
+	if got == nil || got.userID != "admin-1" || got.username != "Admin" || got.role != "admin" {
+		t.Fatalf("unexpected impersonation: %+v", got)
 	}
 }
 
@@ -160,11 +161,12 @@ func TestRuntimeConfigAndThrottleResponses(t *testing.T) {
 
 func TestNewUserHandlerAppliesDefaultFlagKeysAndTTLs(t *testing.T) {
 	handler := New(&userServiceTestDouble{}, nil, nil, nil, Options{})
-	want := config.DefaultFlagKeys()
+	// The handler repeats the root defaults; this keeps the copies in step.
+	want := FlagKeys(config.DefaultFlagKeys())
 	if handler.Settings.Flags != want {
 		t.Fatalf("expected default flag keys %+v, got %+v", want, handler.Settings.Flags)
 	}
-	if handler.Settings.AccessTTL != 24*time.Hour || handler.Settings.RefreshTTL != 168*time.Hour {
+	if handler.Settings.AccessTTL != token.DefaultAccessTTL || handler.Settings.RefreshTTL != token.DefaultRefreshTTL {
 		t.Fatalf("expected default TTLs, got %v %v", handler.Settings.AccessTTL, handler.Settings.RefreshTTL)
 	}
 	if handler.Settings.OTPCooldown != 60*time.Second || handler.Settings.ResetCooldown != 60*time.Second {
@@ -174,7 +176,7 @@ func TestNewUserHandlerAppliesDefaultFlagKeysAndTTLs(t *testing.T) {
 
 func TestNewUserHandlerKeepsExplicitCooldowns(t *testing.T) {
 	handler := New(&userServiceTestDouble{}, nil, nil, nil, Options{
-		Settings: config.UserHandler{OTPCooldown: 45 * time.Second, ResetCooldown: 2 * time.Minute},
+		Settings: Settings{OTPCooldown: 45 * time.Second, ResetCooldown: 2 * time.Minute},
 	})
 	if handler.Settings.OTPCooldown != 45*time.Second || handler.Settings.ResetCooldown != 2*time.Minute {
 		t.Fatalf("explicit cooldowns were overwritten: %v %v", handler.Settings.OTPCooldown, handler.Settings.ResetCooldown)
@@ -188,7 +190,7 @@ func TestUserHandlerUsesInjectedFlagKeysAndEmailAppName(t *testing.T) {
 	handler.AppConfigService = appConfig
 	handler.OTPService = otp
 	handler.Settings.EmailAppName = "Injected Mail App"
-	handler.Settings.Flags = config.FlagKeys{PublicRegistration: "custom.registration", RegisterOTP: "custom.otp", PasswordResetEmail: "custom.reset"}
+	handler.Settings.Flags = FlagKeys{PublicRegistration: "custom.registration", RegisterOTP: "custom.otp", PasswordResetEmail: "custom.reset"}
 
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/register/otp/send", `{"email":"new@example.com"}`, nil)
 	handler.SendRegisterOTP(ctx)

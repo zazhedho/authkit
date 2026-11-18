@@ -6,7 +6,7 @@ import (
 	"time"
 
 	domainotp "github.com/zazhedho/authkit/internal/domain/otp"
-	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
+	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -32,7 +32,7 @@ func (r *Repository) SetOTP(ctx context.Context, email, hashed string, ttl time.
 
 func (r *Repository) GetOTP(ctx context.Context, email string) (string, error) {
 	value, err := r.Redis.Get(ctx, fmt.Sprintf("%s%s", otpRegisterKeyPrefix, email)).Result()
-	return value, reposhared.Redis(err, domainotp.ErrNotFound)
+	return value, repositoryshared.Redis(err, domainotp.ErrNotFound)
 }
 
 func (r *Repository) DeleteOTP(ctx context.Context, email string) error {

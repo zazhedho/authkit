@@ -36,15 +36,3 @@ func DefaultFlagKeys() FlagKeys {
 		PasswordResetEmail: DefaultFlagPasswordResetEmail,
 	}
 }
-
-// UserHandler carries the explicit settings the user handler needs at request
-// time.
-type UserHandler struct {
-	AppEnv, EmailAppName  string
-	AccessTTL, RefreshTTL time.Duration
-	OTPCooldown           time.Duration
-	// ResetCooldown is the resend cooldown reported by the forgot-password
-	// email flow.
-	ResetCooldown time.Duration
-	Flags         FlagKeys
-}

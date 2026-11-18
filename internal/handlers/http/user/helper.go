@@ -9,7 +9,6 @@ import (
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
-	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"net/http"
@@ -364,15 +363,33 @@ func impersonationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiResp
 	}
 }
 
-func buildImpersonationClaimsOverrideFromClaims(claims map[string]any) *token.AppClaims {
+// impersonation is the original identity an impersonated token carries.
+type impersonation struct {
+	userID, username, role string
+}
+
+func impersonationFromClaims(claims map[string]any) *impersonation {
 	if claims == nil || !gokit.InterfaceBool(claims["is_impersonated"]) {
 		return nil
 	}
 
-	return &token.AppClaims{
-		IsImpersonated:   true,
-		OriginalUserId:   gokit.InterfaceString(claims["original_user_id"]),
-		OriginalUsername: gokit.InterfaceString(claims["original_username"]),
-		OriginalRole:     gokit.InterfaceString(claims["original_role"]),
+	return &impersonation{
+		userID:   gokit.InterfaceString(claims["original_user_id"]),
+		username: gokit.InterfaceString(claims["original_username"]),
+		role:     gokit.InterfaceString(claims["original_role"]),
 	}
+}
+
+func (h *Handler) issueAccessToken(user *domainuser.Users, logID string, imp *impersonation) (string, error) {
+	if imp == nil {
+		return h.Tokens.Generate(user.Id, user.Name, user.Role, logID)
+	}
+	return h.Tokens.GenerateImpersonated(user.Id, user.Name, user.Role, logID, imp.userID, imp.username, imp.role)
+}
+
+func (h *Handler) issueRefreshToken(user *domainuser.Users, logID string, imp *impersonation) (string, error) {
+	if imp == nil {
+		return h.Tokens.GenerateRefresh(user.Id, user.Name, user.Role, logID)
+	}
+	return h.Tokens.GenerateRefreshImpersonated(user.Id, user.Name, user.Role, logID, imp.userID, imp.username, imp.role)
 }

@@ -63,7 +63,7 @@ func TestNewTokensAppliesDefaultTTLs(t *testing.T) {
 		t.Fatalf("expected default refresh TTL 168h, got %v", tokens.RefreshTTL())
 	}
 
-	token, err := tokens.GeneratePasswordReset(&domainuser.Users{Id: "user-1"}, "reset-1")
+	token, err := tokens.GeneratePasswordReset("user-1", "", "", "reset-1")
 	if err != nil {
 		t.Fatalf("GeneratePasswordReset: %v", err)
 	}
@@ -85,11 +85,7 @@ func assertExpiresAround(t *testing.T, expiresAt time.Time, ttl time.Duration) {
 func TestGenerateIncludesAccessClaims(t *testing.T) {
 	tokens := newTestTokens(t)
 
-	token, err := tokens.Generate(&domainuser.Users{
-		Id:   "user-1",
-		Name: "Jane",
-		Role: domainuser.RoleViewer,
-	}, "log-1")
+	token, err := tokens.Generate("user-1", "Jane", domainuser.RoleViewer, "log-1")
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -110,7 +106,7 @@ func TestGenerateExpiryFollowsAccessTTL(t *testing.T) {
 		t.Fatalf("NewTokens: %v", err)
 	}
 
-	token, err := tokens.Generate(&domainuser.Users{Id: "user-1"}, "log-1")
+	token, err := tokens.Generate("user-1", "", "", "log-1")
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -130,11 +126,7 @@ func TestGenerateRefreshIncludesRefreshTokenType(t *testing.T) {
 		t.Fatalf("NewTokens: %v", err)
 	}
 
-	token, err := tokens.GenerateRefresh(&domainuser.Users{
-		Id:   "user-1",
-		Name: "Jane",
-		Role: domainuser.RoleViewer,
-	}, "log-1", nil)
+	token, err := tokens.GenerateRefresh("user-1", "Jane", domainuser.RoleViewer, "log-1")
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -166,7 +158,7 @@ func TestGenerateWithClaimsAppliesOverride(t *testing.T) {
 		},
 	}
 
-	token, err := tokens.GenerateWithClaims(&domainuser.Users{Id: "user-1"}, "log-1", override)
+	token, err := tokens.GenerateWithClaims("user-1", "", "", "log-1", override)
 	if err != nil {
 		t.Fatalf("GenerateWithClaims: %v", err)
 	}
@@ -190,7 +182,7 @@ func TestGeneratePasswordResetIncludesDedicatedTokenType(t *testing.T) {
 		t.Fatalf("NewTokens: %v", err)
 	}
 
-	token, err := tokens.GeneratePasswordReset(&domainuser.Users{Id: "user-1"}, "reset-1")
+	token, err := tokens.GeneratePasswordReset("user-1", "", "", "reset-1")
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -212,11 +204,7 @@ func TestGeneratePasswordResetIncludesDedicatedTokenType(t *testing.T) {
 func TestExpiresAt(t *testing.T) {
 	tokens := newTestTokens(t)
 
-	token, err := tokens.Generate(&domainuser.Users{
-		Id:   "user-1",
-		Name: "Jane",
-		Role: domainuser.RoleViewer,
-	}, "log-1")
+	token, err := tokens.Generate("user-1", "Jane", domainuser.RoleViewer, "log-1")
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -280,7 +268,7 @@ func TestClaimsRejectsEmptyToken(t *testing.T) {
 
 func TestClaimsFromRequestReadsBearerToken(t *testing.T) {
 	tokens := newTestTokens(t)
-	token, err := tokens.Generate(&domainuser.Users{Id: "user-1"}, "log-1")
+	token, err := tokens.Generate("user-1", "", "", "log-1")
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -300,13 +288,13 @@ func TestNilTokensReportKeyNotConfigured(t *testing.T) {
 	var tokens *Tokens
 	user := &domainuser.Users{Id: "user-1"}
 
-	if _, err := tokens.Generate(user, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
+	if _, err := tokens.Generate(user.Id, user.Name, user.Role, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
 		t.Fatalf("expected jwt key error for access token, got %v", err)
 	}
-	if _, err := tokens.GenerateRefresh(user, "log-1", nil); !errors.Is(err, ErrJWTKeyNotConfigured) {
+	if _, err := tokens.GenerateRefresh(user.Id, user.Name, user.Role, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
 		t.Fatalf("expected jwt key error for refresh token, got %v", err)
 	}
-	if _, err := tokens.GeneratePasswordReset(user, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
+	if _, err := tokens.GeneratePasswordReset(user.Id, user.Name, user.Role, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
 		t.Fatalf("expected jwt key error for reset token, got %v", err)
 	}
 	if _, err := tokens.Claims("anything"); !errors.Is(err, ErrJWTKeyNotConfigured) {
@@ -348,15 +336,15 @@ func newTokensForApp(t *testing.T, app string) *Tokens {
 func issueEachTokenType(t *testing.T, tokens *Tokens) map[string]string {
 	t.Helper()
 	user := &domainuser.Users{Id: "user-1", Name: "Jane", Role: domainuser.RoleViewer}
-	access, err := tokens.Generate(user, "log-1")
+	access, err := tokens.Generate(user.Id, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	refresh, err := tokens.GenerateRefresh(user, "log-1", nil)
+	refresh, err := tokens.GenerateRefresh(user.Id, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("GenerateRefresh: %v", err)
 	}
-	reset, err := tokens.GeneratePasswordReset(user, "log-1")
+	reset, err := tokens.GeneratePasswordReset(user.Id, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("GeneratePasswordReset: %v", err)
 	}
@@ -478,7 +466,7 @@ func TestNewTokensTrimsAppName(t *testing.T) {
 func TestGenerateImpersonatedRecordsOriginalIdentity(t *testing.T) {
 	tokens := newTestTokens(t)
 
-	token, err := tokens.GenerateImpersonated(&domainuser.Users{Id: "target", Name: "Target", Role: "viewer"}, "log-1", "root", "Root", "superadmin")
+	token, err := tokens.GenerateImpersonated("target", "Target", "viewer", "log-1", "root", "Root", "superadmin")
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -496,8 +484,8 @@ func TestIsPasswordResetClaims(t *testing.T) {
 	tokens := newTestTokens(t)
 	user := &domainuser.Users{Id: "user-1"}
 
-	reset, _ := tokens.GeneratePasswordReset(user, "log")
-	access, _ := tokens.Generate(user, "log")
+	reset, _ := tokens.GeneratePasswordReset(user.Id, user.Name, user.Role, "log")
+	access, _ := tokens.Generate(user.Id, user.Name, user.Role, "log")
 	resetClaims, _ := tokens.Claims(reset)
 	accessClaims, _ := tokens.Claims(access)
 

@@ -12,11 +12,7 @@ import (
 
 func TestClaimsFromRequestReadsAuthorizationHeader(t *testing.T) {
 	tokens := newTestTokens(t)
-	token, err := tokens.Generate(&domainuser.Users{
-		Id:   "user-1",
-		Name: "Jane",
-		Role: domainuser.RoleViewer,
-	}, "log-1")
+	token, err := tokens.Generate("user-1", "Jane", domainuser.RoleViewer, "log-1")
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}

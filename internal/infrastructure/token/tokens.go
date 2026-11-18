@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -86,16 +84,18 @@ func (t *Tokens) RefreshTTL() time.Duration {
 	return t.refreshTTL
 }
 
-func (t *Tokens) Generate(user *domainuser.Users, logID string) (string, error) {
-	return t.GenerateWithClaims(user, logID, nil)
+// The Generate methods take the user's id, name and role as plain strings so
+// this package needs no domain type.
+func (t *Tokens) Generate(userID, username, role, logID string) (string, error) {
+	return t.GenerateWithClaims(userID, username, role, logID, nil)
 }
 
-func (t *Tokens) GeneratePasswordReset(user *domainuser.Users, logID string) (string, error) {
+func (t *Tokens) GeneratePasswordReset(userID, username, role, logID string) (string, error) {
 	if t == nil {
 		return "", ErrJWTKeyNotConfigured
 	}
 	resetExp := time.Now().Add(t.resetTTL)
-	return t.GenerateWithClaims(user, logID, &AppClaims{
+	return t.GenerateWithClaims(userID, username, role, logID, &AppClaims{
 		TokenType: TokenTypePasswordReset,
 		RegisteredClaims: &jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(resetExp),
@@ -103,16 +103,16 @@ func (t *Tokens) GeneratePasswordReset(user *domainuser.Users, logID string) (st
 	})
 }
 
-func (t *Tokens) GenerateWithClaims(user *domainuser.Users, logID string, claimsOverride *AppClaims) (string, error) {
+func (t *Tokens) GenerateWithClaims(userID, username, role, logID string, claimsOverride *AppClaims) (string, error) {
 	if t == nil {
 		return "", ErrJWTKeyNotConfigured
 	}
 
 	accessExp := time.Now().Add(t.accessTTL)
 	claims := AppClaims{
-		UserId:    user.Id,
-		Username:  user.Name,
-		Role:      user.Role,
+		UserId:    userID,
+		Username:  username,
+		Role:      role,
 		TokenType: TokenTypeAccess,
 		RegisteredClaims: &jwt.RegisteredClaims{
 			Issuer:    t.appName,
@@ -139,16 +139,31 @@ func (t *Tokens) GenerateWithClaims(user *domainuser.Users, logID string, claims
 	return token.SignedString(t.key)
 }
 
-func (t *Tokens) GenerateRefresh(user *domainuser.Users, logID string, claimsOverride *AppClaims) (string, error) {
+func (t *Tokens) GenerateRefresh(userID, username, role, logID string) (string, error) {
+	return t.generateRefresh(userID, username, role, logID, nil)
+}
+
+// GenerateRefreshImpersonated issues a refresh token that keeps the original
+// identity an impersonation started from.
+func (t *Tokens) GenerateRefreshImpersonated(userID, username, role, logID, originalUserID, originalUsername, originalRole string) (string, error) {
+	return t.generateRefresh(userID, username, role, logID, &AppClaims{
+		IsImpersonated:   true,
+		OriginalUserId:   originalUserID,
+		OriginalUsername: originalUsername,
+		OriginalRole:     originalRole,
+	})
+}
+
+func (t *Tokens) generateRefresh(userID, username, role, logID string, claimsOverride *AppClaims) (string, error) {
 	if t == nil {
 		return "", ErrJWTKeyNotConfigured
 	}
 
 	refreshExp := time.Now().Add(t.refreshTTL)
 	claims := &AppClaims{
-		UserId:    user.Id,
-		Username:  user.Name,
-		Role:      user.Role,
+		UserId:    userID,
+		Username:  username,
+		Role:      role,
 		TokenType: TokenTypeRefresh,
 		RegisteredClaims: &jwt.RegisteredClaims{
 			Issuer:    t.appName,
@@ -218,8 +233,8 @@ func (t *Tokens) ExpiresAt(tokenString string) (time.Time, error) {
 
 // GenerateImpersonated issues an access token for user that records the
 // original identity the impersonation started from.
-func (t *Tokens) GenerateImpersonated(user *domainuser.Users, logID, originalUserID, originalUsername, originalRole string) (string, error) {
-	return t.GenerateWithClaims(user, logID, &AppClaims{
+func (t *Tokens) GenerateImpersonated(userID, username, role, logID, originalUserID, originalUsername, originalRole string) (string, error) {
+	return t.GenerateWithClaims(userID, username, role, logID, &AppClaims{
 		IsImpersonated:   true,
 		OriginalUserId:   originalUserID,
 		OriginalUsername: originalUsername,

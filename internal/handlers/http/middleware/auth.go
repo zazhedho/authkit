@@ -8,7 +8,6 @@ import (
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"net/http"
@@ -24,7 +23,7 @@ type Middleware struct {
 	BlacklistRepo   TokenRevocations
 	PermissionRepo  PermissionLookup
 	PermissionCache PermissionCache
-	Tokens          *token.Tokens
+	Tokens          TokenVerifier
 	// PermissionCacheTTL is how long cached permission keys live; a
 	// non-positive value disables caching.
 	PermissionCacheTTL time.Duration
@@ -33,7 +32,7 @@ type Middleware struct {
 func NewMiddleware(blacklistRepo TokenRevocations,
 	permissionRepo PermissionLookup,
 	permissionCache PermissionCache,
-	tokens *token.Tokens,
+	tokens TokenVerifier,
 	permissionCacheTTL time.Duration) *Middleware {
 	return &Middleware{
 		BlacklistRepo:      blacklistRepo,
@@ -65,7 +64,7 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 		logPrefix += fmt.Sprintf("[%s][%s]", gokit.InterfaceString(dataJWT["jti"]), gokit.InterfaceString(dataJWT["user_id"]))
 
 		tokenType := strings.TrimSpace(gokit.InterfaceString(dataJWT["token_type"]))
-		if tokenType != token.TokenTypeAccess {
+		if tokenType != tokenTypeAccess {
 			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Invalid token type used on protected route", logPrefix))
 			res := gokit.Unauthorized(logId, "Invalid token type. Please use an access token.")
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)

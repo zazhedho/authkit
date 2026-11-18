@@ -131,11 +131,7 @@ func testTokens(t *testing.T) *token.Tokens {
 func testToken(t *testing.T, tokenType string, role string) string {
 	t.Helper()
 	claims := &token.AppClaims{TokenType: tokenType}
-	token, err := testTokens(t).GenerateWithClaims(&domainuser.Users{
-		Id:   "user-1",
-		Name: "Jane",
-		Role: role,
-	}, "log-1", claims)
+	token, err := testTokens(t).GenerateWithClaims("user-1", "Jane", role, "log-1", claims)
 	if err != nil {
 		t.Fatalf("failed to generate token: %v", err)
 	}
@@ -436,7 +432,7 @@ func foreignAppToken(t *testing.T, role string) string {
 	if err != nil {
 		t.Fatalf("failed to build tokens: %v", err)
 	}
-	token, err := other.GenerateWithClaims(&domainuser.Users{Id: "user-1", Name: "Jane", Role: role}, "log-1", &token.AppClaims{TokenType: token.TokenTypeAccess})
+	token, err := other.GenerateWithClaims("user-1", "Jane", role, "log-1", &token.AppClaims{TokenType: token.TokenTypeAccess})
 	if err != nil {
 		t.Fatalf("failed to generate token: %v", err)
 	}

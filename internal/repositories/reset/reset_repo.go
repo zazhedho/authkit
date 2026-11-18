@@ -6,7 +6,7 @@ import (
 	"time"
 
 	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
-	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
+	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -31,7 +31,7 @@ func (r *Repository) SetToken(ctx context.Context, hash, email string, ttl time.
 
 func (r *Repository) GetEmailByToken(ctx context.Context, hash string) (string, error) {
 	value, err := r.Redis.Get(ctx, fmt.Sprintf("%s%s", resetTokenKeyPrefix, hash)).Result()
-	return value, reposhared.Redis(err, domainreset.ErrNotFound)
+	return value, repositoryshared.Redis(err, domainreset.ErrNotFound)
 }
 
 func (r *Repository) DeleteToken(ctx context.Context, hash string) error {

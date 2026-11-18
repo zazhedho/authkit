@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/zazhedho/authkit/internal/config"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainotp "github.com/zazhedho/authkit/internal/domain/otp"
 	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
@@ -404,7 +403,7 @@ func TestUserHandlerAuthTokenFlows(t *testing.T) {
 	assertUserHandlerStatus(t, rec, http.StatusOK)
 
 	user := domainuser.Users{Id: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
-	refreshToken, err := testHandlerTokens().GenerateRefresh(&user, "log-1", nil)
+	refreshToken, err := testHandlerTokens().GenerateRefresh(user.Id, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("generate refresh token: %v", err)
 	}
@@ -711,7 +710,7 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 	handler = newUserHandlerForTest()
 	handler.Service.(*userServiceTestDouble).revoked = true
 	user := domainuser.Users{Id: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
-	refreshToken, err := testHandlerTokens().GenerateRefresh(&user, "log-1", nil)
+	refreshToken, err := testHandlerTokens().GenerateRefresh(user.Id, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("generate refresh token: %v", err)
 	}
@@ -719,7 +718,7 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 	handler.RefreshToken(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusUnauthorized)
 
-	accessToken, err := testHandlerTokens().Generate(&user, "log-1")
+	accessToken, err := testHandlerTokens().Generate(user.Id, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("generate access token: %v", err)
 	}
@@ -931,7 +930,7 @@ func TestUserHandlerResetPasswordRevokesSessions(t *testing.T) {
 	handler.ResetPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
 
-	token, err := testHandlerTokens().Generate(&user, "reset_password")
+	token, err := testHandlerTokens().Generate(user.Id, user.Name, user.Role, "reset_password")
 	if err != nil {
 		t.Fatalf("generate reset token: %v", err)
 	}
@@ -956,8 +955,8 @@ func testHandlerTokens() *token.Tokens {
 	return tokens
 }
 
-func testUserSettings() config.UserHandler {
-	return config.UserHandler{EmailAppName: "test-app", AccessTTL: time.Hour, RefreshTTL: time.Hour}
+func testUserSettings() Settings {
+	return Settings{EmailAppName: "test-app", AccessTTL: time.Hour, RefreshTTL: time.Hour}
 }
 
 func testHandlerOptions() Options {
@@ -989,7 +988,7 @@ func errorBodyWithoutLogID(t *testing.T, rec *httptest.ResponseRecorder) map[str
 
 func TestRefreshTokenRejectsTokenFromOtherApp(t *testing.T) {
 	user := domainuser.Users{Id: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
-	foreign, err := otherAppTokens().GenerateRefresh(&user, "log-1", nil)
+	foreign, err := otherAppTokens().GenerateRefresh(user.Id, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("generate refresh token: %v", err)
 	}

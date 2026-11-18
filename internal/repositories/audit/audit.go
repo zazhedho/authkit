@@ -4,7 +4,7 @@ import (
 	"context"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
-	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
+	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 
 	"gorm.io/gorm"
@@ -19,7 +19,7 @@ func NewRepository(db *gorm.DB) *Repository {
 }
 
 func (r *Repository) GetAll(ctx context.Context, req dtoaudit.ListRequest) (ret []domainaudit.AuditTrail, totalData int64, err error) {
-	return r.Repository.GetAll(ctx, reposhared.BaseParams(req), gokit.QueryOptions{
+	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
 		Search:         gokit.BuildSearchFunc("action", "resource", "status", "actor_role", "message", "error_message", "request_id", "ip_address"),
 		AllowedFilters: []string{"actor_user_id", "actor_role", "action", "resource", "status", "request_id"},
 		AllowedOrderColumns: []string{
@@ -36,5 +36,5 @@ func (r *Repository) GetAll(ctx context.Context, req dtoaudit.ListRequest) (ret 
 
 func (r *Repository) GetByID(ctx context.Context, id string) (domainaudit.AuditTrail, error) {
 	ret, err := r.Repository.GetByID(ctx, id)
-	return ret, reposhared.Gorm(err, domainaudit.ErrNotFound, nil)
+	return ret, repositoryshared.Gorm(err, domainaudit.ErrNotFound, nil)
 }

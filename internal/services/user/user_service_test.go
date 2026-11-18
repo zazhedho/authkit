@@ -743,7 +743,7 @@ func TestUserServicePassThroughAndFilteringMethods(t *testing.T) {
 		t.Fatalf("expected superadmin to see all users, users=%+v total=%d err=%v", users, total, err)
 	}
 
-	logoutToken, err := testUserTokens(t).Generate(&userRepo.user, "logout-test")
+	logoutToken, err := testUserTokens(t).Generate(userRepo.user.Id, userRepo.user.Name, userRepo.user.Role, "logout-test")
 	if err != nil {
 		t.Fatalf("generate logout token: %v", err)
 	}
@@ -979,7 +979,7 @@ func TestUserServiceResetPasswordErrorBranches(t *testing.T) {
 		t.Fatalf("hash password: %v", err)
 	}
 	resetUser := domainuser.Users{Id: "user-1", Email: "jane@example.com", Password: string(password), Role: domainuser.RoleViewer}
-	resetToken, err := testUserTokens(t).GeneratePasswordReset(&resetUser, "reset_password")
+	resetToken, err := testUserTokens(t).GeneratePasswordReset(resetUser.Id, resetUser.Name, resetUser.Role, "reset_password")
 	if err != nil {
 		t.Fatalf("generate reset token: %v", err)
 	}
@@ -1002,7 +1002,7 @@ func TestUserServiceResetPasswordByEmailReturnsNotFound(t *testing.T) {
 
 func TestUserServiceLogoutAndListErrors(t *testing.T) {
 	user := domainuser.Users{Id: "user-1", Email: "jane@example.com", Role: domainuser.RoleViewer}
-	logoutToken, err := testUserTokens(t).Generate(&user, "logout-test")
+	logoutToken, err := testUserTokens(t).Generate(user.Id, user.Name, user.Role, "logout-test")
 	if err != nil {
 		t.Fatalf("generate logout token: %v", err)
 	}
@@ -1219,7 +1219,7 @@ func TestResetPasswordRejectsTokenFromOtherApp(t *testing.T) {
 		t.Fatalf("hash password: %v", err)
 	}
 	resetUser := domainuser.Users{Id: "user-1", Email: "jane@example.com", Password: string(password), Role: domainuser.RoleViewer}
-	foreign, err := otherAppUserTokens(t).GeneratePasswordReset(&resetUser, "reset_password")
+	foreign, err := otherAppUserTokens(t).GeneratePasswordReset(resetUser.Id, resetUser.Name, resetUser.Role, "reset_password")
 	if err != nil {
 		t.Fatalf("generate reset token: %v", err)
 	}
@@ -1237,7 +1237,7 @@ func TestResetPasswordRejectsTokenFromOtherApp(t *testing.T) {
 
 func TestLogoutUserRejectsTokenFromOtherApp(t *testing.T) {
 	user := domainuser.Users{Id: "user-1", Email: "jane@example.com", Role: domainuser.RoleViewer}
-	foreign, err := otherAppUserTokens(t).Generate(&user, "logout-test")
+	foreign, err := otherAppUserTokens(t).Generate(user.Id, user.Name, user.Role, "logout-test")
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
