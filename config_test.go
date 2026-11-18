@@ -485,3 +485,15 @@ func TestNoBuiltInSecretLiterals(t *testing.T) {
 		}
 	}
 }
+
+func TestIsDevEnv(t *testing.T) {
+	for in, want := range map[string]bool{
+		"development": true, "local": true, "test": true,
+		" Development ": true, "LOCAL": true, "Test": true,
+		"": false, "production": false, "prod": false, "staging": false, "testing": false,
+	} {
+		if got := isDevEnv(in); got != want {
+			t.Errorf("isDevEnv(%q) = %v, want %v", in, got, want)
+		}
+	}
+}

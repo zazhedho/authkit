@@ -10,7 +10,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
-	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
 	httpappconfig "github.com/zazhedho/authkit/internal/handlers/http/appconfig"
 	httpaudit "github.com/zazhedho/authkit/internal/handlers/http/audit"
 	httpmenu "github.com/zazhedho/authkit/internal/handlers/http/menu"
@@ -72,8 +71,8 @@ type Kit struct {
 // never contain configuration values other than the fixed AppEnv names.
 func startupWarnings(appEnv string, redisNil bool) []string {
 	var out []string
-	if domainreset.IsDevEnv(appEnv) {
-		out = append(out, "authkit: AppEnv is a development value ("+strings.Join(domainreset.DevEnvValues, ", ")+"): "+
+	if isDevEnv(appEnv) {
+		out = append(out, "authkit: AppEnv is a development value ("+strings.Join(devEnvValues, ", ")+"): "+
 			"when the email password reset flag is disabled, POST /user/forgot-password returns a password reset token "+
 			"directly in the API response for any registered email; never enable this mode on a reachable server")
 	}
@@ -161,6 +160,7 @@ func New(cfg Config) (*Kit, error) {
 			Tokens:           tokens,
 			Settings: httpuser.Settings{
 				AppEnv:        cfg.AppEnv,
+				DevEnv:        isDevEnv(cfg.AppEnv),
 				EmailAppName:  cfg.EmailAppName,
 				AccessTTL:     cfg.AccessTokenTTL,
 				RefreshTTL:    cfg.RefreshTokenTTL,

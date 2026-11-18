@@ -7,7 +7,6 @@ import (
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainotp "github.com/zazhedho/authkit/internal/domain/otp"
-	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
@@ -30,7 +29,9 @@ type FlagKeys struct {
 
 // Settings carries the values the handler needs at request time.
 type Settings struct {
-	AppEnv, EmailAppName  string
+	AppEnv, EmailAppName string
+	// DevEnv enables the development password-reset fallback.
+	DevEnv                bool
 	AccessTTL, RefreshTTL time.Duration
 	OTPCooldown           time.Duration
 	// ResetCooldown is the resend cooldown reported by the forgot-password
@@ -1213,7 +1214,7 @@ func (h *Handler) ForgotPassword(ctx *gin.Context) {
 	}
 
 	appEnv := gokit.NormalizeKey(h.Settings.AppEnv)
-	if !domainreset.IsDevEnv(appEnv) {
+	if !h.Settings.DevEnv {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Development password reset fallback is disabled in APP_ENV=%s", logPrefix, appEnv))
 		res := gokit.Response(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logId, nil)
 		res.Error = gokit.Errors{Code: http.StatusServiceUnavailable, Message: "Password reset service is temporarily unavailable."}

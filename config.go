@@ -68,6 +68,21 @@ func (c Config) String() string {
 // is safe too.
 func (c Config) GoString() string { return c.String() }
 
+// devEnvValues are the normalized AppEnv values that enable the development
+// password-reset fallback. The startup warning and the user handler's
+// DevEnv setting both derive from them.
+var devEnvValues = []string{"development", "local", "test"}
+
+func isDevEnv(appEnv string) bool {
+	n := strings.ToLower(strings.TrimSpace(appEnv))
+	for _, v := range devEnvValues {
+		if n == v {
+			return true
+		}
+	}
+	return false
+}
+
 const (
 	defaultAccessTTL          = 24 * time.Hour
 	defaultRefreshTTL         = 168 * time.Hour

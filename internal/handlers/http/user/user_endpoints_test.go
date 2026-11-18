@@ -486,7 +486,7 @@ func TestUserHandlerReadUpdateAndDeleteFlows(t *testing.T) {
 
 func TestUserHandlerPasswordAndSessionFlows(t *testing.T) {
 	handler := newUserHandlerForTest()
-	handler.Settings.AppEnv = "test"
+	handler.Settings.DevEnv = true
 	userID := uuid.NewString()
 
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/forgot-password", `{"email":"jane@example.com"}`, nil)
@@ -629,7 +629,7 @@ func TestUserHandlerServiceErrorBranches(t *testing.T) {
 		err: errors.New("database down"),
 	}
 	handler := New(service, nil, nil, nil, testHandlerOptions())
-	handler.Settings.AppEnv = "test"
+	handler.Settings.DevEnv = true
 
 	tests := []struct {
 		name   string

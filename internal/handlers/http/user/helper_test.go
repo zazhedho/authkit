@@ -198,21 +198,18 @@ func TestUserHandlerUsesInjectedFlagKeysAndEmailAppName(t *testing.T) {
 	}
 }
 
-func TestForgotPasswordDevelopmentFallbackDependsOnInjectedAppEnv(t *testing.T) {
-	cases := map[string]int{
-		"development": http.StatusOK,
-		" Local ":     http.StatusOK,
-		"test":        http.StatusOK,
-		"production":  http.StatusServiceUnavailable,
-		"":            http.StatusServiceUnavailable,
+func TestForgotPasswordDevelopmentFallbackDependsOnInjectedDevEnv(t *testing.T) {
+	cases := map[bool]int{
+		true:  http.StatusOK,
+		false: http.StatusServiceUnavailable,
 	}
-	for appEnv, want := range cases {
+	for devEnv, want := range cases {
 		handler := newUserHandlerForTest()
-		handler.Settings.AppEnv = appEnv
+		handler.Settings.DevEnv = devEnv
 		ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/forgot-password", `{"email":"jane@example.com"}`, nil)
 		handler.ForgotPassword(ctx)
 		if rec.Code != want {
-			t.Fatalf("AppEnv %q: expected status %d, got %d body=%s", appEnv, want, rec.Code, rec.Body.String())
+			t.Fatalf("DevEnv %v: expected status %d, got %d body=%s", devEnv, want, rec.Code, rec.Body.String())
 		}
 	}
 }
