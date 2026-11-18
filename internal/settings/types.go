@@ -37,14 +37,14 @@ func DefaultFlagKeys() FlagKeys {
 	}
 }
 
-// UserHandler carries everything the user handler used to read from the
-// environment at request time.
+// UserHandler carries the explicit settings the user handler needs at request
+// time.
 type UserHandler struct {
 	AppEnv, EmailAppName  string
 	AccessTTL, RefreshTTL time.Duration
 	OTPCooldown           time.Duration
-	// ResetCooldown is reported by the forgot-password email flow
-	// (previously read via LoadPasswordResetConfig().Cooldown).
+	// ResetCooldown is the resend cooldown reported by the forgot-password
+	// email flow.
 	ResetCooldown time.Duration
 	Flags         FlagKeys
 }

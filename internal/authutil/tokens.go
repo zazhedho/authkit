@@ -187,7 +187,7 @@ func (t *Tokens) Claims(tokenString string) (map[string]any, error) {
 	}
 
 	// Claims is the only place a JWT is parsed. Issuer and audience are required
-	// and compared exactly, so tokens from another application (or legacy tokens
+	// and compared exactly, so tokens from another application (including tokens
 	// without these claims) are rejected on every verification path.
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {

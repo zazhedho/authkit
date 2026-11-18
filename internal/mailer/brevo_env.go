@@ -7,8 +7,8 @@ import (
 	"github.com/zazhedho/gokit"
 )
 
-// NewBrevoSenderFromEnv reads the legacy SMTP_* environment variables and
-// builds a sender through NewBrevoSender. It is a startup helper; request-time
+// NewBrevoSenderFromEnv reads the SMTP_* environment variables (plus RESET_SUBJECT,
+// AUTH_EMAIL_APP_NAME and OTP_TTL) and builds a sender through NewBrevoSender. It is a startup helper; request-time
 // code never reads the environment.
 func NewBrevoSenderFromEnv() (*BrevoSender, error) {
 	port := 0

@@ -143,8 +143,6 @@ func (d *Driver) answer(query string, args []driver.NamedValue) fakeResult {
 	return fakeResult{}
 }
 
-// --- database/sql plumbing ---
-
 type fakeConnector struct{ d *Driver }
 
 func (c fakeConnector) Connect(context.Context) (driver.Conn, error) { return &fakeConn{d: c.d}, nil }

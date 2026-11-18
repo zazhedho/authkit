@@ -1,4 +1,4 @@
-// Package migrations embeds the authkit SQL migrations (000001 to 000004).
+// Package migrations embeds the authkit SQL migrations.
 package migrations
 
 import "embed"

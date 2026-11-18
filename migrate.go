@@ -24,8 +24,8 @@ import (
 const MigrationsTable = "authkit_schema_migrations"
 
 // BaselineVersion is the version of the migrations that create the users, auth
-// and RBAC tables (000001 to 000004). Databases created by the original
-// project that already hold them are recorded as being at this version.
+// and RBAC tables. A legacy database that already holds them is recorded as
+// being at this version.
 const BaselineVersion = 4
 
 // ErrLegacySchemaIncomplete is returned by Migrate when the database already
@@ -53,7 +53,7 @@ func embeddedSource() (source.Driver, error) { return iofs.New(migrationsFS, "."
 //
 //   - Empty database: applies all migrations.
 //   - Database that already has the users table but no version record (created
-//     by the original project): the schema is checked against what the baseline
+//     by a project before it adopted authkit): the schema is checked against what the baseline
 //     creates; when complete it is only stamped as BaselineVersion, and the
 //     baseline SQL is never run, because its seed data would undo changes made
 //     to roles, permissions and menus. Any later migration then applies
@@ -272,9 +272,9 @@ func presentTables(ctx context.Context, conn *sql.Conn) (hasUsers, hasVersionTab
 }
 
 // baselineSchema lists, per table, every column the baseline migrations
-// (000001 to 000004) create. A database that already has the tables but no
-// version table is only adopted when it has all of them. Keep it in step with
-// the SQL; TestMigrateEmptyDatabase checks the two against a real database.
+// create. A database that already has the tables but no version table is only
+// adopted when it has all of them. Keep it in step with the SQL; the migrate
+// tests compare the two against a real database.
 var baselineSchema = map[string][]string{
 	"users": {
 		"id", "name", "email", "phone", "password", "role", "role_id",

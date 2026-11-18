@@ -9,7 +9,9 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// LoginLimiter represents the methods required to throttle login attempts
+// LoginLimiter throttles login attempts per key. IsBlocked and
+// RegisterFailure report whether the key is blocked and for how long; Reset
+// clears its failure state.
 type LoginLimiter interface {
 	IsBlocked(ctx context.Context, key string) (bool, time.Duration, error)
 	RegisterFailure(ctx context.Context, key string) (bool, time.Duration, error)
@@ -23,7 +25,8 @@ type redisLoginLimiter struct {
 	blockDuration time.Duration
 }
 
-// NewRedisLoginLimiter constructs a limiter backed by Redis
+// NewRedisLoginLimiter returns a Redis-backed LoginLimiter, or nil when client
+// is nil or limit, window or blockDuration is not positive.
 func NewRedisLoginLimiter(client *redis.Client, limit int, window, blockDuration time.Duration) LoginLimiter {
 	if client == nil || limit <= 0 || window <= 0 || blockDuration <= 0 {
 		return nil

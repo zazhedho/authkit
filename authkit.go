@@ -3,7 +3,7 @@
 // imported from this one path: build a Config (ConfigFromEnv is optional), call
 // New, run Kit.Migrate, then Kit.Mount the routes and protect your own routes
 // with Kit.Auth, Kit.Can and Kit.Role. Request-time code never reads the
-// environment: ConfigFromEnv (config.go) is the only place that does.
+// environment: ConfigFromEnv is the only place that does.
 package authkit
 
 import (
@@ -136,9 +136,8 @@ func New(cfg Config) (*Kit, error) {
 	})
 
 	// Without Redis there is no login limiter and no session service, and the
-	// OTP and password reset services get a nil repository and sender, exactly
-	// like the original router. With Redis but no Mailer only the limiter and
-	// sessions are active.
+	// OTP and password reset services get a nil repository and sender. With
+	// Redis but no Mailer only the limiter and sessions are active.
 	var (
 		loginLimiter security.LoginLimiter
 		sessionSvc   interfacesession.ServiceSessionInterface
@@ -204,10 +203,12 @@ func (k *Kit) Role(allowed ...string) gin.HandlerFunc {
 	return k.middleware.RoleMiddleware(allowed...)
 }
 
-// Audit returns the audit service.
+// Audit returns the kit's audit trail service, for recording and querying
+// events from your own handlers.
 func (k *Kit) Audit() AuditService { return k.audit }
 
-// AppConfig returns the app-config service.
+// AppConfig returns the kit's app-config service, which backs the feature
+// flags the kit consults at request time.
 func (k *Kit) AppConfig() AppConfigService { return k.appConfig }
 
 // IssueAccessToken issues a normal access token for userID, name and role

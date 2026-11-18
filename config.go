@@ -86,8 +86,7 @@ const (
 )
 
 // withDefaults returns c with every unset (zero or non-positive) value replaced
-// by the default the environment-based code used before. It never invents a
-// secret.
+// by its default. It never invents a secret.
 func (c Config) withDefaults() Config {
 	if c.AccessTokenTTL <= 0 {
 		c.AccessTokenTTL = authutil.DefaultAccessTTL
@@ -194,13 +193,15 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// ConfigFromEnv builds a Config from the legacy environment variables and
-// applies the same defaults the old code used. It leaves DB, Redis and Mailer
-// unset, and the OTP and reset secrets stay empty unless OTP_SECRET and
-// RESET_SECRET are set: there are no built-in secrets.
+// ConfigFromEnv builds a Config from environment variables: APP_NAME, APP_ENV,
+// JWT_KEY, JWT_EXP (hours), REFRESH_TOKEN_EXP_HOURS, GOOGLE_CLIENT_IDS and
+// GOOGLE_CLIENT_ID, AUTH_EMAIL_APP_NAME, PERMISSION_CACHE_TTL, and the LOGIN_*,
+// REGISTER_*, OTP_*, RESET_* and CONFIG_* families. Unset or non-positive
+// values take the same defaults as a zero Config passed to New. DB, Redis and
+// Mailer are left unset, and the OTP and reset secrets stay empty unless
+// OTP_SECRET and RESET_SECRET are set: there are no built-in secrets.
 //
-// This file is the only place in the module (besides internal/mailer/brevo_env.go
-// and cmd/) that reads the environment; it is meant to be called once at startup.
+// Call it once at startup.
 func ConfigFromEnv() Config {
 	// Duration-style variables (OTP_TTL, ...) win over their _SECONDS forms;
 	// rate windows default to the TTL.

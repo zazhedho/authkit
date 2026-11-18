@@ -89,8 +89,8 @@ func (s *ServiceUser) RegisterUser(ctx context.Context, req dto.UserRegister) (d
 		return domainuser.Users{}, err
 	}
 
-	// SECURITY: Public registration always uses vendor role
-	// This prevents privilege escalation through request manipulation
+	// Public registration never takes its role from the request, which would
+	// allow privilege escalation.
 	roleName := s.defaultRole()
 
 	roleId, ok := findRoleIDByName(ctx, s.RoleRepo, roleName)

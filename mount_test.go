@@ -148,10 +148,10 @@ type routePermission struct {
 	needsRedis   bool
 }
 
-// routePermissions is derived from starter-kit/internal/router/router.go: every
-// authenticated route and the (resource, action) its PermissionMiddleware names.
+// routePermissions lists every authenticated route and the (resource, action)
+// permission it must demand.
 var routePermissions = []routePermission{
-	// router.go UserRoutes: userPriv group
+	// user routes
 	{method: "POST", path: "/api/user/logout"},
 	{method: "GET", path: "/api/user"},
 	{method: "GET", path: "/api/user/u-target", resource: "users", action: "view"},

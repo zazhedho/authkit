@@ -1,6 +1,6 @@
 package handleruser
 
-// Messages that used to live in gokit and are specific to authentication.
+// Messages specific to authentication responses.
 const (
 	// MsgCredential is the message returned for a failed credential check.
 	MsgCredential = "Invalid Credentials. Please input the correct email or phone and password, then try again." //nolint:gosec // message text, not a credential

@@ -33,8 +33,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// defaultCooldown is the OTP / password reset resend cooldown the old env-based
-// code reported when nothing was configured.
+// defaultCooldown is the OTP / password reset resend cooldown reported when
+// none is configured.
 const defaultCooldown = 60 * time.Second
 
 type HandlerUser struct {

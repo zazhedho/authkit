@@ -3,8 +3,7 @@ package authkit
 import "github.com/gin-gonic/gin"
 
 // Mount registers every users, auth and RBAC route on r, normally
-// engine.Group("/api"). Paths, methods, middleware and permission names are the
-// ones of the original router. Session routes are mounted only when the Kit was
+// engine.Group("/api"). Session routes are mounted only when the Kit was
 // built with Redis. Call it once per Kit and group; mounting the same group
 // twice registers duplicate routes, which gin rejects with a panic.
 func (k *Kit) Mount(r gin.IRouter) {
@@ -125,7 +124,7 @@ func (k *Kit) mountAudits(r gin.IRouter) {
 }
 
 // mountSessions registers session management (authenticated users only). It is
-// skipped without Redis, as in the original router.
+// skipped without Redis.
 func (k *Kit) mountSessions(r gin.IRouter) {
 	if k.sessionHandler == nil {
 		return
