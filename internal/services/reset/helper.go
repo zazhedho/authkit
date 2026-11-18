@@ -1,4 +1,4 @@
-package servicereset
+package reset
 
 import (
 	"crypto/rand"

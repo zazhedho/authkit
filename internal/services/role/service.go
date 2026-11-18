@@ -1,38 +1,38 @@
-package servicerole
+package role
 
 import (
 	"context"
 	"errors"
-	"github.com/zazhedho/authkit/internal/authscope"
-	"github.com/zazhedho/authkit/internal/authutil"
-	permissioncache "github.com/zazhedho/authkit/internal/cache/permission"
-	domainrole "github.com/zazhedho/authkit/internal/domain/role"
-	"github.com/zazhedho/authkit/internal/dto"
-	interfacemenu "github.com/zazhedho/authkit/internal/interfaces/menu"
-	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
-	interfacerole "github.com/zazhedho/authkit/internal/interfaces/role"
-	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
-	"github.com/zazhedho/gokit"
 	"time"
+
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
+	domainrole "github.com/zazhedho/authkit/internal/domain/role"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	dtorole "github.com/zazhedho/authkit/internal/dto/role"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
+	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 )
 
-type RoleService struct {
-	RoleRepo        interfacerole.RepoRoleInterface
-	PermissionRepo  interfacepermission.RepoPermissionInterface
-	MenuRepo        interfacemenu.RepoMenuInterface
-	PermissionCache permissioncache.Invalidator
+type Service struct {
+	RoleRepo        Repository
+	PermissionRepo  PermissionRepository
+	MenuRepo        MenuRepository
+	PermissionCache PermissionCache
+	// NewID makes record ids; nil uses a UUID v7.
+	NewID func() string
 }
 
-func NewRoleService(
-	roleRepo interfacerole.RepoRoleInterface,
-	permissionRepo interfacepermission.RepoPermissionInterface,
-	menuRepo interfacemenu.RepoMenuInterface,
-	invalidators ...permissioncache.Invalidator,
-) *RoleService {
-	service := &RoleService{
+func NewService(
+	roleRepo Repository,
+	permissionRepo PermissionRepository,
+	menuRepo MenuRepository,
+	invalidators ...PermissionCache,
+) *Service {
+	service := &Service{
 		RoleRepo:       roleRepo,
 		PermissionRepo: permissionRepo,
 		MenuRepo:       menuRepo,
+		NewID:          serviceshared.NewID,
 	}
 	if len(invalidators) > 0 {
 		service.PermissionCache = invalidators[0]
@@ -40,17 +40,17 @@ func NewRoleService(
 	return service
 }
 
-func (s *RoleService) Create(ctx context.Context, req dto.RoleCreate) (domainrole.Role, error) {
+func (s *Service) Create(ctx context.Context, req dtorole.RoleCreate) (domainrole.Role, error) {
 	existing, _ := s.RoleRepo.GetByName(ctx, req.Name)
 	if existing.Id != "" {
 		return domainrole.Role{}, errors.New("role with this name already exists")
 	}
 
 	data := domainrole.Role{
-		Id:          gokit.CreateUUID(),
-		Name:        gokit.StripHTML(req.Name),
-		DisplayName: gokit.StripHTML(req.DisplayName),
-		Description: gokit.StripHTML(req.Description),
+		Id:          s.newID(),
+		Name:        serviceshared.StripHTML(req.Name),
+		DisplayName: serviceshared.StripHTML(req.DisplayName),
+		Description: serviceshared.StripHTML(req.Description),
 		IsSystem:    false,
 		CreatedAt:   time.Now(),
 	}
@@ -62,24 +62,24 @@ func (s *RoleService) Create(ctx context.Context, req dto.RoleCreate) (domainrol
 	return data, nil
 }
 
-func (s *RoleService) GetByID(ctx context.Context, id string) (domainrole.Role, error) {
+func (s *Service) GetByID(ctx context.Context, id string) (domainrole.Role, error) {
 	return s.RoleRepo.GetByID(ctx, id)
 }
 
-func (s *RoleService) GetByIDWithDetails(ctx context.Context, id string) (dto.RoleWithDetails, error) {
+func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.RoleWithDetails, error) {
 	role, err := s.RoleRepo.GetByID(ctx, id)
 	if err != nil {
-		return dto.RoleWithDetails{}, err
+		return dtorole.RoleWithDetails{}, err
 	}
 
 	permissionIds, err := s.RoleRepo.GetRolePermissions(ctx, id)
 	if err != nil {
-		return dto.RoleWithDetails{}, err
+		return dtorole.RoleWithDetails{}, err
 	}
 
 	menuIds, err := s.deriveMenuIDsFromPermissions(ctx, permissionIds)
 	if err != nil {
-		return dto.RoleWithDetails{}, err
+		return dtorole.RoleWithDetails{}, err
 	}
 
 	updatedAt := ""
@@ -87,7 +87,7 @@ func (s *RoleService) GetByIDWithDetails(ctx context.Context, id string) (dto.Ro
 		updatedAt = role.UpdatedAt.Format(time.RFC3339)
 	}
 
-	return dto.RoleWithDetails{
+	return dtorole.RoleWithDetails{
 		Id:            role.Id,
 		Name:          role.Name,
 		DisplayName:   role.DisplayName,
@@ -100,28 +100,14 @@ func (s *RoleService) GetByIDWithDetails(ctx context.Context, id string) (dto.Ro
 	}, nil
 }
 
-func (s *RoleService) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainrole.Role, int64, error) {
-	scope := authscope.FromContext(ctx)
-	roles, total, err := s.RoleRepo.GetAll(ctx, params)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	if scope.Role != authutil.RoleSuperAdmin {
-		filteredRoles := make([]domainrole.Role, 0)
-		for _, role := range roles {
-			if role.Name != authutil.RoleSuperAdmin {
-				filteredRoles = append(filteredRoles, role)
-			}
-		}
-		superadminCount := int64(len(roles) - len(filteredRoles))
-		return filteredRoles, total - superadminCount, nil
-	}
-
-	return roles, total, nil
+func (s *Service) GetAll(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainrole.Role, int64, error) {
+	roles, total, err := s.RoleRepo.GetAll(ctx, req)
+	return serviceshared.HideSuperAdmin(actor, roles, total, err, func(role domainrole.Role) bool {
+		return role.Name == domainuser.RoleSuperAdmin
+	})
 }
 
-func (s *RoleService) Update(ctx context.Context, id string, req dto.RoleUpdate) (domainrole.Role, error) {
+func (s *Service) Update(ctx context.Context, id string, req dtorole.RoleUpdate) (domainrole.Role, error) {
 	role, err := s.RoleRepo.GetByID(ctx, id)
 	if err != nil {
 		return domainrole.Role{}, err
@@ -132,9 +118,9 @@ func (s *RoleService) Update(ctx context.Context, id string, req dto.RoleUpdate)
 	}
 
 	if req.DisplayName != "" {
-		role.DisplayName = gokit.StripHTML(req.DisplayName)
+		role.DisplayName = serviceshared.StripHTML(req.DisplayName)
 	}
-	role.Description = gokit.StripHTML(req.Description)
+	role.Description = serviceshared.StripHTML(req.Description)
 	role.UpdatedAt = new(time.Now())
 
 	if err := s.RoleRepo.Update(ctx, role); err != nil {
@@ -144,7 +130,7 @@ func (s *RoleService) Update(ctx context.Context, id string, req dto.RoleUpdate)
 	return role, nil
 }
 
-func (s *RoleService) Delete(ctx context.Context, id string) error {
+func (s *Service) Delete(ctx context.Context, id string) error {
 	role, err := s.RoleRepo.GetByID(ctx, id)
 	if err != nil {
 		return err
@@ -161,22 +147,21 @@ func (s *RoleService) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *RoleService) AssignPermissions(ctx context.Context, roleId string, req dto.AssignPermissions) error {
-	scope := authscope.FromContext(ctx)
+func (s *Service) AssignPermissions(ctx context.Context, actor domainauth.Actor, roleId string, req dtorole.AssignPermissions) error {
 	role, err := s.RoleRepo.GetByID(ctx, roleId)
 	if err != nil {
 		return err
 	}
 
 	if role.IsSystem {
-		canManageSystem, err := serviceshared.HasPermission(ctx, s.PermissionRepo, "roles", "manage_system")
+		canManageSystem, err := serviceshared.HasPermission(ctx, s.PermissionRepo, actor, "roles", "manage_system")
 		if err != nil {
 			return err
 		}
 		if !canManageSystem {
 			return errors.New("access denied: missing permission roles:manage_system")
 		}
-		if role.Name == authutil.RoleSuperAdmin && scope.Role != authutil.RoleSuperAdmin {
+		if role.Name == domainuser.RoleSuperAdmin && actor.Role != domainuser.RoleSuperAdmin {
 			return errors.New("access denied: cannot modify superadmin role")
 		}
 	}
@@ -194,30 +179,17 @@ func (s *RoleService) AssignPermissions(ctx context.Context, roleId string, req 
 	return nil
 }
 
-func (s *RoleService) invalidatePermissionCache(ctx context.Context) {
+func (s *Service) invalidatePermissionCache(ctx context.Context) {
 	if s.PermissionCache != nil {
 		s.PermissionCache.DeleteAll(ctx)
 	}
 }
 
-func (s *RoleService) AssignMenus(ctx context.Context, roleId string, req dto.AssignMenus) error {
-	return errors.New("menu access is derived from permissions; assign permissions instead")
-}
-
-func (s *RoleService) GetRolePermissions(ctx context.Context, roleId string) ([]string, error) {
+func (s *Service) GetRolePermissions(ctx context.Context, roleId string) ([]string, error) {
 	return s.RoleRepo.GetRolePermissions(ctx, roleId)
 }
 
-func (s *RoleService) GetRoleMenus(ctx context.Context, roleId string) ([]string, error) {
-	permissionIds, err := s.RoleRepo.GetRolePermissions(ctx, roleId)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.deriveMenuIDsFromPermissions(ctx, permissionIds)
-}
-
-func (s *RoleService) deriveMenuIDsFromPermissions(ctx context.Context, permissionIds []string) ([]string, error) {
+func (s *Service) deriveMenuIDsFromPermissions(ctx context.Context, permissionIds []string) ([]string, error) {
 	resources := make([]string, 0, len(permissionIds))
 
 	for _, permissionId := range permissionIds {
@@ -241,4 +213,9 @@ func (s *RoleService) deriveMenuIDsFromPermissions(ctx context.Context, permissi
 	return serviceshared.ResolveAccessibleMenuIDs(activeMenus, resources), nil
 }
 
-var _ interfacerole.ServiceRoleInterface = (*RoleService)(nil)
+func (s *Service) newID() string {
+	if s.NewID != nil {
+		return s.NewID()
+	}
+	return serviceshared.NewID()
+}

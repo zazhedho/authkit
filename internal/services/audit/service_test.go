@@ -1,12 +1,13 @@
-package serviceaudit
+package audit
 
 import (
 	"context"
 	"errors"
-	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
-	"github.com/zazhedho/gokit"
 	"strings"
 	"testing"
+
+	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 )
 
 type auditRepoMock struct {
@@ -29,7 +30,7 @@ func (m *auditRepoMock) GetByID(ctx context.Context, id string) (domainaudit.Aud
 	return m.item, nil
 }
 
-func (m *auditRepoMock) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainaudit.AuditTrail, int64, error) {
+func (m *auditRepoMock) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainaudit.AuditTrail, int64, error) {
 	if m.err != nil {
 		return nil, 0, m.err
 	}
@@ -56,9 +57,9 @@ func TestGetAllDelegatesToRepository(t *testing.T) {
 		},
 		total: 1,
 	}
-	service := NewAuditService(repo)
+	service := NewService(repo)
 
-	items, total, err := service.GetAll(context.Background(), gokit.BaseParams{Page: 1, Limit: 10})
+	items, total, err := service.GetAll(context.Background(), dtoshared.ListRequest{Page: 1, Limit: 10})
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -84,7 +85,7 @@ func TestGetByIDDelegatesToRepository(t *testing.T) {
 	repo := &auditRepoMock{
 		item: domainaudit.AuditTrail{ID: "audit-1", Action: "login", Resource: "auth", Status: domainaudit.StatusSuccess},
 	}
-	service := NewAuditService(repo)
+	service := NewService(repo)
 
 	item, err := service.GetByID(context.Background(), "audit-1")
 	if err != nil {
@@ -99,7 +100,7 @@ func TestGetByIDDelegatesToRepository(t *testing.T) {
 }
 
 func TestGetByIDReturnsRepositoryError(t *testing.T) {
-	service := NewAuditService(&auditRepoMock{err: errors.New("not found")})
+	service := NewService(&auditRepoMock{err: errors.New("not found")})
 
 	_, err := service.GetByID(context.Background(), "missing")
 	if err == nil || err.Error() != "not found" {
@@ -109,7 +110,7 @@ func TestGetByIDReturnsRepositoryError(t *testing.T) {
 
 func TestStoreSanitizesSensitivePayloadAndHumanizesValues(t *testing.T) {
 	repo := &auditRepoMock{}
-	service := NewAuditService(repo)
+	service := NewService(repo)
 
 	err := service.Store(context.Background(), domainaudit.AuditEvent{
 		Action:   "refresh_token",
@@ -145,5 +146,26 @@ func TestStoreSanitizesSensitivePayloadAndHumanizesValues(t *testing.T) {
 		strings.Contains(repo.stored.AfterData, "sensitive-access-token") ||
 		strings.Contains(repo.stored.AfterData, "123456") {
 		t.Fatalf("expected sensitive values to be redacted, got %s", repo.stored.AfterData)
+	}
+}
+
+func TestStoreUsesInjectedIDGenerator(t *testing.T) {
+	repo := &auditRepoMock{}
+	service := NewService(repo)
+	service.NewID = func() string { return "fixed-id" }
+
+	if err := service.Store(context.Background(), domainaudit.AuditEvent{Action: "login", Resource: "auth", Status: domainaudit.StatusSuccess}); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if repo.stored.ID != "fixed-id" {
+		t.Fatalf("expected injected id, got %q", repo.stored.ID)
+	}
+
+	service = &Service{AuditRepo: repo}
+	if err := service.Store(context.Background(), domainaudit.AuditEvent{Action: "login", Resource: "auth", Status: domainaudit.StatusSuccess}); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if len(repo.stored.ID) != 36 {
+		t.Fatalf("expected a generated uuid when NewID is unset, got %q", repo.stored.ID)
 	}
 }

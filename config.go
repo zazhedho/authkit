@@ -7,26 +7,28 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/zazhedho/authkit/internal/authutil"
-	"github.com/zazhedho/authkit/internal/settings"
 	"github.com/zazhedho/gokit"
 	"gorm.io/gorm"
+
+	"github.com/zazhedho/authkit/internal/config"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	"github.com/zazhedho/authkit/internal/infrastructure/token"
 )
 
 // OTPConfig configures registration OTP generation, limits and lifetime.
-type OTPConfig = settings.OTPConfig
+type OTPConfig = config.OTPConfig
 
 // PasswordResetConfig configures the password reset flow.
-type PasswordResetConfig = settings.PasswordResetConfig
+type PasswordResetConfig = config.PasswordResetConfig
 
 // LoginLimit configures login attempt limiting.
-type LoginLimit = settings.LoginLimit
+type LoginLimit = config.LoginLimit
 
 // RateLimit configures a request rate limit (count per window).
-type RateLimit = settings.RateLimit
+type RateLimit = config.RateLimit
 
 // FlagKeys names the app-config keys that act as feature flags.
-type FlagKeys = settings.FlagKeys
+type FlagKeys = config.FlagKeys
 
 // Config is the explicit configuration. DB, AppName and JWTKey are required;
 // other zero values take defaults. OTP.Secret and Reset.Secret have no default
@@ -50,8 +52,8 @@ type Config struct {
 	Flags                           FlagKeys
 }
 
-// // String reports whether each secret is set but never prints one, so logging a
-// // Config with %v cannot leak credentials.
+// String reports whether each secret is set but never prints one, so logging a
+// Config with %v cannot leak credentials.
 func (c Config) String() string {
 	set := func(v string) string {
 		if strings.TrimSpace(v) == "" {
@@ -67,7 +69,24 @@ func (c Config) String() string {
 // is safe too.
 func (c Config) GoString() string { return c.String() }
 
+// devEnvValues are the normalized AppEnv values that enable the development
+// password-reset fallback. The startup warning and the user handler's
+// DevEnv setting both derive from them.
+var devEnvValues = []string{"development", "local", "test"}
+
+func isDevEnv(appEnv string) bool {
+	n := strings.ToLower(strings.TrimSpace(appEnv))
+	for _, v := range devEnvValues {
+		if n == v {
+			return true
+		}
+	}
+	return false
+}
+
 const (
+	defaultAccessTTL          = 24 * time.Hour
+	defaultRefreshTTL         = 168 * time.Hour
 	defaultPermissionCacheTTL = 300 * time.Second
 	defaultLoginLimit         = 5
 	defaultLoginWindow        = 60 * time.Second
@@ -78,22 +97,26 @@ const (
 	defaultOTPCooldown        = 60 * time.Second
 	defaultOTPRateLimit       = 5
 	defaultOTPMaxAttempts     = 5
-	defaultResetTTL           = authutil.DefaultResetTTL
+	defaultResetTTL           = 900 * time.Second
 	defaultResetCooldown      = 60 * time.Second
 	defaultResetRateLimit     = 5
+
+	defaultFlagPublicRegistration = "auth.public_registration_enabled"
+	defaultFlagRegisterOTP        = "auth.register_otp_enabled"
+	defaultFlagPasswordResetEmail = "auth.password_reset_email_enabled"
 )
 
 // withDefaults returns c with every unset (zero or non-positive) value replaced
 // by its default. It never invents a secret.
 func (c Config) withDefaults() Config {
 	if c.AccessTokenTTL <= 0 {
-		c.AccessTokenTTL = authutil.DefaultAccessTTL
+		c.AccessTokenTTL = defaultAccessTTL
 	}
 	if c.RefreshTokenTTL <= 0 {
-		c.RefreshTokenTTL = authutil.DefaultRefreshTTL
+		c.RefreshTokenTTL = defaultRefreshTTL
 	}
 	if strings.TrimSpace(c.DefaultRole) == "" {
-		c.DefaultRole = authutil.RoleViewer
+		c.DefaultRole = domainuser.RoleViewer
 	}
 	if strings.TrimSpace(c.EmailAppName) == "" {
 		c.EmailAppName = c.AppName
@@ -147,21 +170,20 @@ func (c Config) withDefaults() Config {
 		c.Reset.RateWindow = c.Reset.TTL
 	}
 
-	defaults := settings.DefaultFlagKeys()
 	if strings.TrimSpace(c.Flags.PublicRegistration) == "" {
-		c.Flags.PublicRegistration = defaults.PublicRegistration
+		c.Flags.PublicRegistration = defaultFlagPublicRegistration
 	}
 	if strings.TrimSpace(c.Flags.RegisterOTP) == "" {
-		c.Flags.RegisterOTP = defaults.RegisterOTP
+		c.Flags.RegisterOTP = defaultFlagRegisterOTP
 	}
 	if strings.TrimSpace(c.Flags.PasswordResetEmail) == "" {
-		c.Flags.PasswordResetEmail = defaults.PasswordResetEmail
+		c.Flags.PasswordResetEmail = defaultFlagPasswordResetEmail
 	}
 	return c
 }
 
-// // Validate expects defaults applied (as New does). OTP.Secret and Reset.Secret
-// // are required only when both Redis and Mailer are set; otherwise those services are inert.
+// Validate expects defaults applied (as New does). OTP.Secret and Reset.Secret
+// are required only when both Redis and Mailer are set; otherwise those services are inert.
 func (c Config) Validate() error {
 	if c.DB == nil {
 		return errors.New("authkit: DB is required")
@@ -169,11 +191,11 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.AppName) == "" {
 		return errors.New("authkit: AppName is required")
 	}
-	if _, err := authutil.NewTokens(authutil.TokenConfig{Key: c.JWTKey, AppName: c.AppName}); err != nil {
+	if _, err := token.NewTokens(token.TokenConfig{Key: c.JWTKey, AppName: c.AppName}); err != nil {
 		return fmt.Errorf("authkit: JWTKey: %w", err)
 	}
 	switch role := strings.ToLower(strings.TrimSpace(c.DefaultRole)); role {
-	case authutil.RoleSuperAdmin, authutil.RoleAdmin:
+	case domainuser.RoleSuperAdmin, domainuser.RoleAdmin:
 		return fmt.Errorf("authkit: DefaultRole must not be a privileged role (%q): public registrations would receive it", role)
 	}
 	if c.Redis != nil && c.Mailer != nil {

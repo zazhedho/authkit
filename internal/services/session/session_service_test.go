@@ -1,19 +1,19 @@
-package servicesession
+package session
 
 import (
 	"context"
 	"errors"
-	domainsession "github.com/zazhedho/authkit/internal/domain/session"
-	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	"testing"
 	"time"
+
+	domainsession "github.com/zazhedho/authkit/internal/domain/session"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
 type sessionRepoTestDouble struct {
 	session        *domainsession.Session
 	userSessions   []*domainsession.Session
 	deletedIDs     []string
-	activityID     string
 	rotatedID      string
 	deleteByUserID string
 }
@@ -43,10 +43,6 @@ func (m *sessionRepoTestDouble) GetByRefreshToken(ctx context.Context, refreshTo
 	}
 	return m.session, nil
 }
-func (m *sessionRepoTestDouble) UpdateActivity(ctx context.Context, sessionID string) error {
-	m.activityID = sessionID
-	return nil
-}
 func (m *sessionRepoTestDouble) RotateTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
 	m.rotatedID = sessionID
 	return nil
@@ -60,13 +56,10 @@ func (m *sessionRepoTestDouble) DeleteByUserID(ctx context.Context, userID strin
 	return nil
 }
 func (m *sessionRepoTestDouble) DeleteExpired(ctx context.Context) error { return nil }
-func (m *sessionRepoTestDouble) SetExpiration(ctx context.Context, sessionID string, expiration time.Duration) error {
-	return nil
-}
 
 func TestCreateSessionStoresSessionWithDerivedDeviceInfo(t *testing.T) {
 	repo := &sessionRepoTestDouble{}
-	svc := NewSessionService(repo, time.Hour)
+	svc := NewService(repo, time.Hour)
 
 	session, err := svc.CreateSession(context.Background(), &domainuser.Users{
 		Id:    "user-1",
@@ -95,13 +88,6 @@ func TestCreateSessionStoresSessionWithDerivedDeviceInfo(t *testing.T) {
 	}
 }
 
-func TestNewSessionServiceDefaultsNonPositiveRefreshTTL(t *testing.T) {
-	svc := NewSessionService(&sessionRepoTestDouble{}, 0)
-	if svc.RefreshTTL != 168*time.Hour {
-		t.Fatalf("expected default refresh TTL 168h, got %v", svc.RefreshTTL)
-	}
-}
-
 func TestExtractDeviceInfoVariants(t *testing.T) {
 	tests := map[string]string{
 		"Mozilla/5.0 (Linux; Android 13; Pixel)":       "Android Mobile",
@@ -120,45 +106,13 @@ func TestExtractDeviceInfoVariants(t *testing.T) {
 	}
 }
 
-func TestValidateSessionDeletesExpiredSession(t *testing.T) {
-	repo := &sessionRepoTestDouble{session: &domainsession.Session{
-		SessionID: "session-1",
-		ExpiresAt: time.Now().Add(-time.Minute),
-	}}
-	svc := NewSessionService(repo, time.Hour)
-
-	_, err := svc.ValidateSession(context.Background(), "access")
-	if err == nil || err.Error() != "session expired" {
-		t.Fatalf("expected expired session error, got %v", err)
-	}
-	if len(repo.deletedIDs) != 1 || repo.deletedIDs[0] != "session-1" {
-		t.Fatalf("expected expired session delete, got %+v", repo.deletedIDs)
-	}
-}
-
-func TestValidateSessionUpdatesActivityForValidSession(t *testing.T) {
-	repo := &sessionRepoTestDouble{session: &domainsession.Session{
-		SessionID: "session-1",
-		ExpiresAt: time.Now().Add(time.Hour),
-	}}
-	svc := NewSessionService(repo, time.Hour)
-
-	session, err := svc.ValidateSession(context.Background(), "access")
-	if err != nil {
-		t.Fatalf("expected success, got %v", err)
-	}
-	if session.SessionID != "session-1" || repo.activityID != "session-1" {
-		t.Fatalf("expected activity update, session=%+v activity=%q", session, repo.activityID)
-	}
-}
-
 func TestDestroyOtherSessionsKeepsCurrentSession(t *testing.T) {
 	repo := &sessionRepoTestDouble{userSessions: []*domainsession.Session{
 		{SessionID: "current"},
 		{SessionID: "old-1"},
 		{SessionID: "old-2"},
 	}}
-	svc := NewSessionService(repo, time.Hour)
+	svc := NewService(repo, time.Hour)
 
 	if err := svc.DestroyOtherSessions(context.Background(), "user-1", "current"); err != nil {
 		t.Fatalf("expected success, got %v", err)
@@ -175,7 +129,7 @@ func TestSessionServicePassThroughMethods(t *testing.T) {
 			{SessionID: "session-1", DeviceInfo: "Browser", IP: "127.0.0.1"},
 		},
 	}
-	svc := NewSessionService(repo, time.Hour)
+	svc := NewService(repo, time.Hour)
 	ctx := context.Background()
 
 	infos, err := svc.GetUserSessions(ctx, "user-1", "session-1")

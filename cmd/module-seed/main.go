@@ -3,10 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/zazhedho/authkit/internal/moduleseed"
 	"log"
 	"os"
 	"strings"
+
+	"github.com/zazhedho/authkit/internal/moduleseed"
 )
 
 func main() {

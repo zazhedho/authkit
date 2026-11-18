@@ -1,20 +1,20 @@
-package serviceuser
+package user
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	"github.com/zazhedho/authkit/internal/dto"
-	"github.com/zazhedho/gokit"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	dtouser "github.com/zazhedho/authkit/internal/dto/user"
+	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
+
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 type googleTokenInfo struct {
@@ -28,15 +28,15 @@ type googleTokenInfo struct {
 
 var googleIDTokenVerifier = verifyGoogleIDToken
 
-func (s *ServiceUser) LoginWithGoogle(ctx context.Context, req dto.GoogleLogin, metadata dto.LoginMetadata, allowRegistration bool) (domainuser.Users, bool, error) {
+func (s *Service) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, metadata dtouser.LoginMetadata, allowRegistration bool) (domainuser.Users, bool, error) {
 	identity, err := googleIDTokenVerifier(ctx, req.IDToken, s.GoogleClientIDs)
 	if err != nil {
 		return domainuser.Users{}, false, err
 	}
 
-	email := gokit.SanitizeEmail(identity.Email)
+	email := domainuser.SanitizeEmail(identity.Email)
 	if email == "" {
-		return domainuser.Users{}, false, ErrGoogleEmailMissing
+		return domainuser.Users{}, false, domainuser.ErrGoogleEmailMissing
 	}
 
 	existing, err := s.UserRepo.GetByEmail(ctx, email)
@@ -54,11 +54,11 @@ func (s *ServiceUser) LoginWithGoogle(ctx context.Context, req dto.GoogleLogin, 
 		}
 		return existing, false, nil
 	}
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err != nil && !errors.Is(err, domainuser.ErrNotFound) {
 		return domainuser.Users{}, false, err
 	}
 	if !allowRegistration {
-		return domainuser.Users{}, false, ErrPublicRegistrationDisabled
+		return domainuser.Users{}, false, domainuser.ErrPublicRegistrationDisabled
 	}
 
 	roleName := s.defaultRole()
@@ -67,7 +67,7 @@ func (s *ServiceUser) LoginWithGoogle(ctx context.Context, req dto.GoogleLogin, 
 		return domainuser.Users{}, false, fmt.Errorf("role %s is not configured", roleName)
 	}
 
-	passwordSeed := "Google-" + gokit.CreateUUID() + "-" + fmt.Sprintf("%d", time.Now().UnixNano()) + "!"
+	passwordSeed := "Google-" + s.newID() + "-" + fmt.Sprintf("%d", time.Now().UnixNano()) + "!"
 	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(passwordSeed), bcrypt.DefaultCost)
 	if err != nil {
 		return domainuser.Users{}, false, err
@@ -79,8 +79,8 @@ func (s *ServiceUser) LoginWithGoogle(ctx context.Context, req dto.GoogleLogin, 
 	}
 
 	user := domainuser.Users{
-		Id:                 gokit.CreateUUID(),
-		Name:               gokit.TitleCase(name),
+		Id:                 s.newID(),
+		Name:               serviceshared.TitleCase(name),
 		Email:              email,
 		Phone:              "",
 		Password:           string(hashedPwd),
@@ -108,12 +108,12 @@ func (s *ServiceUser) LoginWithGoogle(ctx context.Context, req dto.GoogleLogin, 
 
 func verifyGoogleIDToken(ctx context.Context, idToken string, clientIDs []string) (googleTokenInfo, error) {
 	if strings.TrimSpace(idToken) == "" {
-		return googleTokenInfo{}, ErrGoogleTokenInvalid
+		return googleTokenInfo{}, domainuser.ErrGoogleTokenInvalid
 	}
 
 	allowedAudiences := googleAllowedAudiences(clientIDs)
 	if len(allowedAudiences) == 0 {
-		return googleTokenInfo{}, ErrGoogleNotConfigured
+		return googleTokenInfo{}, domainuser.ErrGoogleNotConfigured
 	}
 
 	endpoint := "https://oauth2.googleapis.com/tokeninfo?id_token=" + url.QueryEscape(idToken)
@@ -130,7 +130,7 @@ func verifyGoogleIDToken(ctx context.Context, idToken string, clientIDs []string
 	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
-		return googleTokenInfo{}, ErrGoogleTokenInvalid
+		return googleTokenInfo{}, domainuser.ErrGoogleTokenInvalid
 	}
 
 	var tokenInfo googleTokenInfo
@@ -139,16 +139,16 @@ func verifyGoogleIDToken(ctx context.Context, idToken string, clientIDs []string
 	}
 
 	if _, ok := allowedAudiences[strings.TrimSpace(tokenInfo.Audience)]; !ok {
-		return googleTokenInfo{}, ErrGoogleTokenInvalid
+		return googleTokenInfo{}, domainuser.ErrGoogleTokenInvalid
 	}
 	if !strings.EqualFold(strings.TrimSpace(tokenInfo.EmailVerified), "true") {
-		return googleTokenInfo{}, ErrGoogleTokenInvalid
+		return googleTokenInfo{}, domainuser.ErrGoogleTokenInvalid
 	}
-	if gokit.SanitizeEmail(tokenInfo.Email) == "" {
-		return googleTokenInfo{}, ErrGoogleEmailMissing
+	if domainuser.SanitizeEmail(tokenInfo.Email) == "" {
+		return googleTokenInfo{}, domainuser.ErrGoogleEmailMissing
 	}
 	if strings.TrimSpace(tokenInfo.Subject) == "" {
-		return googleTokenInfo{}, ErrGoogleTokenInvalid
+		return googleTokenInfo{}, domainuser.ErrGoogleTokenInvalid
 	}
 
 	return tokenInfo, nil

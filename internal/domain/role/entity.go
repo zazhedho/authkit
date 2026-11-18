@@ -1,4 +1,4 @@
-package domainrole
+package role
 
 import (
 	"time"

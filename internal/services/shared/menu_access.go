@@ -1,12 +1,12 @@
-package serviceshared
+package shared
 
 import (
 	"context"
-	"github.com/zazhedho/authkit/internal/authscope"
+	"strings"
+
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
-	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
-	"strings"
 )
 
 func ResolveAccessibleMenus(activeMenus []domainmenu.MenuItem, resources []string) []domainmenu.MenuItem {
@@ -63,17 +63,18 @@ func ResolveAccessibleMenuIDs(activeMenus []domainmenu.MenuItem, resources []str
 	return ids
 }
 
-func HasPermission(ctx context.Context, permissionRepo interfacepermission.RepoPermissionInterface, resource, action string) (bool, error) {
-	scope := authscope.FromContext(ctx)
-	if scope.Has(resource, action) {
+// HasPermission reports whether actor holds (resource, action). An actor
+// whose permissions were not loaded is checked against the repository.
+func HasPermission(ctx context.Context, permissionRepo PermissionRepository, actor domainauth.Actor, resource, action string) (bool, error) {
+	if actor.Has(resource, action) {
 		return true, nil
 	}
 
-	if len(scope.Permissions) > 0 || strings.TrimSpace(scope.UserID) == "" {
+	if len(actor.Permissions) > 0 || strings.TrimSpace(actor.UserID) == "" {
 		return false, nil
 	}
 
-	permissions, err := permissionRepo.GetUserPermissions(ctx, scope.UserID)
+	permissions, err := permissionRepo.GetUserPermissions(ctx, actor.UserID)
 	if err != nil {
 		return false, err
 	}
@@ -82,13 +83,13 @@ func HasPermission(ctx context.Context, permissionRepo interfacepermission.RepoP
 }
 
 func permissionListHasAccess(permissions []domainpermission.Permission, resource, action string) bool {
-	targetKey := authscope.PermissionKey(resource, action)
+	targetKey := domainauth.PermissionKey(resource, action)
 	if targetKey == "" {
 		return false
 	}
 
 	for _, permission := range permissions {
-		if authscope.PermissionKey(permission.Resource, permission.Action) == targetKey {
+		if domainauth.PermissionKey(permission.Resource, permission.Action) == targetKey {
 			return true
 		}
 	}

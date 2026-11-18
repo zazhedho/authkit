@@ -3,9 +3,10 @@ package moduleseed
 import (
 	"errors"
 	"fmt"
-	"github.com/zazhedho/gokit"
 	"slices"
 	"strings"
+
+	"github.com/zazhedho/gokit"
 )
 
 var defaultActions = []string{"list", "view", "create", "update", "delete"}

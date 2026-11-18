@@ -1,13 +1,14 @@
-package servicemenu
+package menu
 
 import (
 	"context"
 	"errors"
+	"testing"
+
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
-	"github.com/zazhedho/authkit/internal/dto"
-	"github.com/zazhedho/gokit"
-	"testing"
+	dtomenu "github.com/zazhedho/authkit/internal/dto/menu"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 )
 
 type menuRepoTestDouble struct {
@@ -23,7 +24,7 @@ func (m *menuRepoTestDouble) GetByID(ctx context.Context, id string) (domainmenu
 	}
 	return m.menu, nil
 }
-func (m *menuRepoTestDouble) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainmenu.MenuItem, int64, error) {
+func (m *menuRepoTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainmenu.MenuItem, int64, error) {
 	return []domainmenu.MenuItem{m.menu}, 1, nil
 }
 func (m *menuRepoTestDouble) Update(ctx context.Context, data domainmenu.MenuItem) error {
@@ -60,7 +61,7 @@ func (m *permissionRepoMenuTestDouble) Store(ctx context.Context, data domainper
 func (m *permissionRepoMenuTestDouble) GetByID(ctx context.Context, id string) (domainpermission.Permission, error) {
 	return domainpermission.Permission{}, errors.New("not implemented")
 }
-func (m *permissionRepoMenuTestDouble) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainpermission.Permission, int64, error) {
+func (m *permissionRepoMenuTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainpermission.Permission, int64, error) {
 	return nil, 0, nil
 }
 func (m *permissionRepoMenuTestDouble) Update(ctx context.Context, data domainpermission.Permission) error {
@@ -81,7 +82,7 @@ func (m *permissionRepoMenuTestDouble) GetUserPermissions(ctx context.Context, u
 }
 
 func TestGetUserMenusDerivesMenusFromPermissionResources(t *testing.T) {
-	svc := NewMenuService(
+	svc := NewService(
 		&menuRepoTestDouble{activeMenus: []domainmenu.MenuItem{
 			{Id: "dashboard", Name: "dashboard", IsActive: true},
 			{Id: "users", Name: "users", ParentId: new("settings"), IsActive: true},
@@ -116,9 +117,9 @@ func TestUpdateOnlyAppliesProvidedMenuFields(t *testing.T) {
 		Icon:        "old-icon",
 		IsActive:    true,
 	}}
-	svc := NewMenuService(repo, &permissionRepoMenuTestDouble{})
+	svc := NewService(repo, &permissionRepoMenuTestDouble{})
 
-	got, err := svc.Update(context.Background(), "menu-1", dto.MenuUpdate{
+	got, err := svc.Update(context.Background(), "menu-1", dtomenu.MenuUpdate{
 		DisplayName: "User Management",
 		ParentId:    &parentID,
 		OrderIndex:  &orderIndex,
@@ -149,12 +150,12 @@ func TestMenuServicePassThroughMethods(t *testing.T) {
 			{Id: "menu-1", Name: "users", IsActive: true},
 		},
 	}
-	svc := NewMenuService(repo, &permissionRepoMenuTestDouble{})
+	svc := NewService(repo, &permissionRepoMenuTestDouble{})
 
 	if got, err := svc.GetByID(context.Background(), "menu-1"); err != nil || got.Id != "menu-1" {
 		t.Fatalf("get by id: menu=%+v err=%v", got, err)
 	}
-	if got, total, err := svc.GetAll(context.Background(), gokit.BaseParams{}); err != nil || total != 1 || len(got) != 1 {
+	if got, total, err := svc.GetAll(context.Background(), dtoshared.ListRequest{}); err != nil || total != 1 || len(got) != 1 {
 		t.Fatalf("get all: menus=%+v total=%d err=%v", got, total, err)
 	}
 	if got, err := svc.GetActiveMenus(context.Background()); err != nil || len(got) != 1 {

@@ -1,61 +1,51 @@
-package servicereset
+package reset
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	interfacereset "github.com/zazhedho/authkit/internal/interfaces/reset"
-	"github.com/zazhedho/authkit/internal/mailer"
-	"github.com/zazhedho/authkit/internal/settings"
-	"github.com/zazhedho/gokit"
 	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
-var (
-	ErrResetInvalid        = errors.New("reset token invalid or expired")
-	ErrResetNotConfigured  = errors.New("password reset service not configured")
-	ErrResetDeliveryFailed = errors.New("password reset delivery failed")
-)
-
-type ThrottleError struct {
-	Reason     string
-	RetryAfter time.Duration
+// Config holds the reset timing and limits; Secret keys the stored token
+// hashes and URLTemplate shapes the emailed link.
+type Config struct {
+	TTL         time.Duration
+	Cooldown    time.Duration
+	RateWindow  time.Duration
+	RateLimit   int
+	Secret      string
+	URLTemplate string
 }
 
-func (e *ThrottleError) Error() string {
-	if e == nil {
-		return "reset throttled"
-	}
-	return fmt.Sprintf("reset throttled: %s", e.Reason)
+type Service struct {
+	Repo   Repository
+	Sender Mailer
+	Config Config
 }
 
-type ServiceReset struct {
-	Repo   interfacereset.RepoPasswordResetInterface
-	Sender mailer.PasswordResetSender
-	Config settings.PasswordResetConfig
+func NewService(repo Repository, sender Mailer, cfg Config) *Service {
+	return &Service{Repo: repo, Sender: sender, Config: cfg}
 }
 
-func NewPasswordResetService(repo interfacereset.RepoPasswordResetInterface, sender mailer.PasswordResetSender, cfg settings.PasswordResetConfig) *ServiceReset {
-	return &ServiceReset{Repo: repo, Sender: sender, Config: cfg}
-}
-
-// // missingSecret reports an empty or blank secret; every entry point then treats
-// // the service as unconfigured rather than hash with an empty key.
-func (s *ServiceReset) missingSecret() bool {
+// missingSecret reports an empty or blank secret; every entry point then treats
+// the service as unconfigured rather than hash with an empty key.
+func (s *Service) missingSecret() bool {
 	return strings.TrimSpace(s.Config.Secret) == ""
 }
 
-func (s *ServiceReset) RequestReset(ctx context.Context, email, appName string) error {
+func (s *Service) RequestReset(ctx context.Context, email, appName string) error {
 	if s == nil || s.Repo == nil || s.Sender == nil || s.missingSecret() {
-		return ErrResetNotConfigured
+		return domainreset.ErrNotConfigured
 	}
 
-	normalizedEmail := gokit.SanitizeEmail(email)
+	normalizedEmail := domainuser.SanitizeEmail(email)
 	if normalizedEmail == "" {
-		return ErrResetInvalid
+		return domainreset.ErrInvalid
 	}
 
 	cooldownTTL, err := s.Repo.GetCooldownTTL(ctx, normalizedEmail)
@@ -63,7 +53,7 @@ func (s *ServiceReset) RequestReset(ctx context.Context, email, appName string) 
 		return fmt.Errorf("check cooldown: %w", err)
 	}
 	if cooldownTTL > 0 {
-		return &ThrottleError{Reason: "cooldown", RetryAfter: cooldownTTL}
+		return &domainreset.ThrottleError{Reason: "cooldown", RetryAfter: cooldownTTL}
 	}
 
 	if s.Config.RateLimit > 0 && s.Config.RateWindow > 0 {
@@ -72,7 +62,7 @@ func (s *ServiceReset) RequestReset(ctx context.Context, email, appName string) 
 			return fmt.Errorf("rate limit: %w", err)
 		}
 		if count > s.Config.RateLimit {
-			return &ThrottleError{Reason: "rate_limit", RetryAfter: retryAfter}
+			return &domainreset.ThrottleError{Reason: "rate_limit", RetryAfter: retryAfter}
 		}
 	}
 
@@ -97,27 +87,27 @@ func (s *ServiceReset) RequestReset(ctx context.Context, email, appName string) 
 		_ = s.Repo.DeleteToken(ctx, hash)
 		_ = s.Repo.ClearCooldown(ctx, normalizedEmail)
 		_ = s.Repo.ClearSendCount(ctx, normalizedEmail)
-		return ErrResetDeliveryFailed
+		return domainreset.ErrDeliveryFailed
 	}
 
 	return nil
 }
 
-func (s *ServiceReset) VerifyReset(ctx context.Context, token string) (string, error) {
+func (s *Service) VerifyReset(ctx context.Context, token string) (string, error) {
 	if s == nil || s.Repo == nil || s.missingSecret() {
-		return "", ErrResetNotConfigured
+		return "", domainreset.ErrNotConfigured
 	}
 
 	cleanToken := strings.TrimSpace(token)
 	if cleanToken == "" {
-		return "", ErrResetInvalid
+		return "", domainreset.ErrInvalid
 	}
 
 	hash := hashToken(cleanToken, s.Config.Secret)
 	email, err := s.Repo.GetEmailByToken(ctx, hash)
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return "", ErrResetInvalid
+		if errors.Is(err, domainreset.ErrNotFound) {
+			return "", domainreset.ErrInvalid
 		}
 		return "", fmt.Errorf("get token: %w", err)
 	}
@@ -127,5 +117,3 @@ func (s *ServiceReset) VerifyReset(ctx context.Context, token string) (string, e
 	_ = s.Repo.ClearSendCount(ctx, email)
 	return email, nil
 }
-
-var _ interfacereset.ServicePasswordResetInterface = (*ServiceReset)(nil)

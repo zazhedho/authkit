@@ -1,10 +1,11 @@
-package repositorysession
+package session
 
 import (
 	"context"
-	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	"testing"
 	"time"
+
+	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 )
 
 func expectPanic(t *testing.T, fn func()) {
@@ -18,7 +19,7 @@ func expectPanic(t *testing.T, fn func()) {
 }
 
 func TestNewSessionRepositoryAndNilRedisMethodPanics(t *testing.T) {
-	repo := NewSessionRepository(nil)
+	repo := NewRepository(nil)
 	if repo == nil {
 		t.Fatal("expected repo")
 	}
@@ -37,13 +38,11 @@ func TestNewSessionRepositoryAndNilRedisMethodPanics(t *testing.T) {
 	expectPanic(t, func() { _, _ = repo.GetByUserID(ctx, "user-1") })
 	expectPanic(t, func() { _, _ = repo.GetByToken(ctx, "access") })
 	expectPanic(t, func() { _, _ = repo.GetByRefreshToken(ctx, "refresh") })
-	expectPanic(t, func() { _ = repo.UpdateActivity(ctx, "session-1") })
 	expectPanic(t, func() { _ = repo.Delete(ctx, "session-1") })
 	expectPanic(t, func() { _ = repo.DeleteByUserID(ctx, "user-1") })
 	expectPanic(t, func() {
 		_ = repo.RotateTokens(ctx, "session-1", "new-access", "new-refresh", time.Now().Add(time.Hour))
 	})
-	expectPanic(t, func() { _ = repo.SetExpiration(ctx, "session-1", time.Hour) })
 
 	if err := repo.DeleteExpired(ctx); err != nil {
 		t.Fatalf("expected delete expired no-op, got %v", err)

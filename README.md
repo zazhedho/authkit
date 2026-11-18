@@ -88,6 +88,10 @@ api.GET("/trips", kit.Auth(), listTrips)
 // Authenticated and holding the (resource, action) permission.
 api.POST("/trips", kit.Auth(), kit.Can("trips", "create"), createTrip)
 
+// Authenticated, with the permissions loaded but none required: the handler
+// branches on scope.Has (for example a "list_any" permission).
+api.GET("/files", kit.Auth(), kit.LoadPermissions(), listFiles)
+
 // Authenticated and one of the given roles.
 api.GET("/reports", kit.Auth(), kit.Role("admin", "staff"), reports)
 ```
@@ -99,14 +103,18 @@ and `github.com/zazhedho/authkit` to your imports):
 func listTrips(c *gin.Context) {
 	scope := authkit.ScopeFrom(c.Request.Context()) // UserID, Username, Role, impersonation fields
 	// After kit.Auth() alone the permission set is EMPTY, so scope.Has is false
-	// for every non-superadmin. kit.Can(...) loads the permissions; behind it,
+	// for every non-superadmin. kit.Can(...) or kit.LoadPermissions() loads them; behind it,
 	// scope.Has("trips", "create") reflects the user's real grants.
 	c.JSON(http.StatusOK, gin.H{"user": scope.UserID, "role": scope.Role})
 }
 ```
 
-`Can` and `Role` must come after `Auth`. Superadmin bypasses both. `ScopeFrom`
-returns identity and role after `Auth`; permissions are only populated by `Can`. Permissions are
+`Can`, `LoadPermissions` and `Role` must come after `Auth`. Superadmin bypasses
+`Can` and `Role`, and passes every `Has` check. `LoadPermissions` fills the
+scope's permissions like `Can` does (403 for a deleted user, 500 on a lookup
+error) but never rejects a user for lacking one. `ScopeFrom` returns identity
+and role after `Auth`; permissions are only populated by `Can` or
+`LoadPermissions`. Permissions are
 plain rows (`resource`, `action`); add yours with `cmd/module-seed` (see
 Extending). `kit.Audit()` and `kit.AppConfig()` expose the audit and app-config
 services (`authkit.AuditService`, `authkit.AppConfigService`).
@@ -403,8 +411,8 @@ from your pool and leaves your `*sql.DB` open.
   `-icon`, `-order-index` and `-parent-name` adjust it). Put the output in your own
   migration.
 - **Without `Mount`.** The handlers, services and repositories are internal
-  and not importable. Use `Mount` for the route set and `Auth`, `Can` and
-  `Role` for your own routes; mount it on a group (for example `/api`) to place
+  and not importable. Use `Mount` for the route set and `Auth`, `Can`,
+  `LoadPermissions` and `Role` for your own routes; mount it on a group (for example `/api`) to place
   it in your path layout.
 
 ## Development
@@ -421,6 +429,57 @@ Integration tests for `Migrate` need a disposable PostgreSQL and are skipped
 without `AUTHKIT_TEST_DATABASE_URL`, for example
 `postgres://postgres:test@127.0.0.1:55432/postgres?sslmode=disable`. Each test
 creates and drops its own schema.
+
+## Internal layout
+
+For contributors. Callers use only the root package; the code below it is
+organised by layer, and tests enforce the layering.
+
+```text
+internal/
+  architecture/                 guard tests
+  config/                       plain settings values
+  domain/<module>/              entities, domain errors
+  dto/<module>/                 request and response shapes
+  services/<module>/            business logic, ports.go
+  services/shared/              helpers shared by services
+  repositories/<module>/        database access
+  handlers/http/<module>/       gin handlers, ports.go
+  handlers/http/middleware/     Auth, Can, LoadPermissions, Role, RequestLogger
+  handlers/http/shared/         audit writer and request helpers
+  infrastructure/               cache/permission, mailer, ratelimit, token
+  migrations/  moduleseed/      embedded SQL, `cmd/module-seed` logic
+  testutil/                     test helpers
+```
+
+**Dependency rule.** Everything depends inward on `domain` and `dto`; the
+middle layers never import each other. A consumer declares the interface it
+needs (`ports.go`) and the root package wires the concrete types. Services use
+only the standard library, `domain`, `dto`, `services/shared`, logus, uuid,
+`golang.org/x/crypto` and `golang.org/x/text`. Handlers and the middleware do
+not import services, repositories, infrastructure or `config`.
+Infrastructure imports no `domain`, except `infrastructure/cache/<module>`.
+Modules do not import each other, apart from the shared `domain` and `dto`
+model.
+
+**What `internal/architecture` enforces.** The import rule per layer, the list
+of known layers, the reserved `shared` directories, no module-to-module
+imports, the import alias convention (`domainuser`, `servicerole`,
+`repositoryshared`, `httpshared`, ...), package name equal to directory name,
+constructors returning concrete types, interfaces declared by their consumer
+without an `Interface` suffix, no `log.Fatal` or `os.Exit` outside `cmd/`, no
+package-level database or Redis clients, no `internal/` import of the root
+package, and `cmd/` importing only `internal/moduleseed`. Each guard has a
+test that proves it fires.
+
+**Public API snapshot.** `TestPublicAPI` compares the exported root API with
+`testdata/public_api.golden`. After an intended addition, regenerate it with
+
+```
+go test -run TestPublicAPI -update .
+```
+
+A change to the golden file is a change to the public API: review it as one.
 
 ## Upgrading from v0.1.x
 

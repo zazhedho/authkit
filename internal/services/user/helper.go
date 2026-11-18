@@ -1,22 +1,11 @@
-package serviceuser
+package user
 
 import (
 	"context"
 	"errors"
-	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	"github.com/zazhedho/authkit/internal/dto"
-	interfacerole "github.com/zazhedho/authkit/internal/interfaces/role"
-	"github.com/zazhedho/gokit"
-	"net/mail"
 	"regexp"
-	"strings"
-)
 
-var (
-	ErrGoogleNotConfigured        = errors.New("google login is not configured")
-	ErrGoogleTokenInvalid         = errors.New("invalid google token")
-	ErrGoogleEmailMissing         = errors.New("google account email is not available")
-	ErrPublicRegistrationDisabled = errors.New("public registration is currently disabled")
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
 func ValidatePasswordStrength(password string) error {
@@ -70,37 +59,11 @@ func buildUserAuthResponse(user domainuser.Users, permissions []string) map[stri
 	}
 }
 
-func findRoleIDByName(ctx context.Context, roleRepo interfacerole.RepoRoleInterface, roleName string) (*string, bool) {
+func findRoleIDByName(ctx context.Context, roleRepo RoleRepository, roleName string) (*string, bool) {
 	roleEntity, err := roleRepo.GetByName(ctx, roleName)
 	if err != nil || roleEntity.Id == "" {
 		return nil, false
 	}
 
 	return &roleEntity.Id, true
-}
-
-func ResolveLoginIdentifier(req dto.Login) (string, error) {
-	identifier := strings.TrimSpace(req.Identifier)
-	if identifier == "" {
-		identifier = strings.TrimSpace(req.Email)
-	}
-
-	if identifier == "" {
-		return "", errors.New("identifier or email is required")
-	}
-
-	if strings.Contains(identifier, "@") {
-		sanitizedEmail := gokit.SanitizeEmail(identifier)
-		if _, err := mail.ParseAddress(sanitizedEmail); err != nil {
-			return "", errors.New("identifier must be a valid email or phone number")
-		}
-		return sanitizedEmail, nil
-	}
-
-	normalizedPhone := gokit.NormalizePhoneTo62(identifier)
-	if len(normalizedPhone) < 9 || len(normalizedPhone) > 15 {
-		return "", errors.New("identifier must be a valid email or phone number")
-	}
-
-	return normalizedPhone, nil
 }

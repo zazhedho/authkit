@@ -1,4 +1,4 @@
-package repositoryotp
+package otp
 
 import (
 	"context"
@@ -17,7 +17,7 @@ func expectPanic(t *testing.T, fn func()) {
 }
 
 func TestNewOTPRepositoryAndNilRedisMethodPanics(t *testing.T) {
-	repo := NewOTPRepository(nil)
+	repo := NewRepository(nil)
 	if repo == nil {
 		t.Fatal("expected repo")
 	}

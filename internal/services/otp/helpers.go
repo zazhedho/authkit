@@ -1,4 +1,4 @@
-package serviceotp
+package otp
 
 import (
 	"crypto/rand"

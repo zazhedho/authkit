@@ -1,12 +1,13 @@
-package servicepermission
+package permission
 
 import (
 	"context"
 	"errors"
-	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
-	"github.com/zazhedho/authkit/internal/dto"
-	"github.com/zazhedho/gokit"
 	"testing"
+
+	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
+	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 )
 
 type permissionRepoTestDouble struct {
@@ -27,7 +28,7 @@ func (m *permissionRepoTestDouble) GetByID(ctx context.Context, id string) (doma
 	}
 	return m.permission, nil
 }
-func (m *permissionRepoTestDouble) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainpermission.Permission, int64, error) {
+func (m *permissionRepoTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainpermission.Permission, int64, error) {
 	return []domainpermission.Permission{m.permission}, 1, nil
 }
 func (m *permissionRepoTestDouble) Update(ctx context.Context, data domainpermission.Permission) error {
@@ -57,13 +58,13 @@ func (m *permissionRepoTestDouble) GetUserPermissions(ctx context.Context, userI
 }
 
 func TestCreateRejectsDuplicatePermissionName(t *testing.T) {
-	svc := NewPermissionService(&permissionRepoTestDouble{
+	svc := NewService(&permissionRepoTestDouble{
 		permissionByKey: map[string]domainpermission.Permission{
 			"list_users": {Id: "perm-1", Name: "list_users"},
 		},
 	})
 
-	_, err := svc.Create(context.Background(), dto.PermissionCreate{Name: "list_users"})
+	_, err := svc.Create(context.Background(), dtopermission.PermissionCreate{Name: "list_users"})
 	if err == nil || err.Error() != "permission with this name already exists" {
 		t.Fatalf("expected duplicate error, got %v", err)
 	}
@@ -71,9 +72,9 @@ func TestCreateRejectsDuplicatePermissionName(t *testing.T) {
 
 func TestCreateStoresPermission(t *testing.T) {
 	repo := &permissionRepoTestDouble{}
-	svc := NewPermissionService(repo)
+	svc := NewService(repo)
 
-	got, err := svc.Create(context.Background(), dto.PermissionCreate{
+	got, err := svc.Create(context.Background(), dtopermission.PermissionCreate{
 		Name:        "list_users",
 		DisplayName: "List Users",
 		Description: "Can list users",
@@ -101,9 +102,9 @@ func TestUpdatePreservesEmptyFieldsAndSetsUpdatedAt(t *testing.T) {
 		Resource:    "users",
 		Action:      "list",
 	}}
-	svc := NewPermissionService(repo)
+	svc := NewService(repo)
 
-	got, err := svc.Update(context.Background(), "perm-1", dto.PermissionUpdate{
+	got, err := svc.Update(context.Background(), "perm-1", dtopermission.PermissionUpdate{
 		Description: "new",
 		Action:      "view",
 	})
@@ -121,7 +122,7 @@ func TestUpdatePreservesEmptyFieldsAndSetsUpdatedAt(t *testing.T) {
 
 func TestDeleteDelegatesToRepository(t *testing.T) {
 	repo := &permissionRepoTestDouble{}
-	svc := NewPermissionService(repo)
+	svc := NewService(repo)
 
 	if err := svc.Delete(context.Background(), "perm-1"); err != nil {
 		t.Fatalf("expected success, got %v", err)
@@ -138,12 +139,12 @@ func TestPermissionServicePassThroughMethods(t *testing.T) {
 		Resource: "users",
 		Action:   "list",
 	}}
-	svc := NewPermissionService(repo)
+	svc := NewService(repo)
 
 	if got, err := svc.GetByID(context.Background(), "perm-1"); err != nil || got.Id != "perm-1" {
 		t.Fatalf("get by id: permission=%+v err=%v", got, err)
 	}
-	if got, total, err := svc.GetAll(context.Background(), gokit.BaseParams{}); err != nil || total != 1 || len(got) != 1 {
+	if got, total, err := svc.GetAll(context.Background(), dtoshared.ListRequest{}); err != nil || total != 1 || len(got) != 1 {
 		t.Fatalf("get all: permissions=%+v total=%d err=%v", got, total, err)
 	}
 	if got, err := svc.GetByResource(context.Background(), "users"); err != nil || len(got) != 1 {

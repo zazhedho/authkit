@@ -1,4 +1,4 @@
-package domainappconfig
+package appconfig
 
 import "testing"
 

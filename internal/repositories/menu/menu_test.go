@@ -1,16 +1,17 @@
-package repositorymenu
+package menu
 
 import (
 	"context"
 	"testing"
 	"time"
 
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
+
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/zazhedho/authkit/internal/authutil"
-	"github.com/zazhedho/gokit"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
 func newDryRunDB(t *testing.T) *gorm.DB {
@@ -32,13 +33,13 @@ func newDryRunDB(t *testing.T) *gorm.DB {
 }
 
 func TestMenuRepositoryDryRun(t *testing.T) {
-	repo := NewMenuRepo(newDryRunDB(t))
+	repo := NewRepository(newDryRunDB(t))
 	ctx := context.Background()
 
 	if _, err := repo.GetByName(ctx, "dashboard"); err != nil {
 		t.Fatalf("get by name: %v", err)
 	}
-	if _, _, err := repo.GetAll(ctx, gokit.BaseParams{
+	if _, _, err := repo.GetAll(ctx, dtoshared.ListRequest{
 		Search:         "dash",
 		Filters:        map[string]any{"name": "dashboard", "is_active": true},
 		OrderBy:        "order_index",
@@ -80,9 +81,9 @@ func expectMenuUserRole(mock sqlmock.Sqlmock, roleID any, role string) {
 
 func TestMenuRepositoryGetUserMenusSuperadmin(t *testing.T) {
 	db, mock := newMenuMockDB(t)
-	repo := NewMenuRepo(db)
+	repo := NewRepository(db)
 	now := time.Now()
-	expectMenuUserRole(mock, nil, authutil.RoleSuperAdmin)
+	expectMenuUserRole(mock, nil, domainuser.RoleSuperAdmin)
 	mock.ExpectQuery(`SELECT \* FROM "menu_items" WHERE is_active = \$1 AND "menu_items"\."deleted_at" IS NULL ORDER BY order_index ASC`).
 		WithArgs(true).
 		WillReturnRows(sqlmock.NewRows([]string{
@@ -100,8 +101,8 @@ func TestMenuRepositoryGetUserMenusSuperadmin(t *testing.T) {
 
 func TestMenuRepositoryGetUserMenusEmptyRole(t *testing.T) {
 	db, mock := newMenuMockDB(t)
-	repo := NewMenuRepo(db)
-	expectMenuUserRole(mock, nil, authutil.RoleViewer)
+	repo := NewRepository(db)
+	expectMenuUserRole(mock, nil, domainuser.RoleViewer)
 
 	menus, err := repo.GetUserMenus(context.Background(), "user-1")
 	if err != nil || len(menus) != 0 {
@@ -114,10 +115,10 @@ func TestMenuRepositoryGetUserMenusEmptyRole(t *testing.T) {
 
 func TestMenuRepositoryGetUserMenusIncludesParentsAndSorts(t *testing.T) {
 	db, mock := newMenuMockDB(t)
-	repo := NewMenuRepo(db)
+	repo := NewRepository(db)
 	roleID, parentID, rootID := "role-1", "parent-1", "root-1"
 	now := time.Now()
-	expectMenuUserRole(mock, roleID, authutil.RoleViewer)
+	expectMenuUserRole(mock, roleID, domainuser.RoleViewer)
 	mock.ExpectQuery(`SELECT DISTINCT m\.\*[\s\S]+FROM menu_items m[\s\S]+INNER JOIN permissions p[\s\S]+INNER JOIN role_permissions rp[\s\S]+WHERE rp\.role_id = \$1[\s\S]+ORDER BY m\.order_index ASC`).
 		WithArgs(roleID).
 		WillReturnRows(sqlmock.NewRows([]string{

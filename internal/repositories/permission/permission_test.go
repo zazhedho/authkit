@@ -1,16 +1,17 @@
-package repositorypermission
+package permission
 
 import (
 	"context"
 	"testing"
 	"time"
 
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
+
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/zazhedho/authkit/internal/authutil"
-	"github.com/zazhedho/gokit"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
 func newDryRunDB(t *testing.T) *gorm.DB {
@@ -32,7 +33,7 @@ func newDryRunDB(t *testing.T) *gorm.DB {
 }
 
 func TestPermissionRepositoryDryRun(t *testing.T) {
-	repo := NewPermissionRepo(newDryRunDB(t))
+	repo := NewRepository(newDryRunDB(t))
 	ctx := context.Background()
 
 	if _, err := repo.GetByName(ctx, "users.read"); err != nil {
@@ -41,7 +42,7 @@ func TestPermissionRepositoryDryRun(t *testing.T) {
 	if _, err := repo.GetByResource(ctx, "users"); err != nil {
 		t.Fatalf("get by resource: %v", err)
 	}
-	if _, _, err := repo.GetAll(ctx, gokit.BaseParams{
+	if _, _, err := repo.GetAll(ctx, dtoshared.ListRequest{
 		Search:         "users",
 		Filters:        map[string]any{"resource": "users", "action": "read"},
 		OrderBy:        "resource",
@@ -80,9 +81,9 @@ func expectPermissionUserRole(mock sqlmock.Sqlmock, roleID any, role string) {
 
 func TestPermissionRepositoryGetUserPermissionsSuperadmin(t *testing.T) {
 	db, mock := newPermissionMockDB(t)
-	repo := NewPermissionRepo(db)
+	repo := NewRepository(db)
 	now := time.Now()
-	expectPermissionUserRole(mock, nil, authutil.RoleSuperAdmin)
+	expectPermissionUserRole(mock, nil, domainuser.RoleSuperAdmin)
 	mock.ExpectQuery(`SELECT \* FROM "permissions" WHERE deleted_at IS NULL AND "permissions"\."deleted_at" IS NULL ORDER BY resource, action`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "display_name", "description", "resource", "action", "created_at", "updated_at", "deleted_at",
@@ -99,8 +100,8 @@ func TestPermissionRepositoryGetUserPermissionsSuperadmin(t *testing.T) {
 
 func TestPermissionRepositoryGetUserPermissionsEmptyRole(t *testing.T) {
 	db, mock := newPermissionMockDB(t)
-	repo := NewPermissionRepo(db)
-	expectPermissionUserRole(mock, nil, authutil.RoleViewer)
+	repo := NewRepository(db)
+	expectPermissionUserRole(mock, nil, domainuser.RoleViewer)
 
 	permissions, err := repo.GetUserPermissions(context.Background(), "user-1")
 	if err != nil || len(permissions) != 0 {
@@ -113,10 +114,10 @@ func TestPermissionRepositoryGetUserPermissionsEmptyRole(t *testing.T) {
 
 func TestPermissionRepositoryGetUserPermissionsByRole(t *testing.T) {
 	db, mock := newPermissionMockDB(t)
-	repo := NewPermissionRepo(db)
+	repo := NewRepository(db)
 	roleID := "role-1"
 	now := time.Now()
-	expectPermissionUserRole(mock, roleID, authutil.RoleViewer)
+	expectPermissionUserRole(mock, roleID, domainuser.RoleViewer)
 	mock.ExpectQuery(`SELECT DISTINCT p\.\*[\s\S]+FROM permissions p[\s\S]+INNER JOIN role_permissions rp[\s\S]+WHERE rp\.role_id = \$1 AND p\.deleted_at IS NULL[\s\S]+ORDER BY p\.resource, p\.action`).
 		WithArgs(roleID).
 		WillReturnRows(sqlmock.NewRows([]string{

@@ -1,12 +1,13 @@
-package repositorysession
+package session
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	"testing"
 	"time"
+
+	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 
 	redismock "github.com/go-redis/redismock/v9"
 	"github.com/redis/go-redis/v9"
@@ -30,7 +31,7 @@ func matchRedisCommandKey(expected, actual []any) error {
 func TestSessionRepositoryWithRedisMock(t *testing.T) {
 	client, mock := redismock.NewClientMock()
 	redisExpect := mock.CustomMatch(matchRedisCommandKey)
-	repo := NewSessionRepository(client)
+	repo := NewRepository(client)
 	ctx := context.Background()
 	now := time.Now()
 	expiresAt := now.Add(time.Hour)
@@ -66,9 +67,6 @@ func TestSessionRepositoryWithRedisMock(t *testing.T) {
 	mock.ExpectSMembers("user_sessions:user-1").SetVal([]string{"session-1"})
 	mock.ExpectGet("session:session-1").SetVal(string(sessionData))
 	mock.ExpectGet("session:session-1").SetVal(string(sessionData))
-	mock.ExpectTTL("session:session-1").SetVal(time.Hour)
-	redisExpect.ExpectSet("session:session-1", "", time.Hour).SetVal("OK")
-	mock.ExpectGet("session:session-1").SetVal(string(sessionData))
 	mock.ExpectDel("access_token_session:access-1").SetVal(1)
 	mock.ExpectDel("refresh_token_session:refresh-1").SetVal(1)
 	redisExpect.ExpectSet("session:session-1", "", time.Hour).SetVal("OK")
@@ -85,7 +83,6 @@ func TestSessionRepositoryWithRedisMock(t *testing.T) {
 	}
 	mock.ExpectGet("access_token_session:access-2").SetVal("session-1")
 	mock.ExpectGet("session:session-1").SetVal(string(rotatedData))
-	redisExpect.ExpectExpire("session:session-1", time.Minute).SetVal(true)
 	mock.ExpectGet("session:session-1").SetVal(string(rotatedData))
 	mock.ExpectDel("session:session-1").SetVal(1)
 	mock.ExpectSRem("user_sessions:user-1", "session-1").SetVal(1)
@@ -108,17 +105,11 @@ func TestSessionRepositoryWithRedisMock(t *testing.T) {
 	if sessions, err := repo.GetByUserID(ctx, "user-1"); err != nil || len(sessions) != 1 {
 		t.Fatalf("get by user: sessions=%+v err=%v", sessions, err)
 	}
-	if err := repo.UpdateActivity(ctx, "session-1"); err != nil {
-		t.Fatalf("update activity: %v", err)
-	}
 	if err := repo.RotateTokens(ctx, "session-1", "access-2", "refresh-2", time.Now().Add(time.Hour)); err != nil {
 		t.Fatalf("rotate tokens: %v", err)
 	}
 	if got, err := repo.GetByToken(ctx, "access-2"); err != nil || got.AccessToken != "access-2" {
 		t.Fatalf("get rotated token: got=%+v err=%v", got, err)
-	}
-	if err := repo.SetExpiration(ctx, "session-1", time.Minute); err != nil {
-		t.Fatalf("set expiration: %v", err)
 	}
 	if err := repo.Delete(ctx, "session-1"); err != nil {
 		t.Fatalf("delete session: %v", err)
@@ -134,7 +125,7 @@ func TestSessionRepositoryWithRedisMock(t *testing.T) {
 
 func TestSessionRepositoryRejectsExpiredSessionOnCreateAndDeleteByUser(t *testing.T) {
 	client, mock := redismock.NewClientMock()
-	repo := NewSessionRepository(client)
+	repo := NewRepository(client)
 	ctx := context.Background()
 	if err := repo.Create(ctx, &domainsession.Session{SessionID: "expired", ExpiresAt: time.Now().Add(-time.Minute)}); err == nil {
 		t.Fatal("expected expired session create error")
@@ -150,7 +141,7 @@ func TestSessionRepositoryRejectsExpiredSessionOnCreateAndDeleteByUser(t *testin
 
 func TestSessionRepositoryGetBySessionIDPropagatesRedisError(t *testing.T) {
 	client, mock := redismock.NewClientMock()
-	repo := NewSessionRepository(client)
+	repo := NewRepository(client)
 	mock.ExpectGet("session:session-1").SetErr(redis.TxFailedErr)
 
 	if _, err := repo.GetBySessionID(context.Background(), "session-1"); err == nil {

@@ -1,31 +1,32 @@
-package serviceaudit
+package audit
 
 import (
 	"encoding/json"
 	"fmt"
-	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
-	"github.com/zazhedho/authkit/internal/dto"
-	"github.com/zazhedho/gokit"
 	"strings"
+
+	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
+	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 )
 
-func toAuditResponses(items []domainaudit.AuditTrail) []dto.AuditTrailResponse {
-	responses := make([]dto.AuditTrailResponse, 0, len(items))
+func toAuditResponses(items []domainaudit.AuditTrail) []dtoaudit.AuditTrailResponse {
+	responses := make([]dtoaudit.AuditTrailResponse, 0, len(items))
 	for _, item := range items {
 		responses = append(responses, toAuditResponse(item))
 	}
 	return responses
 }
 
-func toAuditResponse(item domainaudit.AuditTrail) dto.AuditTrailResponse {
-	actionLabel := gokit.TitleHumanized(item.Action)
-	resourceLabel := gokit.TitleHumanized(item.Resource)
-	statusLabel := gokit.TitleHumanized(item.Status)
+func toAuditResponse(item domainaudit.AuditTrail) dtoaudit.AuditTrailResponse {
+	actionLabel := serviceshared.TitleHumanized(item.Action)
+	resourceLabel := serviceshared.TitleHumanized(item.Resource)
+	statusLabel := serviceshared.TitleHumanized(item.Status)
 
-	return dto.AuditTrailResponse{
+	return dtoaudit.AuditTrailResponse{
 		ID:            item.ID,
 		OccurredAt:    item.OccurredAt,
-		Actor:         dto.AuditActor{UserID: item.ActorUserID, Role: gokit.TitleHumanized(item.ActorRole)},
+		Actor:         dtoaudit.AuditActor{UserID: item.ActorUserID, Role: serviceshared.TitleHumanized(item.ActorRole)},
 		Action:        item.Action,
 		ActionLabel:   actionLabel,
 		Resource:      item.Resource,

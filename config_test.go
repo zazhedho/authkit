@@ -12,9 +12,10 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/zazhedho/authkit/internal/authutil"
-	"github.com/zazhedho/authkit/internal/settings"
 	"gorm.io/gorm"
+
+	"github.com/zazhedho/authkit/internal/config"
+	"github.com/zazhedho/authkit/internal/infrastructure/token"
 )
 
 const testJWTKey = "test-secret-must-be-at-least-32-bytes"
@@ -107,8 +108,8 @@ func TestValidateRejects(t *testing.T) {
 		{"nil DB", func(c *Config) { c.DB = nil }, nil, "DB"},
 		{"empty AppName", func(c *Config) { c.AppName = "" }, nil, "AppName"},
 		{"blank AppName", func(c *Config) { c.AppName = "   " }, nil, "AppName"},
-		{"empty JWTKey", func(c *Config) { c.JWTKey = "" }, authutil.ErrJWTKeyNotConfigured, "JWTKey"},
-		{"31 character JWTKey", func(c *Config) { c.JWTKey = strings.Repeat("k", 31) }, authutil.ErrJWTKeyTooShort, "JWTKey"},
+		{"empty JWTKey", func(c *Config) { c.JWTKey = "" }, token.ErrJWTKeyNotConfigured, "JWTKey"},
+		{"31 character JWTKey", func(c *Config) { c.JWTKey = strings.Repeat("k", 31) }, token.ErrJWTKeyTooShort, "JWTKey"},
 		{"superadmin DefaultRole", func(c *Config) { c.DefaultRole = "superadmin" }, nil, "DefaultRole"},
 		{"admin DefaultRole", func(c *Config) { c.DefaultRole = "admin" }, nil, "DefaultRole"},
 		{"normalized privileged DefaultRole", func(c *Config) { c.DefaultRole = "  SuperAdmin " }, nil, "DefaultRole"},
@@ -164,21 +165,21 @@ func TestWithDefaultsMatchesLegacyEnvDefaults(t *testing.T) {
 	if cfg.PermissionCacheTTL != 300*time.Second {
 		t.Fatalf("unexpected permission cache TTL %v", cfg.PermissionCacheTTL)
 	}
-	if cfg.Login != (settings.LoginLimit{Limit: 5, Window: 60 * time.Second, BlockDuration: 300 * time.Second}) {
+	if cfg.Login != (config.LoginLimit{Limit: 5, Window: 60 * time.Second, BlockDuration: 300 * time.Second}) {
 		t.Fatalf("unexpected login limit %+v", cfg.Login)
 	}
-	if cfg.Register != (settings.RateLimit{Limit: 5, Window: 60 * time.Second}) {
+	if cfg.Register != (config.RateLimit{Limit: 5, Window: 60 * time.Second}) {
 		t.Fatalf("unexpected register limit %+v", cfg.Register)
 	}
-	wantOTP := settings.OTPConfig{TTL: 300 * time.Second, Cooldown: 60 * time.Second, RateLimit: 5, RateWindow: 300 * time.Second, MaxAttempts: 5, Secret: ""}
+	wantOTP := config.OTPConfig{TTL: 300 * time.Second, Cooldown: 60 * time.Second, RateLimit: 5, RateWindow: 300 * time.Second, MaxAttempts: 5, Secret: ""}
 	if cfg.OTP != wantOTP {
 		t.Fatalf("unexpected OTP config %+v", cfg.OTP)
 	}
-	wantReset := settings.PasswordResetConfig{TTL: 900 * time.Second, Cooldown: 60 * time.Second, RateLimit: 5, RateWindow: 900 * time.Second, Secret: ""}
+	wantReset := config.PasswordResetConfig{TTL: 900 * time.Second, Cooldown: 60 * time.Second, RateLimit: 5, RateWindow: 900 * time.Second, Secret: ""}
 	if cfg.Reset != wantReset {
 		t.Fatalf("unexpected reset config %+v", cfg.Reset)
 	}
-	wantFlags := settings.FlagKeys{
+	wantFlags := config.FlagKeys{
 		PublicRegistration: "auth.public_registration_enabled",
 		RegisterOTP:        "auth.register_otp_enabled",
 		PasswordResetEmail: "auth.password_reset_email_enabled",
@@ -199,7 +200,7 @@ func TestWithDefaultsKeepsExplicitValues(t *testing.T) {
 		AccessTokenTTL:     time.Hour,
 		RefreshTokenTTL:    2 * time.Hour,
 		PermissionCacheTTL: time.Minute,
-		OTP:                settings.OTPConfig{TTL: 10 * time.Minute},
+		OTP:                config.OTPConfig{TTL: 10 * time.Minute},
 	}
 	got := in.withDefaults()
 	if got.EmailAppName != "Mail App" || got.DefaultRole != "member" || got.AccessTokenTTL != time.Hour ||
@@ -264,21 +265,21 @@ func TestConfigFromEnvReadsLegacyNames(t *testing.T) {
 	if !slices.Equal(got, []string{"a", "b", "c"}) {
 		t.Fatalf("unexpected google client ids %v", cfg.GoogleClientIDs)
 	}
-	if cfg.Login != (settings.LoginLimit{Limit: 7, Window: 70 * time.Second, BlockDuration: 700 * time.Second}) {
+	if cfg.Login != (config.LoginLimit{Limit: 7, Window: 70 * time.Second, BlockDuration: 700 * time.Second}) {
 		t.Fatalf("unexpected login limit %+v", cfg.Login)
 	}
-	if cfg.Register != (settings.RateLimit{Limit: 9, Window: 90 * time.Second}) {
+	if cfg.Register != (config.RateLimit{Limit: 9, Window: 90 * time.Second}) {
 		t.Fatalf("unexpected register limit %+v", cfg.Register)
 	}
-	wantOTP := settings.OTPConfig{TTL: 200 * time.Second, Cooldown: 30 * time.Second, RateLimit: 4, RateWindow: 400 * time.Second, MaxAttempts: 3, Secret: "fake-otp-secret"} //nolint:gosec // fake test secret
+	wantOTP := config.OTPConfig{TTL: 200 * time.Second, Cooldown: 30 * time.Second, RateLimit: 4, RateWindow: 400 * time.Second, MaxAttempts: 3, Secret: "fake-otp-secret"} //nolint:gosec // fake test secret
 	if cfg.OTP != wantOTP {
 		t.Fatalf("unexpected OTP config %+v", cfg.OTP)
 	}
-	wantReset := settings.PasswordResetConfig{TTL: 600 * time.Second, Cooldown: 45 * time.Second, RateLimit: 6, RateWindow: 1200 * time.Second, Secret: "fake-reset-secret", URLTemplate: "https://example.com/reset?token={token}"} //nolint:gosec // fake test secret
+	wantReset := config.PasswordResetConfig{TTL: 600 * time.Second, Cooldown: 45 * time.Second, RateLimit: 6, RateWindow: 1200 * time.Second, Secret: "fake-reset-secret", URLTemplate: "https://example.com/reset?token={token}"} //nolint:gosec // fake test secret
 	if cfg.Reset != wantReset {
 		t.Fatalf("unexpected reset config %+v", cfg.Reset)
 	}
-	if cfg.Flags != (settings.FlagKeys{PublicRegistration: "custom.registration", RegisterOTP: "custom.otp", PasswordResetEmail: "custom.reset_email"}) {
+	if cfg.Flags != (config.FlagKeys{PublicRegistration: "custom.registration", RegisterOTP: "custom.otp", PasswordResetEmail: "custom.reset_email"}) {
 		t.Fatalf("unexpected flags %+v", cfg.Flags)
 	}
 }
@@ -462,7 +463,7 @@ func goSources(t *testing.T) map[string]string {
 func TestNoEnvReadsOutsideAllowedFiles(t *testing.T) {
 	forbidden := []string{"GetEnv(", "DurationFromEnv(", "os.Getenv(", "os.LookupEnv("}
 	allowed := func(path string) bool {
-		return path == "config.go" || path == "internal/mailer/brevo_env.go" || strings.HasPrefix(path, "cmd/")
+		return path == "config.go" || strings.HasPrefix(path, "cmd/")
 	}
 	for path, src := range goSources(t) {
 		if allowed(path) {
@@ -470,7 +471,7 @@ func TestNoEnvReadsOutsideAllowedFiles(t *testing.T) {
 		}
 		for _, needle := range forbidden {
 			if strings.Contains(src, needle) {
-				t.Errorf("%s reads the environment via %q; only config.go, internal/mailer/brevo_env.go and cmd/ may", path, needle)
+				t.Errorf("%s reads the environment via %q; only config.go and cmd/ may", path, needle)
 			}
 		}
 	}
@@ -482,6 +483,18 @@ func TestNoBuiltInSecretLiterals(t *testing.T) {
 			if strings.Contains(src, needle) {
 				t.Errorf("%s contains the built-in secret literal %q", path, needle)
 			}
+		}
+	}
+}
+
+func TestIsDevEnv(t *testing.T) {
+	for in, want := range map[string]bool{
+		"development": true, "local": true, "test": true,
+		" Development ": true, "LOCAL": true, "Test": true,
+		"": false, "production": false, "prod": false, "staging": false, "testing": false,
+	} {
+		if got := isDevEnv(in); got != want {
+			t.Errorf("isDevEnv(%q) = %v, want %v", in, got, want)
 		}
 	}
 }

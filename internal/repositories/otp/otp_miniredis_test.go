@@ -1,4 +1,4 @@
-package repositoryotp
+package otp
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 
 func TestOTPRepositoryWithRedisMock(t *testing.T) {
 	client, mock := redismock.NewClientMock()
-	repo := NewOTPRepository(client)
+	repo := NewRepository(client)
 	ctx := context.Background()
 	email := "jane@example.com"
 

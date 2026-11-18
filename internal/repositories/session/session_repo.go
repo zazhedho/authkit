@@ -1,23 +1,26 @@
-package repositorysession
+package session
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	domainsession "github.com/zazhedho/authkit/internal/domain/session"
-	"github.com/zazhedho/logus"
 	"time"
+
+	"github.com/zazhedho/logus"
+
+	domainsession "github.com/zazhedho/authkit/internal/domain/session"
+	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
 
 	"github.com/redis/go-redis/v9"
 )
 
-type SessionRepository struct {
+type Repository struct {
 	Redis *redis.Client
 }
 
-func NewSessionRepository(redisClient *redis.Client) *SessionRepository {
-	return &SessionRepository{
+func NewRepository(redisClient *redis.Client) *Repository {
+	return &Repository{
 		Redis: redisClient,
 	}
 }
@@ -29,7 +32,7 @@ const (
 	refreshTokenSessionKey = "refresh_token_session:"
 )
 
-func (r *SessionRepository) Create(ctx context.Context, session *domainsession.Session) error {
+func (r *Repository) Create(ctx context.Context, session *domainsession.Session) error {
 	sessionKey := fmt.Sprintf("%s%s", sessionKeyPrefix, session.SessionID)
 	userSessionKey := fmt.Sprintf("%s%s", userSessionsKey, session.UserID)
 	accessTokenKey := fmt.Sprintf("%s%s", accessTokenSessionKey, session.AccessToken)
@@ -61,12 +64,12 @@ func (r *SessionRepository) Create(ctx context.Context, session *domainsession.S
 	return nil
 }
 
-func (r *SessionRepository) GetBySessionID(ctx context.Context, sessionID string) (*domainsession.Session, error) {
+func (r *Repository) GetBySessionID(ctx context.Context, sessionID string) (*domainsession.Session, error) {
 	sessionKey := fmt.Sprintf("%s%s", sessionKeyPrefix, sessionID)
 
 	data, err := r.Redis.Get(ctx, sessionKey).Result()
 	if errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("session not found")
+		return nil, repositoryshared.RedisMsg(err, domainsession.ErrNotFound, "session not found")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session: %w", err)
@@ -80,7 +83,7 @@ func (r *SessionRepository) GetBySessionID(ctx context.Context, sessionID string
 	return &session, nil
 }
 
-func (r *SessionRepository) GetByUserID(ctx context.Context, userID string) ([]*domainsession.Session, error) {
+func (r *Repository) GetByUserID(ctx context.Context, userID string) ([]*domainsession.Session, error) {
 	userSessionKey := fmt.Sprintf("%s%s", userSessionsKey, userID)
 
 	sessionIDs, err := r.Redis.SMembers(ctx, userSessionKey).Result()
@@ -102,62 +105,31 @@ func (r *SessionRepository) GetByUserID(ctx context.Context, userID string) ([]*
 	return sessions, nil
 }
 
-func (r *SessionRepository) GetByToken(ctx context.Context, token string) (*domainsession.Session, error) {
-	tokenKey := fmt.Sprintf("%s%s", accessTokenSessionKey, token)
+func (r *Repository) GetByToken(ctx context.Context, token string) (*domainsession.Session, error) {
+	return r.getByTokenKey(ctx, accessTokenSessionKey, token, "token")
+}
+
+func (r *Repository) GetByRefreshToken(ctx context.Context, refreshToken string) (*domainsession.Session, error) {
+	return r.getByTokenKey(ctx, refreshTokenSessionKey, refreshToken, "refresh token")
+}
+
+// getByTokenKey resolves a session through one of its token indexes. kind
+// names the token in the error messages.
+func (r *Repository) getByTokenKey(ctx context.Context, keyPrefix, token, kind string) (*domainsession.Session, error) {
+	tokenKey := fmt.Sprintf("%s%s", keyPrefix, token)
 
 	sessionID, err := r.Redis.Get(ctx, tokenKey).Result()
 	if errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("session not found for token")
+		return nil, repositoryshared.RedisMsg(err, domainsession.ErrNotFound, "session not found for "+kind)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to get session by token: %w", err)
+		return nil, fmt.Errorf("failed to get session by %s: %w", kind, err)
 	}
 
 	return r.GetBySessionID(ctx, sessionID)
 }
 
-func (r *SessionRepository) GetByRefreshToken(ctx context.Context, refreshToken string) (*domainsession.Session, error) {
-	tokenKey := fmt.Sprintf("%s%s", refreshTokenSessionKey, refreshToken)
-
-	sessionID, err := r.Redis.Get(ctx, tokenKey).Result()
-	if errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("session not found for refresh token")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session by refresh token: %w", err)
-	}
-
-	return r.GetBySessionID(ctx, sessionID)
-}
-
-func (r *SessionRepository) UpdateActivity(ctx context.Context, sessionID string) error {
-	session, err := r.GetBySessionID(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	session.LastActivity = time.Now()
-
-	sessionKey := fmt.Sprintf("%s%s", sessionKeyPrefix, sessionID)
-	sessionData, err := json.Marshal(session)
-	if err != nil {
-		return fmt.Errorf("failed to marshal session: %w", err)
-	}
-
-	ttl, err := r.Redis.TTL(ctx, sessionKey).Result()
-	if err != nil {
-		return fmt.Errorf("failed to get session TTL: %w", err)
-	}
-
-	err = r.Redis.Set(ctx, sessionKey, sessionData, ttl).Err()
-	if err != nil {
-		return fmt.Errorf("failed to update session activity: %w", err)
-	}
-
-	return nil
-}
-
-func (r *SessionRepository) Delete(ctx context.Context, sessionID string) error {
+func (r *Repository) Delete(ctx context.Context, sessionID string) error {
 	session, err := r.GetBySessionID(ctx, sessionID)
 	if err != nil {
 		return err
@@ -183,7 +155,7 @@ func (r *SessionRepository) Delete(ctx context.Context, sessionID string) error 
 	return nil
 }
 
-func (r *SessionRepository) DeleteByUserID(ctx context.Context, userID string) error {
+func (r *Repository) DeleteByUserID(ctx context.Context, userID string) error {
 	sessions, err := r.GetByUserID(ctx, userID)
 	if err != nil {
 		return err
@@ -198,7 +170,7 @@ func (r *SessionRepository) DeleteByUserID(ctx context.Context, userID string) e
 	return nil
 }
 
-func (r *SessionRepository) RotateTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
+func (r *Repository) RotateTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
 	session, err := r.GetBySessionID(ctx, sessionID)
 	if err != nil {
 		return err
@@ -242,18 +214,7 @@ func (r *SessionRepository) RotateTokens(ctx context.Context, sessionID string, 
 	return nil
 }
 
-func (r *SessionRepository) DeleteExpired(ctx context.Context) error {
+func (r *Repository) DeleteExpired(ctx context.Context) error {
 	logus.WriteLog(logus.LogLevelDebug, "Expired sessions are automatically removed by Redis TTL")
-	return nil
-}
-
-func (r *SessionRepository) SetExpiration(ctx context.Context, sessionID string, expiration time.Duration) error {
-	sessionKey := fmt.Sprintf("%s%s", sessionKeyPrefix, sessionID)
-
-	err := r.Redis.Expire(ctx, sessionKey, expiration).Err()
-	if err != nil {
-		return fmt.Errorf("failed to set session expiration: %w", err)
-	}
-
 	return nil
 }

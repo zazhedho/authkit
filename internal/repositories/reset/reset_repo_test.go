@@ -1,4 +1,4 @@
-package repositoryreset
+package reset
 
 import (
 	"context"
@@ -17,7 +17,7 @@ func expectPanic(t *testing.T, fn func()) {
 }
 
 func TestNewPasswordResetRepositoryAndNilRedisMethodPanics(t *testing.T) {
-	repo := NewPasswordResetRepository(nil)
+	repo := NewRepository(nil)
 	if repo == nil {
 		t.Fatal("expected repo")
 	}

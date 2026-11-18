@@ -1,4 +1,4 @@
-package repositoryuser
+package user
 
 import (
 	"context"
@@ -6,12 +6,13 @@ import (
 	"regexp"
 	"testing"
 
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
+
 	"github.com/DATA-DOG/go-sqlmock"
-	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/zazhedho/gokit"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
 func newDryRunDB(t *testing.T) *gorm.DB {
@@ -33,7 +34,7 @@ func newDryRunDB(t *testing.T) *gorm.DB {
 }
 
 func TestUserRepositoryDryRun(t *testing.T) {
-	repo := NewUserRepo(newDryRunDB(t))
+	repo := NewRepository(newDryRunDB(t))
 	ctx := context.Background()
 
 	if _, err := repo.GetByEmail(ctx, "jane@example.com"); err != nil {
@@ -42,7 +43,7 @@ func TestUserRepositoryDryRun(t *testing.T) {
 	if _, err := repo.GetByPhone(ctx, "08123456789"); err != nil {
 		t.Fatalf("get by phone: %v", err)
 	}
-	if _, _, err := repo.GetAll(ctx, gokit.BaseParams{
+	if _, _, err := repo.GetAll(ctx, dtoshared.ListRequest{
 		Search:         "jane",
 		Filters:        map[string]any{"role": "admin", "email": "jane@example.com"},
 		OrderBy:        "email",
@@ -67,7 +68,7 @@ func TestUserRepositoryStoreOmitsEmptyPhone(t *testing.T) {
 		t.Fatalf("open gorm: %v", err)
 	}
 
-	repo := NewUserRepo(db)
+	repo := NewRepository(db)
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "users" ("id","name","email","password","role","role_id","email_verified_at","phone_verified_at","last_login_at","last_login_ip","last_login_user_agent","locked_until","password_changed_at","login_provider","avatar_url","metadata","created_at","updated_at","deleted_at") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`)).
 		WithArgs(anyArgs(19)...).
 		WillReturnResult(sqlmock.NewResult(0, 1))

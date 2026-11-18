@@ -1,27 +1,31 @@
-package serviceaudit
+package audit
 
 import (
 	"context"
 	"errors"
-	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
-	"github.com/zazhedho/authkit/internal/dto"
-	interfaceaudit "github.com/zazhedho/authkit/internal/interfaces/audit"
-	"github.com/zazhedho/gokit"
 	"strings"
 	"time"
+
+	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
+	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 )
 
-type AuditService struct {
-	AuditRepo interfaceaudit.RepoAuditInterface
+type Service struct {
+	AuditRepo Repository
+	// NewID makes record ids; nil uses a UUID v7.
+	NewID func() string
 }
 
-func NewAuditService(auditRepo interfaceaudit.RepoAuditInterface) *AuditService {
-	return &AuditService{
+func NewService(auditRepo Repository) *Service {
+	return &Service{
 		AuditRepo: auditRepo,
+		NewID:     serviceshared.NewID,
 	}
 }
 
-func (s *AuditService) Store(ctx context.Context, req domainaudit.AuditEvent) error {
+func (s *Service) Store(ctx context.Context, req domainaudit.AuditEvent) error {
 	if strings.TrimSpace(req.Action) == "" {
 		return errors.New("action is required")
 	}
@@ -37,35 +41,35 @@ func (s *AuditService) Store(ctx context.Context, req domainaudit.AuditEvent) er
 		occurredAt = time.Now()
 	}
 
-	before := gokit.RedactSensitivePayload(req.BeforeData)
-	after := gokit.RedactSensitivePayload(req.AfterData)
-	meta := gokit.RedactSensitivePayload(req.Metadata)
+	before := serviceshared.RedactSensitivePayload(req.BeforeData)
+	after := serviceshared.RedactSensitivePayload(req.AfterData)
+	meta := serviceshared.RedactSensitivePayload(req.Metadata)
 
 	data := domainaudit.AuditTrail{
-		ID:           gokit.CreateUUID(),
+		ID:           s.newID(),
 		OccurredAt:   occurredAt,
-		ActorUserID:  gokit.NormalizeUUIDPointer(req.ActorUserID),
+		ActorUserID:  serviceshared.NormalizeUUIDPointer(req.ActorUserID),
 		ActorRole:    strings.TrimSpace(req.ActorRole),
-		Action:       gokit.HumanizeKey(req.Action),
+		Action:       serviceshared.HumanizeKey(req.Action),
 		Resource:     strings.TrimSpace(req.Resource),
 		ResourceID:   strings.TrimSpace(req.ResourceID),
-		Status:       gokit.HumanizeKey(req.Status),
+		Status:       serviceshared.HumanizeKey(req.Status),
 		Message:      strings.TrimSpace(req.Message),
 		ErrorMessage: strings.TrimSpace(req.ErrorMessage),
 		RequestID:    strings.TrimSpace(req.RequestID),
 		IPAddress:    strings.TrimSpace(req.IPAddress),
 		UserAgent:    strings.TrimSpace(req.UserAgent),
-		BeforeData:   gokit.JsonEncode(before),
-		AfterData:    gokit.JsonEncode(after),
-		Metadata:     gokit.JsonEncode(meta),
+		BeforeData:   serviceshared.JsonEncode(before),
+		AfterData:    serviceshared.JsonEncode(after),
+		Metadata:     serviceshared.JsonEncode(meta),
 		CreatedAt:    time.Now(),
 	}
 
 	return s.AuditRepo.Store(ctx, data)
 }
 
-func (s *AuditService) GetAll(ctx context.Context, params gokit.BaseParams) ([]dto.AuditTrailResponse, int64, error) {
-	items, total, err := s.AuditRepo.GetAll(ctx, params)
+func (s *Service) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]dtoaudit.AuditTrailResponse, int64, error) {
+	items, total, err := s.AuditRepo.GetAll(ctx, req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -73,13 +77,18 @@ func (s *AuditService) GetAll(ctx context.Context, params gokit.BaseParams) ([]d
 	return toAuditResponses(items), total, nil
 }
 
-func (s *AuditService) GetByID(ctx context.Context, id string) (dto.AuditTrailResponse, error) {
+func (s *Service) GetByID(ctx context.Context, id string) (dtoaudit.AuditTrailResponse, error) {
 	item, err := s.AuditRepo.GetByID(ctx, id)
 	if err != nil {
-		return dto.AuditTrailResponse{}, err
+		return dtoaudit.AuditTrailResponse{}, err
 	}
 
 	return toAuditResponse(item), nil
 }
 
-var _ interfaceaudit.ServiceAuditInterface = (*AuditService)(nil)
+func (s *Service) newID() string {
+	if s.NewID != nil {
+		return s.NewID()
+	}
+	return serviceshared.NewID()
+}

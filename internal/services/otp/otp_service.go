@@ -1,63 +1,52 @@
-package serviceotp
+package otp
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	interfaceotp "github.com/zazhedho/authkit/internal/interfaces/otp"
-	"github.com/zazhedho/authkit/internal/mailer"
-	"github.com/zazhedho/authkit/internal/settings"
-	"github.com/zazhedho/gokit"
-	"github.com/zazhedho/logus"
 	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	"github.com/zazhedho/logus"
+
+	domainotp "github.com/zazhedho/authkit/internal/domain/otp"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
-var (
-	ErrOTPInvalid        = errors.New("otp invalid or expired")
-	ErrOTPTooManyAttempt = errors.New("otp too many attempts")
-	ErrOTPNotConfigured  = errors.New("otp service not configured")
-	ErrOTPDeliveryFailed = errors.New("otp delivery failed")
-)
-
-type ThrottleError struct {
-	Reason     string
-	RetryAfter time.Duration
+// Config holds the OTP timing and limits; Secret keys the stored code hashes.
+type Config struct {
+	TTL         time.Duration
+	MaxAttempts int
+	RateLimit   int
+	RateWindow  time.Duration
+	Cooldown    time.Duration
+	Secret      string
 }
 
-func (e *ThrottleError) Error() string {
-	if e == nil {
-		return "otp throttled"
-	}
-	return fmt.Sprintf("otp throttled: %s", e.Reason)
+type Service struct {
+	Repo   Repository
+	Sender Mailer
+	Config Config
 }
 
-type ServiceOTP struct {
-	Repo   interfaceotp.RepoOTPInterface
-	Sender mailer.Sender
-	Config settings.OTPConfig
+func NewService(repo Repository, sender Mailer, cfg Config) *Service {
+	return &Service{Repo: repo, Sender: sender, Config: cfg}
 }
 
-func NewOTPService(repo interfaceotp.RepoOTPInterface, sender mailer.Sender, cfg settings.OTPConfig) *ServiceOTP {
-	return &ServiceOTP{Repo: repo, Sender: sender, Config: cfg}
-}
-
-// // missingSecret reports an empty or blank secret; every entry point then treats
-// // the service as unconfigured rather than sign with an empty key.
-func (s *ServiceOTP) missingSecret() bool {
+// missingSecret reports an empty or blank secret; every entry point then treats
+// the service as unconfigured rather than sign with an empty key.
+func (s *Service) missingSecret() bool {
 	return strings.TrimSpace(s.Config.Secret) == ""
 }
 
-func (s *ServiceOTP) SendRegisterOTP(ctx context.Context, email, appName string) error {
+func (s *Service) SendRegisterOTP(ctx context.Context, email, appName string) error {
 	if s == nil || s.Repo == nil || s.Sender == nil || s.missingSecret() {
-		return ErrOTPNotConfigured
+		return domainotp.ErrNotConfigured
 	}
 
-	normalizedEmail := gokit.SanitizeEmail(email)
+	normalizedEmail := domainuser.SanitizeEmail(email)
 	if normalizedEmail == "" {
-		return ErrOTPInvalid
+		return domainotp.ErrInvalid
 	}
 
 	cooldownTTL, err := s.Repo.GetCooldownTTL(ctx, normalizedEmail)
@@ -65,7 +54,7 @@ func (s *ServiceOTP) SendRegisterOTP(ctx context.Context, email, appName string)
 		return fmt.Errorf("check cooldown: %w", err)
 	}
 	if cooldownTTL > 0 {
-		return &ThrottleError{Reason: "cooldown", RetryAfter: cooldownTTL}
+		return &domainotp.ThrottleError{Reason: "cooldown", RetryAfter: cooldownTTL}
 	}
 
 	if s.Config.RateLimit > 0 && s.Config.RateWindow > 0 {
@@ -74,7 +63,7 @@ func (s *ServiceOTP) SendRegisterOTP(ctx context.Context, email, appName string)
 			return fmt.Errorf("rate limit: %w", err)
 		}
 		if count > s.Config.RateLimit {
-			return &ThrottleError{Reason: "rate_limit", RetryAfter: retryAfter}
+			return &domainotp.ThrottleError{Reason: "rate_limit", RetryAfter: retryAfter}
 		}
 	}
 
@@ -102,27 +91,27 @@ func (s *ServiceOTP) SendRegisterOTP(ctx context.Context, email, appName string)
 		_ = s.Repo.ClearCooldown(ctx, normalizedEmail)
 		_ = s.Repo.ClearSendCount(ctx, normalizedEmail)
 		logus.WriteLog(logus.LogLevelError, "OTP delivery error: ", err)
-		return ErrOTPDeliveryFailed
+		return domainotp.ErrDeliveryFailed
 	}
 
 	return nil
 }
 
-func (s *ServiceOTP) VerifyRegisterOTP(ctx context.Context, email, code string) error {
+func (s *Service) VerifyRegisterOTP(ctx context.Context, email, code string) error {
 	if s == nil || s.Repo == nil || s.missingSecret() {
-		return ErrOTPNotConfigured
+		return domainotp.ErrNotConfigured
 	}
 
-	normalizedEmail := gokit.SanitizeEmail(email)
+	normalizedEmail := domainuser.SanitizeEmail(email)
 	cleanCode := strings.TrimSpace(code)
 	if normalizedEmail == "" || cleanCode == "" {
-		return ErrOTPInvalid
+		return domainotp.ErrInvalid
 	}
 
 	hashed, err := s.Repo.GetOTP(ctx, normalizedEmail)
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return ErrOTPInvalid
+		if errors.Is(err, domainotp.ErrNotFound) {
+			return domainotp.ErrInvalid
 		}
 		return fmt.Errorf("get otp: %w", err)
 	}
@@ -135,16 +124,16 @@ func (s *ServiceOTP) VerifyRegisterOTP(ctx context.Context, email, code string) 
 	if s.Config.MaxAttempts > 0 && attempts > s.Config.MaxAttempts {
 		_ = s.Repo.DeleteOTP(ctx, normalizedEmail)
 		_ = s.Repo.ResetAttempts(ctx, normalizedEmail)
-		return ErrOTPTooManyAttempt
+		return domainotp.ErrTooManyAttempt
 	}
 
 	if !verifyOTP(cleanCode, hashed, s.Config.Secret) {
 		if s.Config.MaxAttempts > 0 && attempts >= s.Config.MaxAttempts {
 			_ = s.Repo.DeleteOTP(ctx, normalizedEmail)
 			_ = s.Repo.ResetAttempts(ctx, normalizedEmail)
-			return ErrOTPTooManyAttempt
+			return domainotp.ErrTooManyAttempt
 		}
-		return ErrOTPInvalid
+		return domainotp.ErrInvalid
 	}
 
 	_ = s.Repo.DeleteOTP(ctx, normalizedEmail)
@@ -153,5 +142,3 @@ func (s *ServiceOTP) VerifyRegisterOTP(ctx context.Context, email, code string) 
 	_ = s.Repo.ClearSendCount(ctx, normalizedEmail)
 	return nil
 }
-
-var _ interfaceotp.ServiceOTPInterface = (*ServiceOTP)(nil)
