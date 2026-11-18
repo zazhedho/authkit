@@ -59,7 +59,7 @@ func (m *appConfigRepoMock) GetByKey(ctx context.Context, configKey string) (dom
 }
 
 func TestGetBoolReturnsDefaultWhenConfigMissing(t *testing.T) {
-	service := NewAppConfigService(&appConfigRepoMock{byKey: map[string]domainappconfig.AppConfig{}})
+	service := NewService(&appConfigRepoMock{byKey: map[string]domainappconfig.AppConfig{}})
 
 	value, err := service.GetBool(context.Background(), "feature.example", true)
 	if err != nil {
@@ -71,7 +71,7 @@ func TestGetBoolReturnsDefaultWhenConfigMissing(t *testing.T) {
 }
 
 func TestGetBoolReturnsDefaultWhenConfigInactive(t *testing.T) {
-	service := NewAppConfigService(&appConfigRepoMock{
+	service := NewService(&appConfigRepoMock{
 		byKey: map[string]domainappconfig.AppConfig{
 			"feature.example": {ConfigKey: "feature.example", Value: "false", IsActive: false},
 		},
@@ -87,7 +87,7 @@ func TestGetBoolReturnsDefaultWhenConfigInactive(t *testing.T) {
 }
 
 func TestIsEnabledReturnsFallbackWhenConfigMissing(t *testing.T) {
-	service := NewAppConfigService(&appConfigRepoMock{byKey: map[string]domainappconfig.AppConfig{}})
+	service := NewService(&appConfigRepoMock{byKey: map[string]domainappconfig.AppConfig{}})
 
 	value, err := service.IsEnabled(context.Background(), "feature.example", true)
 	if err != nil {
@@ -99,7 +99,7 @@ func TestIsEnabledReturnsFallbackWhenConfigMissing(t *testing.T) {
 }
 
 func TestIsEnabledReturnsFallbackWhenConfigInactive(t *testing.T) {
-	service := NewAppConfigService(&appConfigRepoMock{
+	service := NewService(&appConfigRepoMock{
 		byKey: map[string]domainappconfig.AppConfig{
 			"feature.example": {ConfigKey: "feature.example", Value: "false", IsActive: false},
 		},
@@ -115,7 +115,7 @@ func TestIsEnabledReturnsFallbackWhenConfigInactive(t *testing.T) {
 }
 
 func TestIsEnabledReturnsValueWhenConfigActive(t *testing.T) {
-	service := NewAppConfigService(&appConfigRepoMock{
+	service := NewService(&appConfigRepoMock{
 		byKey: map[string]domainappconfig.AppConfig{
 			"feature.example": {ConfigKey: "feature.example", Value: "false", IsActive: true},
 		},
@@ -131,7 +131,7 @@ func TestIsEnabledReturnsValueWhenConfigActive(t *testing.T) {
 }
 
 func TestGetBoolParsesFeatureFlagValue(t *testing.T) {
-	service := NewAppConfigService(&appConfigRepoMock{
+	service := NewService(&appConfigRepoMock{
 		byKey: map[string]domainappconfig.AppConfig{
 			"feature.example": {ConfigKey: "feature.example", Value: "enabled", IsActive: true},
 		},
@@ -147,7 +147,7 @@ func TestGetBoolParsesFeatureFlagValue(t *testing.T) {
 }
 
 func TestGetIntReturnsParseErrorForInvalidValue(t *testing.T) {
-	service := NewAppConfigService(&appConfigRepoMock{
+	service := NewService(&appConfigRepoMock{
 		byKey: map[string]domainappconfig.AppConfig{
 			"jobs.batch_size": {ConfigKey: "jobs.batch_size", Value: "abc", IsActive: true},
 		},
@@ -160,7 +160,7 @@ func TestGetIntReturnsParseErrorForInvalidValue(t *testing.T) {
 }
 
 func TestGetDurationParsesValue(t *testing.T) {
-	service := NewAppConfigService(&appConfigRepoMock{
+	service := NewService(&appConfigRepoMock{
 		byKey: map[string]domainappconfig.AppConfig{
 			"jobs.interval": {ConfigKey: "jobs.interval", Value: "30m", IsActive: true},
 		},
@@ -176,7 +176,7 @@ func TestGetDurationParsesValue(t *testing.T) {
 }
 
 func TestDecodeJSONLeavesTargetWhenConfigMissing(t *testing.T) {
-	service := NewAppConfigService(&appConfigRepoMock{byKey: map[string]domainappconfig.AppConfig{}})
+	service := NewService(&appConfigRepoMock{byKey: map[string]domainappconfig.AppConfig{}})
 
 	target := struct {
 		Limit int `json:"limit"`
@@ -191,7 +191,7 @@ func TestDecodeJSONLeavesTargetWhenConfigMissing(t *testing.T) {
 }
 
 func TestDecodeJSONDecodesActiveConfig(t *testing.T) {
-	service := NewAppConfigService(&appConfigRepoMock{
+	service := NewService(&appConfigRepoMock{
 		byKey: map[string]domainappconfig.AppConfig{
 			"jobs.rules": {ConfigKey: "jobs.rules", Value: `{"limit":5}`, IsActive: true},
 		},
@@ -210,7 +210,7 @@ func TestDecodeJSONDecodesActiveConfig(t *testing.T) {
 }
 
 func TestGetStringReturnsRepositoryError(t *testing.T) {
-	service := NewAppConfigService(&appConfigRepoMock{keyErr: errors.New("db error")})
+	service := NewService(&appConfigRepoMock{keyErr: errors.New("db error")})
 
 	_, err := service.GetString(context.Background(), "app.name", "Starter")
 	if err == nil || err.Error() != "db error" {
@@ -221,7 +221,7 @@ func TestGetStringReturnsRepositoryError(t *testing.T) {
 func TestUpdateStillWorks(t *testing.T) {
 	nowConfig := domainappconfig.AppConfig{Id: "cfg-1", ConfigKey: "feature.example", Value: "old", IsActive: true}
 	repo := &appConfigRepoMock{byID: nowConfig}
-	service := NewAppConfigService(repo)
+	service := NewService(repo)
 
 	updated, err := service.Update(context.Background(), "cfg-1", dtoappconfig.UpdateAppConfig{Value: "new"})
 	if err != nil {
@@ -239,7 +239,7 @@ func TestAppConfigServicePassThroughMethodsAndIsEnabled(t *testing.T) {
 		list:  []domainappconfig.AppConfig{{Id: "cfg-1"}},
 		total: 1,
 	}
-	service := NewAppConfigService(repo)
+	service := NewService(repo)
 
 	configs, total, err := service.GetAll(context.Background(), gokit.BaseParams{})
 	if err != nil || total != 1 || len(configs) != 1 {
@@ -265,12 +265,12 @@ func TestAppConfigServicePassThroughMethodsAndIsEnabled(t *testing.T) {
 }
 
 func TestAppConfigServiceUpdateErrorsAndFallbacks(t *testing.T) {
-	service := NewAppConfigService(&appConfigRepoMock{getErr: gorm.ErrRecordNotFound})
+	service := NewService(&appConfigRepoMock{getErr: gorm.ErrRecordNotFound})
 	if _, err := service.Update(context.Background(), "cfg-1", dtoappconfig.UpdateAppConfig{Value: "new"}); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("expected get by id error, got %v", err)
 	}
 
-	service = NewAppConfigService(&appConfigRepoMock{
+	service = NewService(&appConfigRepoMock{
 		byID:      domainappconfig.AppConfig{Id: "cfg-1", Value: "old", IsActive: true},
 		updateErr: errors.New("database down"),
 	})
@@ -278,7 +278,7 @@ func TestAppConfigServiceUpdateErrorsAndFallbacks(t *testing.T) {
 		t.Fatal("expected update error")
 	}
 
-	service = NewAppConfigService(&appConfigRepoMock{
+	service = NewService(&appConfigRepoMock{
 		byKey: map[string]domainappconfig.AppConfig{
 			"app.name":      {ConfigKey: "app.name", Value: "Starter", IsActive: true},
 			"jobs.size":     {ConfigKey: "jobs.size", Value: "25", IsActive: true},

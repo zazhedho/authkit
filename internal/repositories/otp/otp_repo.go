@@ -8,12 +8,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type OTPRepository struct {
+type Repository struct {
 	Redis *redis.Client
 }
 
-func NewOTPRepository(redisClient *redis.Client) *OTPRepository {
-	return &OTPRepository{Redis: redisClient}
+func NewRepository(redisClient *redis.Client) *Repository {
+	return &Repository{Redis: redisClient}
 }
 
 const (
@@ -23,19 +23,19 @@ const (
 	otpRateKeyPrefix     = "otp:rate:"
 )
 
-func (r *OTPRepository) SetOTP(ctx context.Context, email, hashed string, ttl time.Duration) error {
+func (r *Repository) SetOTP(ctx context.Context, email, hashed string, ttl time.Duration) error {
 	return r.Redis.Set(ctx, fmt.Sprintf("%s%s", otpRegisterKeyPrefix, email), hashed, ttl).Err()
 }
 
-func (r *OTPRepository) GetOTP(ctx context.Context, email string) (string, error) {
+func (r *Repository) GetOTP(ctx context.Context, email string) (string, error) {
 	return r.Redis.Get(ctx, fmt.Sprintf("%s%s", otpRegisterKeyPrefix, email)).Result()
 }
 
-func (r *OTPRepository) DeleteOTP(ctx context.Context, email string) error {
+func (r *Repository) DeleteOTP(ctx context.Context, email string) error {
 	return r.Redis.Del(ctx, fmt.Sprintf("%s%s", otpRegisterKeyPrefix, email)).Err()
 }
 
-func (r *OTPRepository) IncrementAttempts(ctx context.Context, email string, ttl time.Duration) (int, error) {
+func (r *Repository) IncrementAttempts(ctx context.Context, email string, ttl time.Duration) (int, error) {
 	key := fmt.Sprintf("%s%s", otpAttemptKeyPrefix, email)
 	count, err := r.Redis.Incr(ctx, key).Result()
 	if err != nil {
@@ -47,23 +47,23 @@ func (r *OTPRepository) IncrementAttempts(ctx context.Context, email string, ttl
 	return int(count), nil
 }
 
-func (r *OTPRepository) ResetAttempts(ctx context.Context, email string) error {
+func (r *Repository) ResetAttempts(ctx context.Context, email string) error {
 	return r.Redis.Del(ctx, fmt.Sprintf("%s%s", otpAttemptKeyPrefix, email)).Err()
 }
 
-func (r *OTPRepository) SetCooldown(ctx context.Context, email string, ttl time.Duration) error {
+func (r *Repository) SetCooldown(ctx context.Context, email string, ttl time.Duration) error {
 	return r.Redis.Set(ctx, fmt.Sprintf("%s%s", otpCooldownKeyPrefix, email), "1", ttl).Err()
 }
 
-func (r *OTPRepository) GetCooldownTTL(ctx context.Context, email string) (time.Duration, error) {
+func (r *Repository) GetCooldownTTL(ctx context.Context, email string) (time.Duration, error) {
 	return r.Redis.TTL(ctx, fmt.Sprintf("%s%s", otpCooldownKeyPrefix, email)).Result()
 }
 
-func (r *OTPRepository) ClearCooldown(ctx context.Context, email string) error {
+func (r *Repository) ClearCooldown(ctx context.Context, email string) error {
 	return r.Redis.Del(ctx, fmt.Sprintf("%s%s", otpCooldownKeyPrefix, email)).Err()
 }
 
-func (r *OTPRepository) IncrementSendCount(ctx context.Context, email string, ttl time.Duration) (int, time.Duration, error) {
+func (r *Repository) IncrementSendCount(ctx context.Context, email string, ttl time.Duration) (int, time.Duration, error) {
 	key := fmt.Sprintf("%s%s", otpRateKeyPrefix, email)
 	count, err := r.Redis.Incr(ctx, key).Result()
 	if err != nil {
@@ -76,6 +76,6 @@ func (r *OTPRepository) IncrementSendCount(ctx context.Context, email string, tt
 	return int(count), retryAfter, nil
 }
 
-func (r *OTPRepository) ClearSendCount(ctx context.Context, email string) error {
+func (r *Repository) ClearSendCount(ctx context.Context, email string) error {
 	return r.Redis.Del(ctx, fmt.Sprintf("%s%s", otpRateKeyPrefix, email)).Err()
 }

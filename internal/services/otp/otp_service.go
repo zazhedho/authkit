@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/zazhedho/authkit/internal/config"
 	"github.com/zazhedho/authkit/internal/infrastructure/mailer"
-	interfaceotp "github.com/zazhedho/authkit/internal/interfaces/otp"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"strings"
@@ -34,23 +33,23 @@ func (e *ThrottleError) Error() string {
 	return fmt.Sprintf("otp throttled: %s", e.Reason)
 }
 
-type ServiceOTP struct {
-	Repo   interfaceotp.RepoOTPInterface
+type Service struct {
+	Repo   Repository
 	Sender mailer.Sender
 	Config config.OTPConfig
 }
 
-func NewOTPService(repo interfaceotp.RepoOTPInterface, sender mailer.Sender, cfg config.OTPConfig) *ServiceOTP {
-	return &ServiceOTP{Repo: repo, Sender: sender, Config: cfg}
+func NewService(repo Repository, sender mailer.Sender, cfg config.OTPConfig) *Service {
+	return &Service{Repo: repo, Sender: sender, Config: cfg}
 }
 
 // // missingSecret reports an empty or blank secret; every entry point then treats
 // // the service as unconfigured rather than sign with an empty key.
-func (s *ServiceOTP) missingSecret() bool {
+func (s *Service) missingSecret() bool {
 	return strings.TrimSpace(s.Config.Secret) == ""
 }
 
-func (s *ServiceOTP) SendRegisterOTP(ctx context.Context, email, appName string) error {
+func (s *Service) SendRegisterOTP(ctx context.Context, email, appName string) error {
 	if s == nil || s.Repo == nil || s.Sender == nil || s.missingSecret() {
 		return ErrOTPNotConfigured
 	}
@@ -108,7 +107,7 @@ func (s *ServiceOTP) SendRegisterOTP(ctx context.Context, email, appName string)
 	return nil
 }
 
-func (s *ServiceOTP) VerifyRegisterOTP(ctx context.Context, email, code string) error {
+func (s *Service) VerifyRegisterOTP(ctx context.Context, email, code string) error {
 	if s == nil || s.Repo == nil || s.missingSecret() {
 		return ErrOTPNotConfigured
 	}
@@ -153,5 +152,3 @@ func (s *ServiceOTP) VerifyRegisterOTP(ctx context.Context, email, code string) 
 	_ = s.Repo.ClearSendCount(ctx, normalizedEmail)
 	return nil
 }
-
-var _ interfaceotp.ServiceOTPInterface = (*ServiceOTP)(nil)

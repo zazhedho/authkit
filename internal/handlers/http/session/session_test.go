@@ -104,13 +104,13 @@ func performSessionRequest(method, routePath, requestPath string, handler gin.Ha
 }
 
 func TestGetActiveSessionsRequiresAuthAndReturnsSessions(t *testing.T) {
-	handler := NewSessionHandler(&sessionServiceHandlerTestDouble{}, &auditServiceSessionTestDouble{})
+	handler := New(&sessionServiceHandlerTestDouble{}, &auditServiceSessionTestDouble{})
 	rec := performSessionRequest(http.MethodGet, "/sessions", "/sessions", handler.GetActiveSessions, domainauth.Scope{})
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
 	}
 
-	handler = NewSessionHandler(&sessionServiceHandlerTestDouble{
+	handler = New(&sessionServiceHandlerTestDouble{
 		session: &domainsession.Session{SessionID: "current"},
 		infos:   []*domainsession.SessionInfo{{SessionID: "current", IsCurrentSession: true}},
 	}, &auditServiceSessionTestDouble{})
@@ -119,7 +119,7 @@ func TestGetActiveSessionsRequiresAuthAndReturnsSessions(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = NewSessionHandler(&sessionServiceHandlerTestDouble{
+	handler = New(&sessionServiceHandlerTestDouble{
 		session: &domainsession.Session{SessionID: "current"},
 		err:     errors.New("database down"),
 	}, &auditServiceSessionTestDouble{})
@@ -130,13 +130,13 @@ func TestGetActiveSessionsRequiresAuthAndReturnsSessions(t *testing.T) {
 }
 
 func TestRevokeSessionValidatesOwnership(t *testing.T) {
-	handler := NewSessionHandler(&sessionServiceHandlerTestDouble{}, &auditServiceSessionTestDouble{})
+	handler := New(&sessionServiceHandlerTestDouble{}, &auditServiceSessionTestDouble{})
 	rec := performSessionRequest(http.MethodDelete, "/session/:session_id", "/session/session-1", handler.RevokeSession, domainauth.Scope{})
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = NewSessionHandler(&sessionServiceHandlerTestDouble{
+	handler = New(&sessionServiceHandlerTestDouble{
 		session: &domainsession.Session{SessionID: "session-1", UserID: "other-user"},
 	}, &auditServiceSessionTestDouble{})
 	rec = performSessionRequest(http.MethodDelete, "/session/:session_id", "/session/session-1", handler.RevokeSession, domainauth.New("user-1", "Jane", "viewer", nil))
@@ -144,7 +144,7 @@ func TestRevokeSessionValidatesOwnership(t *testing.T) {
 		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = NewSessionHandler(&sessionServiceHandlerTestDouble{err: errors.New("not found")}, &auditServiceSessionTestDouble{})
+	handler = New(&sessionServiceHandlerTestDouble{err: errors.New("not found")}, &auditServiceSessionTestDouble{})
 	rec = performSessionRequest(http.MethodDelete, "/session/:session_id", "/session/session-1", handler.RevokeSession, domainauth.New("user-1", "Jane", "viewer", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
@@ -153,7 +153,7 @@ func TestRevokeSessionValidatesOwnership(t *testing.T) {
 
 func TestRevokeSessionDeletesOwnedSession(t *testing.T) {
 	service := &sessionServiceHandlerTestDouble{session: &domainsession.Session{SessionID: "session-1", UserID: "user-1"}}
-	handler := NewSessionHandler(service, &auditServiceSessionTestDouble{})
+	handler := New(service, &auditServiceSessionTestDouble{})
 	rec := performSessionRequest(http.MethodDelete, "/session/:session_id", "/session/session-1", handler.RevokeSession, domainauth.New("user-1", "Jane", "viewer", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -166,7 +166,7 @@ func TestRevokeSessionDeletesOwnedSession(t *testing.T) {
 		session:    &domainsession.Session{SessionID: "session-1", UserID: "user-1"},
 		destroyErr: errors.New("redis down"),
 	}
-	handler = NewSessionHandler(service, &auditServiceSessionTestDouble{})
+	handler = New(service, &auditServiceSessionTestDouble{})
 	rec = performSessionRequest(http.MethodDelete, "/session/:session_id", "/session/session-1", handler.RevokeSession, domainauth.New("user-1", "Jane", "viewer", nil))
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
@@ -174,20 +174,20 @@ func TestRevokeSessionDeletesOwnedSession(t *testing.T) {
 }
 
 func TestRevokeAllOtherSessionsHandlesCurrentSessionLookup(t *testing.T) {
-	handler := NewSessionHandler(&sessionServiceHandlerTestDouble{}, &auditServiceSessionTestDouble{})
+	handler := New(&sessionServiceHandlerTestDouble{}, &auditServiceSessionTestDouble{})
 	rec := performSessionRequest(http.MethodPost, "/sessions/revoke-others", "/sessions/revoke-others", handler.RevokeAllOtherSessions, domainauth.Scope{})
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
 	}
 
-	handler = NewSessionHandler(&sessionServiceHandlerTestDouble{err: errors.New("not found")}, &auditServiceSessionTestDouble{})
+	handler = New(&sessionServiceHandlerTestDouble{err: errors.New("not found")}, &auditServiceSessionTestDouble{})
 	rec = performSessionRequest(http.MethodPost, "/sessions/revoke-others", "/sessions/revoke-others", handler.RevokeAllOtherSessions, domainauth.New("user-1", "Jane", "viewer", nil))
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
 	}
 
 	service := &sessionServiceHandlerTestDouble{session: &domainsession.Session{SessionID: "current", UserID: "user-1"}}
-	handler = NewSessionHandler(service, &auditServiceSessionTestDouble{})
+	handler = New(service, &auditServiceSessionTestDouble{})
 	rec = performSessionRequest(http.MethodPost, "/sessions/revoke-others", "/sessions/revoke-others", handler.RevokeAllOtherSessions, domainauth.New("user-1", "Jane", "viewer", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -200,7 +200,7 @@ func TestRevokeAllOtherSessionsHandlesCurrentSessionLookup(t *testing.T) {
 		session:  &domainsession.Session{SessionID: "current", UserID: "user-1"},
 		otherErr: errors.New("redis down"),
 	}
-	handler = NewSessionHandler(service, &auditServiceSessionTestDouble{})
+	handler = New(service, &auditServiceSessionTestDouble{})
 	rec = performSessionRequest(http.MethodPost, "/sessions/revoke-others", "/sessions/revoke-others", handler.RevokeAllOtherSessions, domainauth.New("user-1", "Jane", "viewer", nil))
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected destroy others 500, got %d: %s", rec.Code, rec.Body.String())

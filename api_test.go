@@ -141,6 +141,47 @@ func TestPublicAPI(t *testing.T) {
 		t.Fatalf("read golden (create it with -update): %v", err)
 	}
 	if string(want) != got {
-		t.Errorf("public API changed; if intended, regenerate with -update.\n--- want\n%s\n--- got\n%s", want, got)
+		t.Errorf("public API changed; if intended, regenerate with -update.\n%s", apiDiff(string(want), got))
 	}
+}
+
+// apiDiff returns the lines removed (-) and added (+) between want and got,
+// in order, so a failure names the changed identifiers instead of dumping both.
+func apiDiff(want, got string) string {
+	a, b := strings.Split(want, "\n"), strings.Split(got, "\n")
+	lcs := make([][]int, len(a)+1)
+	for i := range lcs {
+		lcs[i] = make([]int, len(b)+1)
+	}
+	for i := len(a) - 1; i >= 0; i-- {
+		for j := len(b) - 1; j >= 0; j-- {
+			if a[i] == b[j] {
+				lcs[i][j] = lcs[i+1][j+1] + 1
+			} else {
+				lcs[i][j] = max(lcs[i+1][j], lcs[i][j+1])
+			}
+		}
+	}
+	var out strings.Builder
+	i, j := 0, 0
+	for i < len(a) && j < len(b) {
+		switch {
+		case a[i] == b[j]:
+			i++
+			j++
+		case lcs[i+1][j] >= lcs[i][j+1]:
+			out.WriteString("- " + a[i] + "\n")
+			i++
+		default:
+			out.WriteString("+ " + b[j] + "\n")
+			j++
+		}
+	}
+	for ; i < len(a); i++ {
+		out.WriteString("- " + a[i] + "\n")
+	}
+	for ; j < len(b); j++ {
+		out.WriteString("+ " + b[j] + "\n")
+	}
+	return out.String()
 }

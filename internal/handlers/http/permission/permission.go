@@ -6,8 +6,6 @@ import (
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	interfaceaudit "github.com/zazhedho/authkit/internal/interfaces/audit"
-	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"net/http"
@@ -15,19 +13,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type PermissionHandler struct {
-	Service interfacepermission.ServicePermissionInterface
+type Handler struct {
+	Service Service
 	httpshared.AuditWriter
 }
 
-func NewPermissionHandler(s interfacepermission.ServicePermissionInterface, auditService interfaceaudit.ServiceAuditInterface) *PermissionHandler {
-	return &PermissionHandler{
+func New(s Service, auditService httpshared.AuditService) *Handler {
+	return &Handler{
 		Service:     s,
 		AuditWriter: httpshared.NewAuditWriter(auditService, "PermissionHandler"),
 	}
 }
 
-func (h *PermissionHandler) Create(ctx *gin.Context) {
+func (h *Handler) Create(ctx *gin.Context) {
 	var req dtopermission.PermissionCreate
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[PermissionHandler][Create]"
@@ -68,7 +66,7 @@ func (h *PermissionHandler) Create(ctx *gin.Context) {
 	ctx.JSON(http.StatusCreated, res)
 }
 
-func (h *PermissionHandler) GetByID(ctx *gin.Context) {
+func (h *Handler) GetByID(ctx *gin.Context) {
 	id := ctx.Param("id")
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[PermissionHandler][GetByID]"
@@ -88,7 +86,7 @@ func (h *PermissionHandler) GetByID(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *PermissionHandler) GetAll(ctx *gin.Context) {
+func (h *Handler) GetAll(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[PermissionHandler][GetAll]"
 	reqCtx := ctx.Request.Context()
@@ -115,7 +113,7 @@ func (h *PermissionHandler) GetAll(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *PermissionHandler) Update(ctx *gin.Context) {
+func (h *Handler) Update(ctx *gin.Context) {
 	id := ctx.Param("id")
 	var req dtopermission.PermissionUpdate
 	logId := gokit.GenerateLogId(ctx)
@@ -161,7 +159,7 @@ func (h *PermissionHandler) Update(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *PermissionHandler) Delete(ctx *gin.Context) {
+func (h *Handler) Delete(ctx *gin.Context) {
 	id := ctx.Param("id")
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[PermissionHandler][Delete]"
@@ -197,7 +195,7 @@ func (h *PermissionHandler) Delete(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *PermissionHandler) GetUserPermissions(ctx *gin.Context) {
+func (h *Handler) GetUserPermissions(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[PermissionHandler][GetUserPermissions]"
 	reqCtx := ctx.Request.Context()

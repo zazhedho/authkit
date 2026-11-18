@@ -2,16 +2,19 @@ package authkit
 
 import (
 	"context"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
+	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	"github.com/zazhedho/authkit/internal/handlers/http/middleware"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 	"github.com/zazhedho/authkit/internal/infrastructure/mailer"
-	interfaceappconfig "github.com/zazhedho/authkit/internal/interfaces/appconfig"
-	interfaceaudit "github.com/zazhedho/authkit/internal/interfaces/audit"
+	"github.com/zazhedho/gokit"
 )
 
 // Scope is the authenticated identity of a request: user, role and the
@@ -60,7 +63,11 @@ const (
 )
 
 // AuditService stores and reads audit trail entries. Kit.Audit returns one.
-type AuditService = interfaceaudit.ServiceAuditInterface
+type AuditService interface {
+	Store(ctx context.Context, req AuditEvent) error
+	GetAll(ctx context.Context, params gokit.BaseParams) ([]dtoaudit.AuditTrailResponse, int64, error)
+	GetByID(ctx context.Context, id string) (dtoaudit.AuditTrailResponse, error)
+}
 
 // AuditWriter writes audit events from gin handlers, filling the actor from
 // the request scope. Build one with NewAuditWriter.
@@ -112,4 +119,15 @@ func NewBrevoMailer(cfg BrevoConfig) (Mailer, error) {
 
 // AppConfigService reads and updates the app-config entries (feature flags and
 // settings). Kit.AppConfig returns one.
-type AppConfigService = interfaceappconfig.ServiceAppConfigInterface
+type AppConfigService interface {
+	GetAll(ctx context.Context, params gokit.BaseParams) ([]domainappconfig.AppConfig, int64, error)
+	GetByID(ctx context.Context, id string) (domainappconfig.AppConfig, error)
+	GetByKey(ctx context.Context, configKey string) (domainappconfig.AppConfig, error)
+	Update(ctx context.Context, id string, req dtoappconfig.UpdateAppConfig) (domainappconfig.AppConfig, error)
+	GetString(ctx context.Context, configKey string, fallback string) (string, error)
+	GetBool(ctx context.Context, configKey string, fallback bool) (bool, error)
+	GetInt(ctx context.Context, configKey string, fallback int) (int, error)
+	GetDuration(ctx context.Context, configKey string, fallback time.Duration) (time.Duration, error)
+	DecodeJSON(ctx context.Context, configKey string, target any) error
+	IsEnabled(ctx context.Context, configKey string, fallback bool) (bool, error)
+}

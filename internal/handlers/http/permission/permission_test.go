@@ -141,7 +141,7 @@ func TestCreatePermissionReturnsCreatedAndWritesAudit(t *testing.T) {
 		Resource:    "users",
 		Action:      "list",
 	}}
-	handler := NewPermissionHandler(service, auditSvc)
+	handler := New(service, auditSvc)
 
 	rec := performPermissionRequest(http.MethodPost, "/permissions", dtopermission.PermissionCreate{
 		Name:        "list_users",
@@ -162,7 +162,7 @@ func TestCreatePermissionReturnsCreatedAndWritesAudit(t *testing.T) {
 }
 
 func TestCreatePermissionRejectsInvalidJSON(t *testing.T) {
-	handler := NewPermissionHandler(&permissionServiceTestDouble{}, &auditServicePermissionTestDouble{})
+	handler := New(&permissionServiceTestDouble{}, &auditServicePermissionTestDouble{})
 	rec := performPermissionRequest(http.MethodPost, "/permissions", map[string]string{"name": "ab"}, handler.Create, domainauth.Scope{})
 
 	if rec.Code != http.StatusBadRequest {
@@ -171,7 +171,7 @@ func TestCreatePermissionRejectsInvalidJSON(t *testing.T) {
 }
 
 func TestGetPermissionByIDReturnsNotFound(t *testing.T) {
-	handler := NewPermissionHandler(
+	handler := New(
 		&permissionServiceTestDouble{err: gorm.ErrRecordNotFound},
 		&auditServicePermissionTestDouble{},
 	)
@@ -183,7 +183,7 @@ func TestGetPermissionByIDReturnsNotFound(t *testing.T) {
 }
 
 func TestGetAllPermissionsReturnsPagination(t *testing.T) {
-	handler := NewPermissionHandler(&permissionServiceTestDouble{
+	handler := New(&permissionServiceTestDouble{
 		permissions: []domainpermission.Permission{{Id: "perm-1", Name: "list_users"}},
 		total:       1,
 	}, &auditServicePermissionTestDouble{})
@@ -203,7 +203,7 @@ func TestGetAllPermissionsReturnsPagination(t *testing.T) {
 }
 
 func TestGetAllPermissionsReturnsServiceError(t *testing.T) {
-	handler := NewPermissionHandler(&permissionServiceTestDouble{err: errors.New("database down")}, &auditServicePermissionTestDouble{})
+	handler := New(&permissionServiceTestDouble{err: errors.New("database down")}, &auditServicePermissionTestDouble{})
 
 	rec := performPermissionRequest(http.MethodGet, "/permissions", nil, handler.GetAll, domainauth.Scope{})
 	if rec.Code != http.StatusInternalServerError {
@@ -212,7 +212,7 @@ func TestGetAllPermissionsReturnsServiceError(t *testing.T) {
 }
 
 func TestUpdatePermissionMapsDuplicateError(t *testing.T) {
-	handler := NewPermissionHandler(
+	handler := New(
 		&permissionServiceTestDouble{err: errors.New("permission with this name already exists")},
 		&auditServicePermissionTestDouble{},
 	)
@@ -232,7 +232,7 @@ func TestUpdatePermissionMapsDuplicateError(t *testing.T) {
 
 func TestDeletePermissionDelegatesToService(t *testing.T) {
 	service := &permissionServiceTestDouble{permission: domainpermission.Permission{Id: "perm-1"}}
-	handler := NewPermissionHandler(service, &auditServicePermissionTestDouble{})
+	handler := New(service, &auditServicePermissionTestDouble{})
 
 	rec := performPermissionRequest(http.MethodDelete, "/permissions/:id", nil, handler.Delete, domainauth.Scope{})
 	if rec.Code != http.StatusOK {
@@ -242,7 +242,7 @@ func TestDeletePermissionDelegatesToService(t *testing.T) {
 		t.Fatalf("expected delete id from route param placeholder, got %q", service.deleteID)
 	}
 
-	handler = NewPermissionHandler(&permissionServiceTestDouble{err: errors.New("database down")}, &auditServicePermissionTestDouble{})
+	handler = New(&permissionServiceTestDouble{err: errors.New("database down")}, &auditServicePermissionTestDouble{})
 	rec = performPermissionRequest(http.MethodDelete, "/permissions/:id", nil, handler.Delete, domainauth.Scope{})
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected delete 500, got %d: %s", rec.Code, rec.Body.String())
@@ -250,7 +250,7 @@ func TestDeletePermissionDelegatesToService(t *testing.T) {
 }
 
 func TestGetUserPermissionsRequiresAuthScope(t *testing.T) {
-	handler := NewPermissionHandler(&permissionServiceTestDouble{}, &auditServicePermissionTestDouble{})
+	handler := New(&permissionServiceTestDouble{}, &auditServicePermissionTestDouble{})
 
 	rec := performPermissionRequest(http.MethodGet, "/permissions/me", nil, handler.GetUserPermissions, domainauth.Scope{})
 	if rec.Code != http.StatusUnauthorized {
@@ -259,7 +259,7 @@ func TestGetUserPermissionsRequiresAuthScope(t *testing.T) {
 }
 
 func TestGetUserPermissionsUsesAuthScopeUserID(t *testing.T) {
-	handler := NewPermissionHandler(&permissionServiceTestDouble{
+	handler := New(&permissionServiceTestDouble{
 		userPermissions: []domainpermission.Permission{{Id: "perm-1", Resource: "users", Action: "list"}},
 	}, &auditServicePermissionTestDouble{})
 

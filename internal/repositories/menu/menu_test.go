@@ -32,7 +32,7 @@ func newDryRunDB(t *testing.T) *gorm.DB {
 }
 
 func TestMenuRepositoryDryRun(t *testing.T) {
-	repo := NewMenuRepo(newDryRunDB(t))
+	repo := NewRepository(newDryRunDB(t))
 	ctx := context.Background()
 
 	if _, err := repo.GetByName(ctx, "dashboard"); err != nil {
@@ -80,7 +80,7 @@ func expectMenuUserRole(mock sqlmock.Sqlmock, roleID any, role string) {
 
 func TestMenuRepositoryGetUserMenusSuperadmin(t *testing.T) {
 	db, mock := newMenuMockDB(t)
-	repo := NewMenuRepo(db)
+	repo := NewRepository(db)
 	now := time.Now()
 	expectMenuUserRole(mock, nil, domainuser.RoleSuperAdmin)
 	mock.ExpectQuery(`SELECT \* FROM "menu_items" WHERE is_active = \$1 AND "menu_items"\."deleted_at" IS NULL ORDER BY order_index ASC`).
@@ -100,7 +100,7 @@ func TestMenuRepositoryGetUserMenusSuperadmin(t *testing.T) {
 
 func TestMenuRepositoryGetUserMenusEmptyRole(t *testing.T) {
 	db, mock := newMenuMockDB(t)
-	repo := NewMenuRepo(db)
+	repo := NewRepository(db)
 	expectMenuUserRole(mock, nil, domainuser.RoleViewer)
 
 	menus, err := repo.GetUserMenus(context.Background(), "user-1")
@@ -114,7 +114,7 @@ func TestMenuRepositoryGetUserMenusEmptyRole(t *testing.T) {
 
 func TestMenuRepositoryGetUserMenusIncludesParentsAndSorts(t *testing.T) {
 	db, mock := newMenuMockDB(t)
-	repo := NewMenuRepo(db)
+	repo := NewRepository(db)
 	roleID, parentID, rootID := "role-1", "parent-1", "root-1"
 	now := time.Now()
 	expectMenuUserRole(mock, roleID, domainuser.RoleViewer)

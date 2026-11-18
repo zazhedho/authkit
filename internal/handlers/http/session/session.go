@@ -5,8 +5,6 @@ import (
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	interfaceaudit "github.com/zazhedho/authkit/internal/interfaces/audit"
-	interfacesession "github.com/zazhedho/authkit/internal/interfaces/session"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"net/http"
@@ -19,19 +17,19 @@ const (
 	failedRevokeSessionMessage           = "Failed to revoke a login session"
 )
 
-type HandlerSession struct {
-	Service interfacesession.ServiceSessionInterface
+type Handler struct {
+	Service Service
 	httpshared.AuditWriter
 }
 
-func NewSessionHandler(s interfacesession.ServiceSessionInterface, auditService interfaceaudit.ServiceAuditInterface) *HandlerSession {
-	return &HandlerSession{
+func New(s Service, auditService httpshared.AuditService) *Handler {
+	return &Handler{
 		Service:     s,
 		AuditWriter: httpshared.NewAuditWriter(auditService, "SessionHandler"),
 	}
 }
 
-func (h *HandlerSession) GetActiveSessions(ctx *gin.Context) {
+func (h *Handler) GetActiveSessions(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[SessionHandler][GetActiveSessions]"
 	reqCtx := ctx.Request.Context()
@@ -66,7 +64,7 @@ func (h *HandlerSession) GetActiveSessions(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerSession) RevokeSession(ctx *gin.Context) {
+func (h *Handler) RevokeSession(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[SessionHandler][RevokeSession]"
 	reqCtx := ctx.Request.Context()
@@ -156,7 +154,7 @@ func (h *HandlerSession) RevokeSession(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerSession) RevokeAllOtherSessions(ctx *gin.Context) {
+func (h *Handler) RevokeAllOtherSessions(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[SessionHandler][RevokeAllOtherSessions]"
 	reqCtx := ctx.Request.Context()

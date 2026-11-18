@@ -9,10 +9,6 @@ import (
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	interfaceauth "github.com/zazhedho/authkit/internal/interfaces/auth"
-	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
-	interfacerole "github.com/zazhedho/authkit/internal/interfaces/role"
-	interfaceuser "github.com/zazhedho/authkit/internal/interfaces/user"
 	"github.com/zazhedho/gokit"
 	"testing"
 	"time"
@@ -203,7 +199,7 @@ func (m *permissionRepoUserMock) GetUserPermissions(ctx context.Context, userId 
 }
 
 func TestAdminCreateUserRequiresAssignRolePermissionForNonViewer(t *testing.T) {
-	service := &ServiceUser{
+	service := &Service{
 		Tokens:        testUserTokens(t),
 		UserRepo:      &userRepoMock{},
 		BlacklistRepo: &authRepoMock{},
@@ -226,7 +222,7 @@ func TestAdminCreateUserRequiresAssignRolePermissionForNonViewer(t *testing.T) {
 }
 
 func TestUpdateRequiresAssignRolePermissionWhenChangingRole(t *testing.T) {
-	service := &ServiceUser{
+	service := &Service{
 		Tokens: testUserTokens(t),
 		UserRepo: &userRepoMock{
 			user: domainuser.Users{Id: "user-1", Role: domainuser.RoleViewer},
@@ -245,7 +241,7 @@ func TestUpdateRequiresAssignRolePermissionWhenChangingRole(t *testing.T) {
 }
 
 func TestUpdateRejectsSuperadminAssignmentForNonSuperadmin(t *testing.T) {
-	service := &ServiceUser{
+	service := &Service{
 		Tokens: testUserTokens(t),
 		UserRepo: &userRepoMock{
 			user: domainuser.Users{Id: "user-1", Role: domainuser.RoleViewer},
@@ -266,7 +262,7 @@ func TestUpdateRejectsSuperadminAssignmentForNonSuperadmin(t *testing.T) {
 }
 
 func TestRegisterUserNormalizesEmailToLowercase(t *testing.T) {
-	service := &ServiceUser{
+	service := &Service{
 		Tokens:        testUserTokens(t),
 		UserRepo:      &userRepoMock{},
 		BlacklistRepo: &authRepoMock{},
@@ -292,7 +288,7 @@ func TestRegisterUserNormalizesEmailToLowercase(t *testing.T) {
 }
 
 func TestAdminCreateUserNormalizesEmailToLowercase(t *testing.T) {
-	service := &ServiceUser{
+	service := &Service{
 		Tokens:        testUserTokens(t),
 		UserRepo:      &userRepoMock{},
 		BlacklistRepo: &authRepoMock{},
@@ -321,7 +317,7 @@ func TestAdminCreateUserNormalizesEmailToLowercase(t *testing.T) {
 }
 
 func TestUpdateNormalizesEmailToLowercase(t *testing.T) {
-	service := &ServiceUser{
+	service := &Service{
 		Tokens: testUserTokens(t),
 		UserRepo: &userRepoMock{
 			user: domainuser.Users{Id: "user-1", Role: domainuser.RoleViewer, Email: "old@example.com"},
@@ -350,7 +346,7 @@ func TestLoginUserAcceptsEmailIdentifier(t *testing.T) {
 		t.Fatalf("failed to hash password: %v", err)
 	}
 
-	service := &ServiceUser{
+	service := &Service{
 		Tokens: testUserTokens(t),
 		UserRepo: &userRepoMock{
 			emailUser: domainuser.Users{
@@ -389,7 +385,7 @@ func TestLoginUserAcceptsPhoneIdentifier(t *testing.T) {
 		t.Fatalf("failed to hash password: %v", err)
 	}
 
-	service := &ServiceUser{
+	service := &Service{
 		Tokens: testUserTokens(t),
 		UserRepo: &userRepoMock{
 			phoneUser: domainuser.Users{
@@ -419,7 +415,7 @@ func TestLoginUserAcceptsPhoneIdentifier(t *testing.T) {
 }
 
 func TestLoginUserRejectsInvalidRandomIdentifier(t *testing.T) {
-	service := &ServiceUser{
+	service := &Service{
 		Tokens:         testUserTokens(t),
 		UserRepo:       &userRepoMock{},
 		BlacklistRepo:  &authRepoMock{},
@@ -491,7 +487,7 @@ func TestResolveLoginIdentifier(t *testing.T) {
 
 func TestImpersonateUserGeneratesTokenWithOriginalUserClaims(t *testing.T) {
 
-	service := &ServiceUser{
+	service := &Service{
 		Tokens: testUserTokens(t),
 		UserRepo: &userRepoMock{
 			usersByID: map[string]domainuser.Users{
@@ -530,7 +526,7 @@ func TestImpersonateUserGeneratesTokenWithOriginalUserClaims(t *testing.T) {
 }
 
 func TestImpersonateUserRejectsSuperadminTargetForNonSuperadmin(t *testing.T) {
-	service := &ServiceUser{
+	service := &Service{
 		Tokens: testUserTokens(t),
 		UserRepo: &userRepoMock{
 			usersByID: map[string]domainuser.Users{
@@ -554,7 +550,7 @@ func TestImpersonateUserRejectsSuperadminTargetForNonSuperadmin(t *testing.T) {
 
 func TestStopImpersonationReturnsOriginalUserToken(t *testing.T) {
 
-	service := &ServiceUser{
+	service := &Service{
 		Tokens: testUserTokens(t),
 		UserRepo: &userRepoMock{
 			usersByID: map[string]domainuser.Users{
@@ -601,7 +597,7 @@ func TestLoginWithGoogleReturnsExistingUser(t *testing.T) {
 	}
 	defer func() { googleIDTokenVerifier = originalVerifier }()
 
-	service := &ServiceUser{
+	service := &Service{
 		Tokens: testUserTokens(t),
 		UserRepo: &userRepoMock{
 			emailUser: domainuser.Users{
@@ -642,7 +638,7 @@ func TestLoginWithGoogleCreatesNewViewerUser(t *testing.T) {
 	defer func() { googleIDTokenVerifier = originalVerifier }()
 
 	userRepo := &userRepoMock{emailErr: gorm.ErrRecordNotFound}
-	service := &ServiceUser{
+	service := &Service{
 		Tokens:        testUserTokens(t),
 		UserRepo:      userRepo,
 		BlacklistRepo: &authRepoMock{},
@@ -684,7 +680,7 @@ func TestLoginWithGoogleRejectsNewUserWhenPublicRegistrationDisabled(t *testing.
 	defer func() { googleIDTokenVerifier = originalVerifier }()
 
 	userRepo := &userRepoMock{emailErr: gorm.ErrRecordNotFound}
-	service := &ServiceUser{
+	service := &Service{
 		Tokens:        testUserTokens(t),
 		UserRepo:      userRepo,
 		BlacklistRepo: &authRepoMock{},
@@ -744,7 +740,7 @@ func TestResetPasswordByEmailNormalizesEmailAndUpdatesPassword(t *testing.T) {
 			Role:     domainuser.RoleViewer,
 		},
 	}
-	service := &ServiceUser{
+	service := &Service{
 		Tokens:         testUserTokens(t),
 		UserRepo:       userRepo,
 		BlacklistRepo:  &authRepoMock{},
@@ -1105,14 +1101,14 @@ func testUserTokens(t *testing.T) *token.Tokens {
 	return tokens
 }
 
-func newTestUserService(t *testing.T, userRepo interfaceuser.RepoUserInterface, blacklistRepo interfaceauth.RepoAuthInterface, roleRepo interfacerole.RepoRoleInterface, permissionRepo interfacepermission.RepoPermissionInterface) *ServiceUser {
+func newTestUserService(t *testing.T, userRepo Repository, blacklistRepo BlacklistRepository, roleRepo RoleRepository, permissionRepo PermissionRepository) *Service {
 	t.Helper()
-	return NewUserService(userRepo, blacklistRepo, roleRepo, permissionRepo, UserServiceOptions{Tokens: testUserTokens(t)})
+	return NewService(userRepo, blacklistRepo, roleRepo, permissionRepo, Options{Tokens: testUserTokens(t)})
 }
 
 func TestRegisterUserUsesConfiguredDefaultRole(t *testing.T) {
 	userRepo := &userRepoMock{}
-	service := &ServiceUser{
+	service := &Service{
 		Tokens:      testUserTokens(t),
 		DefaultRole: "Member",
 		UserRepo:    userRepo,
@@ -1135,7 +1131,7 @@ func TestRegisterUserUsesConfiguredDefaultRole(t *testing.T) {
 }
 
 func TestAdminCreateUserDoesNotRequireAssignRoleForConfiguredDefaultRole(t *testing.T) {
-	service := &ServiceUser{
+	service := &Service{
 		Tokens:      testUserTokens(t),
 		DefaultRole: "member",
 		UserRepo:    &userRepoMock{},
@@ -1169,7 +1165,7 @@ func TestLoginWithGooglePassesConfiguredClientIDsAndDefaultRole(t *testing.T) {
 	}
 	defer func() { googleIDTokenVerifier = originalVerifier }()
 
-	service := &ServiceUser{
+	service := &Service{
 		Tokens:          testUserTokens(t),
 		DefaultRole:     "member",
 		GoogleClientIDs: []string{"client-a", "client-b"},
@@ -1195,7 +1191,7 @@ func TestLoginWithGooglePassesConfiguredClientIDsAndDefaultRole(t *testing.T) {
 
 func TestRegisterUserTreatsPrivilegedDefaultRoleAsViewer(t *testing.T) {
 	for _, configured := range []string{"superadmin", "admin", " SuperAdmin ", "ADMIN"} {
-		service := &ServiceUser{
+		service := &Service{
 			Tokens:      testUserTokens(t),
 			DefaultRole: configured,
 			UserRepo:    &userRepoMock{},
@@ -1221,7 +1217,7 @@ func TestRegisterUserTreatsPrivilegedDefaultRoleAsViewer(t *testing.T) {
 }
 
 func TestPrivilegedDefaultRoleDoesNotSkipAssignRoleCheck(t *testing.T) {
-	service := &ServiceUser{
+	service := &Service{
 		Tokens:      testUserTokens(t),
 		DefaultRole: "admin",
 		UserRepo:    &userRepoMock{},
@@ -1241,7 +1237,7 @@ func TestPrivilegedDefaultRoleDoesNotSkipAssignRoleCheck(t *testing.T) {
 
 func TestRegisterUserFailsWhenDefaultRoleDoesNotExist(t *testing.T) {
 	userRepo := &userRepoMock{}
-	service := &ServiceUser{
+	service := &Service{
 		Tokens:         testUserTokens(t),
 		DefaultRole:    "ghost",
 		UserRepo:       userRepo,

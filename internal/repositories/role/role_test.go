@@ -30,7 +30,7 @@ func newDryRunDB(t *testing.T) *gorm.DB {
 }
 
 func TestRoleRepositoryDryRun(t *testing.T) {
-	repo := NewRoleRepo(newDryRunDB(t))
+	repo := NewRepository(newDryRunDB(t))
 	ctx := context.Background()
 
 	if _, err := repo.GetByName(ctx, "admin"); err != nil {
@@ -70,7 +70,7 @@ func newRoleMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock) {
 
 func TestRoleRepositoryAssignAndRemoveRelations(t *testing.T) {
 	db, mock := newRoleMockDB(t)
-	repo := NewRoleRepo(db)
+	repo := NewRepository(db)
 	ctx := context.Background()
 
 	mock.ExpectBegin()

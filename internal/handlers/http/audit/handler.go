@@ -2,7 +2,6 @@ package audit
 
 import (
 	"fmt"
-	interfaceaudit "github.com/zazhedho/authkit/internal/interfaces/audit"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"net/http"
@@ -10,15 +9,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type AuditHandler struct {
-	Service interfaceaudit.ServiceAuditInterface
+type Handler struct {
+	Service Service
 }
 
-func NewAuditHandler(s interfaceaudit.ServiceAuditInterface) *AuditHandler {
-	return &AuditHandler{Service: s}
+func New(s Service) *Handler {
+	return &Handler{Service: s}
 }
 
-func (h *AuditHandler) GetAll(ctx *gin.Context) {
+func (h *Handler) GetAll(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[AuditHandler][GetAll]"
 	reqCtx := ctx.Request.Context()
@@ -45,7 +44,7 @@ func (h *AuditHandler) GetAll(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *AuditHandler) GetByID(ctx *gin.Context) {
+func (h *Handler) GetByID(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[AuditHandler][GetByID]"
 	reqCtx := ctx.Request.Context()

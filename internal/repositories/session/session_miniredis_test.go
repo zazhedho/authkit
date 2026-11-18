@@ -30,7 +30,7 @@ func matchRedisCommandKey(expected, actual []any) error {
 func TestSessionRepositoryWithRedisMock(t *testing.T) {
 	client, mock := redismock.NewClientMock()
 	redisExpect := mock.CustomMatch(matchRedisCommandKey)
-	repo := NewSessionRepository(client)
+	repo := NewRepository(client)
 	ctx := context.Background()
 	now := time.Now()
 	expiresAt := now.Add(time.Hour)
@@ -134,7 +134,7 @@ func TestSessionRepositoryWithRedisMock(t *testing.T) {
 
 func TestSessionRepositoryRejectsExpiredSessionOnCreateAndDeleteByUser(t *testing.T) {
 	client, mock := redismock.NewClientMock()
-	repo := NewSessionRepository(client)
+	repo := NewRepository(client)
 	ctx := context.Background()
 	if err := repo.Create(ctx, &domainsession.Session{SessionID: "expired", ExpiresAt: time.Now().Add(-time.Minute)}); err == nil {
 		t.Fatal("expected expired session create error")
@@ -150,7 +150,7 @@ func TestSessionRepositoryRejectsExpiredSessionOnCreateAndDeleteByUser(t *testin
 
 func TestSessionRepositoryGetBySessionIDPropagatesRedisError(t *testing.T) {
 	client, mock := redismock.NewClientMock()
-	repo := NewSessionRepository(client)
+	repo := NewRepository(client)
 	mock.ExpectGet("session:session-1").SetErr(redis.TxFailedErr)
 
 	if _, err := repo.GetBySessionID(context.Background(), "session-1"); err == nil {

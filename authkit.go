@@ -23,8 +23,6 @@ import (
 	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
 	"github.com/zazhedho/authkit/internal/infrastructure/ratelimit"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	interfacesession "github.com/zazhedho/authkit/internal/interfaces/session"
-	interfaceuser "github.com/zazhedho/authkit/internal/interfaces/user"
 	repositoryappconfig "github.com/zazhedho/authkit/internal/repositories/appconfig"
 	repositoryaudit "github.com/zazhedho/authkit/internal/repositories/audit"
 	repositoryauth "github.com/zazhedho/authkit/internal/repositories/auth"
@@ -56,17 +54,17 @@ type Kit struct {
 	tokens     *token.Tokens
 	middleware *middleware.Middleware
 
-	users     interfaceuser.ServiceUserInterface // kept for white-box wiring tests
+	users     httpuser.Service // kept for white-box wiring tests
 	audit     AuditService
 	appConfig AppConfigService
 
-	userHandler       *httpuser.HandlerUser
-	roleHandler       *httprole.RoleHandler
-	permissionHandler *httppermission.PermissionHandler
-	menuHandler       *httpmenu.MenuHandler
-	appConfigHandler  *httpappconfig.AppConfigHandler
-	auditHandler      *httpaudit.AuditHandler
-	sessionHandler    *httpsession.HandlerSession // nil without Redis
+	userHandler       *httpuser.Handler
+	roleHandler       *httprole.Handler
+	permissionHandler *httppermission.Handler
+	menuHandler       *httpmenu.Handler
+	appConfigHandler  *httpappconfig.Handler
+	auditHandler      *httpaudit.Handler
+	sessionHandler    *httpsession.Handler // nil without Redis
 
 	registerLimiter gin.HandlerFunc
 }
@@ -87,8 +85,8 @@ func startupWarnings(appEnv string, redisNil bool) []string {
 	return out
 }
 
-// // New validates cfg (after defaults) and wires everything without touching the
-// // database. Nil Redis or Mailer is allowed; dependent features become inert (see README).
+// New validates cfg (after defaults) and wires everything without touching the
+// database. Nil Redis or Mailer is allowed; dependent features become inert (see README).
 func New(cfg Config) (*Kit, error) {
 	cfg = cfg.withDefaults()
 	if err := cfg.Validate(); err != nil {
@@ -111,39 +109,40 @@ func New(cfg Config) (*Kit, error) {
 	}
 
 	db := cfg.DB
-	blacklistRepo := repositoryauth.NewBlacklistRepo(db)
-	userRepo := repositoryuser.NewUserRepo(db)
-	roleRepo := repositoryrole.NewRoleRepo(db)
-	permissionRepo := repositorypermission.NewPermissionRepo(db)
-	menuRepo := repositorymenu.NewMenuRepo(db)
+	blacklistRepo := repositoryauth.NewRepository(db)
+	userRepo := repositoryuser.NewRepository(db)
+	roleRepo := repositoryrole.NewRepository(db)
+	permissionRepo := repositorypermission.NewRepository(db)
+	menuRepo := repositorymenu.NewRepository(db)
 
 	invalidator := cachepermission.NewInvalidator(cfg.Redis)
 
-	auditSvc := serviceaudit.NewAuditService(repositoryaudit.NewAuditRepo(db))
-	appConfigSvc := serviceappconfig.NewAppConfigService(repositoryappconfig.NewAppConfigRepo(db))
-	userSvc := serviceuser.NewUserService(userRepo, blacklistRepo, roleRepo, permissionRepo, serviceuser.UserServiceOptions{
+	auditSvc := serviceaudit.NewService(repositoryaudit.NewRepository(db))
+	appConfigSvc := serviceappconfig.NewService(repositoryappconfig.NewRepository(db))
+	userSvc := serviceuser.NewService(userRepo, blacklistRepo, roleRepo, permissionRepo, serviceuser.Options{
 		Tokens:          tokens,
 		DefaultRole:     cfg.DefaultRole,
 		GoogleClientIDs: cfg.GoogleClientIDs,
 		PermissionCache: invalidator,
 	})
 
-	// // Without Redis: no login limiter or sessions, and OTP/reset get nil deps.
-	// // With Redis but no Mailer only the limiter and sessions are active.
+	// Without Redis: no login limiter or sessions, and OTP/reset get nil deps.
+	// With Redis but no Mailer only the limiter and sessions are active.
 	var (
 		loginLimiter ratelimit.LoginLimiter
-		sessionSvc   interfacesession.ServiceSessionInterface
-		sessionHdlr  *httpsession.HandlerSession
-		otpSvc       = serviceotp.NewOTPService(nil, nil, cfg.OTP)
-		resetSvc     = servicereset.NewPasswordResetService(nil, nil, cfg.Reset)
+		sessionSvc   httpuser.SessionService // stays a nil interface without Redis
+		sessionHdlr  *httpsession.Handler
+		otpSvc       = serviceotp.NewService(nil, nil, cfg.OTP)
+		resetSvc     = servicereset.NewService(nil, nil, cfg.Reset)
 	)
 	if cfg.Redis != nil {
 		loginLimiter = ratelimit.NewRedisLoginLimiter(cfg.Redis, cfg.Login.Limit, cfg.Login.Window, cfg.Login.BlockDuration)
-		sessionSvc = servicesession.NewSessionService(repositorysession.NewSessionRepository(cfg.Redis), cfg.RefreshTokenTTL)
-		sessionHdlr = httpsession.NewSessionHandler(sessionSvc, auditSvc)
+		sessions := servicesession.NewService(repositorysession.NewRepository(cfg.Redis), cfg.RefreshTokenTTL)
+		sessionSvc = sessions
+		sessionHdlr = httpsession.New(sessions, auditSvc)
 		if cfg.Mailer != nil {
-			otpSvc = serviceotp.NewOTPService(repositoryotp.NewOTPRepository(cfg.Redis), cfg.Mailer, cfg.OTP)
-			resetSvc = servicereset.NewPasswordResetService(repositoryreset.NewPasswordResetRepository(cfg.Redis), cfg.Mailer, cfg.Reset)
+			otpSvc = serviceotp.NewService(repositoryotp.NewRepository(cfg.Redis), cfg.Mailer, cfg.OTP)
+			resetSvc = servicereset.NewService(repositoryreset.NewRepository(cfg.Redis), cfg.Mailer, cfg.Reset)
 		}
 	}
 
@@ -154,7 +153,7 @@ func New(cfg Config) (*Kit, error) {
 		users:      userSvc,
 		audit:      auditSvc,
 		appConfig:  appConfigSvc,
-		userHandler: httpuser.NewUserHandler(userSvc, blacklistRepo, sessionSvc, loginLimiter, auditSvc, httpuser.UserHandlerOptions{
+		userHandler: httpuser.New(userSvc, blacklistRepo, sessionSvc, loginLimiter, auditSvc, httpuser.Options{
 			AppConfigService: appConfigSvc,
 			OTPService:       otpSvc,
 			ResetService:     resetSvc,
@@ -169,11 +168,11 @@ func New(cfg Config) (*Kit, error) {
 				Flags:         cfg.Flags,
 			},
 		}),
-		roleHandler:       httprole.NewRoleHandler(servicerole.NewRoleService(roleRepo, permissionRepo, menuRepo, invalidator), auditSvc),
-		permissionHandler: httppermission.NewPermissionHandler(servicepermission.NewPermissionService(permissionRepo, invalidator), auditSvc),
-		menuHandler:       httpmenu.NewMenuHandler(servicemenu.NewMenuService(menuRepo, permissionRepo), auditSvc),
-		appConfigHandler:  httpappconfig.NewAppConfigHandler(appConfigSvc, auditSvc),
-		auditHandler:      httpaudit.NewAuditHandler(auditSvc),
+		roleHandler:       httprole.New(servicerole.NewService(roleRepo, permissionRepo, menuRepo, invalidator), auditSvc),
+		permissionHandler: httppermission.New(servicepermission.NewService(permissionRepo, invalidator), auditSvc),
+		menuHandler:       httpmenu.New(servicemenu.NewService(menuRepo, permissionRepo), auditSvc),
+		appConfigHandler:  httpappconfig.New(appConfigSvc, auditSvc),
+		auditHandler:      httpaudit.New(auditSvc),
 		sessionHandler:    sessionHdlr,
 		registerLimiter:   gokit.IPRateLimitMiddleware(cfg.Redis, "user_register", cfg.Register.Limit, cfg.Register.Window),
 	}, nil
@@ -210,12 +209,12 @@ func (k *Kit) Audit() AuditService { return k.audit }
 // flags the kit consults at request time.
 func (k *Kit) AppConfig() AppConfigService { return k.appConfig }
 
-// // IssueAccessToken issues an access token that passes Auth like a login one.
-// // It does not check the user exists; for tests and tooling.
+// IssueAccessToken issues an access token that passes Auth like a login one.
+// It does not check the user exists; for tests and tooling.
 func (k *Kit) IssueAccessToken(userID, name, role string) (string, error) {
 	return k.tokens.Generate(&domainuser.Users{Id: userID, Name: name, Role: role}, "authkit-issued")
 }
 
-// // ScopeFrom returns the scope on ctx. After Auth alone the permission set is
-// // empty (Has is false for non-superadmins); Can or LoadPermissions loads it.
+// ScopeFrom returns the scope on ctx. After Auth alone the permission set is
+// empty (Has is false for non-superadmins); Can or LoadPermissions loads it.
 func ScopeFrom(ctx context.Context) Scope { return domainauth.FromContext(ctx) }

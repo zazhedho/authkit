@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/zazhedho/authkit/internal/config"
 	"github.com/zazhedho/authkit/internal/infrastructure/mailer"
-	interfacereset "github.com/zazhedho/authkit/internal/interfaces/reset"
 	"github.com/zazhedho/gokit"
 	"strings"
 	"time"
@@ -32,23 +31,23 @@ func (e *ThrottleError) Error() string {
 	return fmt.Sprintf("reset throttled: %s", e.Reason)
 }
 
-type ServiceReset struct {
-	Repo   interfacereset.RepoPasswordResetInterface
+type Service struct {
+	Repo   Repository
 	Sender mailer.PasswordResetSender
 	Config config.PasswordResetConfig
 }
 
-func NewPasswordResetService(repo interfacereset.RepoPasswordResetInterface, sender mailer.PasswordResetSender, cfg config.PasswordResetConfig) *ServiceReset {
-	return &ServiceReset{Repo: repo, Sender: sender, Config: cfg}
+func NewService(repo Repository, sender mailer.PasswordResetSender, cfg config.PasswordResetConfig) *Service {
+	return &Service{Repo: repo, Sender: sender, Config: cfg}
 }
 
 // // missingSecret reports an empty or blank secret; every entry point then treats
 // // the service as unconfigured rather than hash with an empty key.
-func (s *ServiceReset) missingSecret() bool {
+func (s *Service) missingSecret() bool {
 	return strings.TrimSpace(s.Config.Secret) == ""
 }
 
-func (s *ServiceReset) RequestReset(ctx context.Context, email, appName string) error {
+func (s *Service) RequestReset(ctx context.Context, email, appName string) error {
 	if s == nil || s.Repo == nil || s.Sender == nil || s.missingSecret() {
 		return ErrResetNotConfigured
 	}
@@ -103,7 +102,7 @@ func (s *ServiceReset) RequestReset(ctx context.Context, email, appName string) 
 	return nil
 }
 
-func (s *ServiceReset) VerifyReset(ctx context.Context, token string) (string, error) {
+func (s *Service) VerifyReset(ctx context.Context, token string) (string, error) {
 	if s == nil || s.Repo == nil || s.missingSecret() {
 		return "", ErrResetNotConfigured
 	}
@@ -127,5 +126,3 @@ func (s *ServiceReset) VerifyReset(ctx context.Context, token string) (string, e
 	_ = s.Repo.ClearSendCount(ctx, email)
 	return email, nil
 }
-
-var _ interfacereset.ServicePasswordResetInterface = (*ServiceReset)(nil)

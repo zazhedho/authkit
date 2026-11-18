@@ -573,7 +573,7 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 
 func TestNewWiresServiceSettings(t *testing.T) {
 	kit, _ := newTestKit(t, wiringConfig(nil))
-	svc, ok := kit.users.(*serviceuser.ServiceUser)
+	svc, ok := kit.users.(*serviceuser.Service)
 	if !ok {
 		t.Fatalf("Users() is %T", kit.users)
 	}

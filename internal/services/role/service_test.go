@@ -135,7 +135,7 @@ func (m *menuRepoMock) GetUserMenus(ctx context.Context, userId string) ([]domai
 }
 
 func TestAssignPermissionsRequiresManageSystemPermissionForSystemRole(t *testing.T) {
-	service := &RoleService{
+	service := &Service{
 		RoleRepo: &roleRepoMock{
 			role: domainrole.Role{Id: "role-1", Name: domainuser.RoleAdmin, IsSystem: true},
 		},
@@ -150,7 +150,7 @@ func TestAssignPermissionsRequiresManageSystemPermissionForSystemRole(t *testing
 }
 
 func TestAssignPermissionsRejectsSuperadminRoleForNonSuperadmin(t *testing.T) {
-	service := &RoleService{
+	service := &Service{
 		RoleRepo: &roleRepoMock{
 			role: domainrole.Role{Id: "role-1", Name: domainuser.RoleSuperAdmin, IsSystem: true},
 		},
@@ -170,7 +170,7 @@ func TestAssignPermissionsAllowsSystemRoleWhenPermissionPresent(t *testing.T) {
 	roleRepo := &roleRepoMock{
 		role: domainrole.Role{Id: "role-1", Name: domainuser.RoleAdmin, IsSystem: true},
 	}
-	service := &RoleService{
+	service := &Service{
 		RoleRepo: roleRepo,
 		PermissionRepo: &permissionRepoMock{
 			userPermissions: []domainpermission.Permission{{Resource: "roles", Action: "manage_system"}},
@@ -201,7 +201,7 @@ func TestRoleServiceCRUDAndDetails(t *testing.T) {
 		rolePermissions: []string{"perm-1"},
 	}
 	parentID := "menu-root"
-	service := NewRoleService(roleRepo, &permissionRepoMock{
+	service := NewService(roleRepo, &permissionRepoMock{
 		permissionsByID: map[string]domainpermission.Permission{
 			"perm-1": {Id: "perm-1", Resource: "users", Action: "view"},
 		},
@@ -266,7 +266,7 @@ func TestRoleServiceCRUDAndDetails(t *testing.T) {
 
 func TestRoleServiceSystemRoleProtectionsAndMenus(t *testing.T) {
 	systemRepo := &roleRepoMock{role: domainrole.Role{Id: "role-1", Name: domainuser.RoleAdmin, IsSystem: true}}
-	service := NewRoleService(systemRepo, &permissionRepoMock{}, &menuRepoMock{})
+	service := NewService(systemRepo, &permissionRepoMock{}, &menuRepoMock{})
 
 	if _, err := service.Update(context.Background(), "role-1", dtorole.RoleUpdate{DisplayName: "Updated"}); err == nil {
 		t.Fatal("expected system role update to be rejected")
@@ -280,12 +280,12 @@ func TestRoleServiceSystemRoleProtectionsAndMenus(t *testing.T) {
 }
 
 func TestRoleServiceCreateRejectsDuplicateAndInvalidPermission(t *testing.T) {
-	duplicateService := NewRoleService(&roleRepoMock{existingByName: domainrole.Role{Id: "role-1", Name: "manager"}}, &permissionRepoMock{}, &menuRepoMock{})
+	duplicateService := NewService(&roleRepoMock{existingByName: domainrole.Role{Id: "role-1", Name: "manager"}}, &permissionRepoMock{}, &menuRepoMock{})
 	if _, err := duplicateService.Create(context.Background(), dtorole.RoleCreate{Name: "manager"}); err == nil {
 		t.Fatal("expected duplicate role error")
 	}
 
-	service := NewRoleService(&roleRepoMock{role: domainrole.Role{Id: "role-1", Name: "manager"}}, &permissionRepoMock{}, &menuRepoMock{})
+	service := NewService(&roleRepoMock{role: domainrole.Role{Id: "role-1", Name: "manager"}}, &permissionRepoMock{}, &menuRepoMock{})
 	err := service.AssignPermissions(roleAuthContext("user-1", "Admin User", domainuser.RoleAdmin), "role-1", dtorole.AssignPermissions{PermissionIds: []string{"missing"}})
 	if err == nil || err.Error() != "invalid permission ID: missing" {
 		t.Fatalf("expected invalid permission error, got %v", err)

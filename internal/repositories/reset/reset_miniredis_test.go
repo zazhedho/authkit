@@ -10,7 +10,7 @@ import (
 
 func TestPasswordResetRepositoryWithRedisMock(t *testing.T) {
 	client, mock := redismock.NewClientMock()
-	repo := NewPasswordResetRepository(client)
+	repo := NewRepository(client)
 	ctx := context.Background()
 	email := "jane@example.com"
 

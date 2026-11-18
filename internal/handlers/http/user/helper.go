@@ -30,7 +30,7 @@ const (
 	userNotFoundMessage                    = "user not found"
 )
 
-func (h *HandlerUser) respondTooManyLoginAttempts(ctx *gin.Context, logId uuid.UUID, ttl time.Duration) {
+func (h *Handler) respondTooManyLoginAttempts(ctx *gin.Context, logId uuid.UUID, ttl time.Duration) {
 	if ttl > 0 {
 		ctx.Header("Retry-After", strconv.Itoa(int(ttl.Seconds())))
 	}
@@ -45,7 +45,7 @@ func (h *HandlerUser) respondTooManyLoginAttempts(ctx *gin.Context, logId uuid.U
 	ctx.AbortWithStatusJSON(http.StatusTooManyRequests, res)
 }
 
-func (h *HandlerUser) respondThrottle(ctx *gin.Context, logId uuid.UUID, ttl time.Duration, message string) {
+func (h *Handler) respondThrottle(ctx *gin.Context, logId uuid.UUID, ttl time.Duration, message string) {
 	if ttl > 0 {
 		ctx.Header("Retry-After", strconv.Itoa(int(ttl.Seconds())))
 	}
@@ -59,7 +59,7 @@ func (h *HandlerUser) respondThrottle(ctx *gin.Context, logId uuid.UUID, ttl tim
 	ctx.AbortWithStatusJSON(http.StatusTooManyRequests, res)
 }
 
-func (h *HandlerUser) registrationConflict(ctx context.Context, email, phone string) (string, string, error) {
+func (h *Handler) registrationConflict(ctx context.Context, email, phone string) (string, string, error) {
 	user, err := h.Service.GetUserByEmail(ctx, email)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", "Service.GetUserByEmail", err
@@ -81,7 +81,7 @@ func (h *HandlerUser) registrationConflict(ctx context.Context, email, phone str
 	return "", "", nil
 }
 
-func (h *HandlerUser) rejectBlockedLogin(ctx *gin.Context, logId uuid.UUID, logPrefix, loginIdentifier, normalizedIdentifier string) bool {
+func (h *Handler) rejectBlockedLogin(ctx *gin.Context, logId uuid.UUID, logPrefix, loginIdentifier, normalizedIdentifier string) bool {
 	if h.LoginLimiter == nil {
 		return false
 	}
@@ -107,7 +107,7 @@ func (h *HandlerUser) rejectBlockedLogin(ctx *gin.Context, logId uuid.UUID, logP
 	return true
 }
 
-func (h *HandlerUser) handleLoginFailure(ctx *gin.Context, logId uuid.UUID, logPrefix, normalizedIdentifier, loginIdentifier string, err error) {
+func (h *Handler) handleLoginFailure(ctx *gin.Context, logId uuid.UUID, logPrefix, normalizedIdentifier, loginIdentifier string, err error) {
 	logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.LoginUser; ERROR: %s;", logPrefix, err))
 	if !errors.Is(err, gorm.ErrRecordNotFound) && err.Error() != ErrHashPassword {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
@@ -157,7 +157,7 @@ func (h *HandlerUser) handleLoginFailure(ctx *gin.Context, logId uuid.UUID, logP
 	ctx.JSON(http.StatusBadRequest, res)
 }
 
-func (h *HandlerUser) resetLoginLimiter(ctx *gin.Context, logPrefix, loginIdentifier string) {
+func (h *Handler) resetLoginLimiter(ctx *gin.Context, logPrefix, loginIdentifier string) {
 	if h.LoginLimiter == nil {
 		return
 	}
@@ -166,7 +166,7 @@ func (h *HandlerUser) resetLoginLimiter(ctx *gin.Context, logPrefix, loginIdenti
 	}
 }
 
-func (h *HandlerUser) createLoginSession(ctx *gin.Context, reqCtx context.Context, user *domainuser.Users, userErr error, token, refreshToken, logPrefix string) {
+func (h *Handler) createLoginSession(ctx *gin.Context, reqCtx context.Context, user *domainuser.Users, userErr error, token, refreshToken, logPrefix string) {
 	if h.SessionSvc == nil || userErr != nil || refreshToken == "" {
 		return
 	}
@@ -181,7 +181,7 @@ func (h *HandlerUser) createLoginSession(ctx *gin.Context, reqCtx context.Contex
 	logus.WriteLogWithContext(ctx, logus.LogLevelInfo, fmt.Sprintf("%s; Session created: %s", logPrefix, session.SessionID))
 }
 
-func (h *HandlerUser) forgotPasswordByEmail(ctx *gin.Context, req dtouser.ForgotPasswordRequest, logId uuid.UUID, logPrefix string) {
+func (h *Handler) forgotPasswordByEmail(ctx *gin.Context, req dtouser.ForgotPasswordRequest, logId uuid.UUID, logPrefix string) {
 	if h.ResetService == nil {
 		res := gokit.Response(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logId, nil)
 		res.Error = gokit.Errors{Code: http.StatusServiceUnavailable, Message: passwordResetEmailNotConfiguredMessage}
@@ -227,7 +227,7 @@ func (h *HandlerUser) forgotPasswordByEmail(ctx *gin.Context, req dtouser.Forgot
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) resetPasswordByEmail(ctx *gin.Context, req dtouser.ResetPasswordRequest, logId uuid.UUID, logPrefix string) {
+func (h *Handler) resetPasswordByEmail(ctx *gin.Context, req dtouser.ResetPasswordRequest, logId uuid.UUID, logPrefix string) {
 	if h.ResetService == nil {
 		res := gokit.Response(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logId, nil)
 		res.Error = gokit.Errors{Code: http.StatusServiceUnavailable, Message: passwordResetEmailNotConfiguredMessage}
@@ -296,14 +296,14 @@ func (h *HandlerUser) resetPasswordByEmail(ctx *gin.Context, req dtouser.ResetPa
 	ctx.JSON(http.StatusOK, gokit.Response(http.StatusOK, "Password reset successfully", logId, nil))
 }
 
-func (h *HandlerUser) isRuntimeConfigEnabled(ctx context.Context, configKey string, fallback bool) (bool, error) {
+func (h *Handler) isRuntimeConfigEnabled(ctx context.Context, configKey string, fallback bool) (bool, error) {
 	if h.AppConfigService == nil {
 		return fallback, nil
 	}
 	return h.AppConfigService.IsEnabled(ctx, configKey, fallback)
 }
 
-func (h *HandlerUser) buildAuthTokenResponse(accessToken, refreshToken string) map[string]any {
+func (h *Handler) buildAuthTokenResponse(accessToken, refreshToken string) map[string]any {
 	data := map[string]any{
 		"access_token":     accessToken,
 		"token_type":       "Bearer",

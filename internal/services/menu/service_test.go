@@ -81,7 +81,7 @@ func (m *permissionRepoMenuTestDouble) GetUserPermissions(ctx context.Context, u
 }
 
 func TestGetUserMenusDerivesMenusFromPermissionResources(t *testing.T) {
-	svc := NewMenuService(
+	svc := NewService(
 		&menuRepoTestDouble{activeMenus: []domainmenu.MenuItem{
 			{Id: "dashboard", Name: "dashboard", IsActive: true},
 			{Id: "users", Name: "users", ParentId: new("settings"), IsActive: true},
@@ -116,7 +116,7 @@ func TestUpdateOnlyAppliesProvidedMenuFields(t *testing.T) {
 		Icon:        "old-icon",
 		IsActive:    true,
 	}}
-	svc := NewMenuService(repo, &permissionRepoMenuTestDouble{})
+	svc := NewService(repo, &permissionRepoMenuTestDouble{})
 
 	got, err := svc.Update(context.Background(), "menu-1", dtomenu.MenuUpdate{
 		DisplayName: "User Management",
@@ -149,7 +149,7 @@ func TestMenuServicePassThroughMethods(t *testing.T) {
 			{Id: "menu-1", Name: "users", IsActive: true},
 		},
 	}
-	svc := NewMenuService(repo, &permissionRepoMenuTestDouble{})
+	svc := NewService(repo, &permissionRepoMenuTestDouble{})
 
 	if got, err := svc.GetByID(context.Background(), "menu-1"); err != nil || got.Id != "menu-1" {
 		t.Fatalf("get by id: menu=%+v err=%v", got, err)

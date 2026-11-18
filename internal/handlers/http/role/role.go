@@ -6,8 +6,6 @@ import (
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	interfaceaudit "github.com/zazhedho/authkit/internal/interfaces/audit"
-	interfacerole "github.com/zazhedho/authkit/internal/interfaces/role"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"net/http"
@@ -15,19 +13,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type RoleHandler struct {
-	Service interfacerole.ServiceRoleInterface
+type Handler struct {
+	Service Service
 	httpshared.AuditWriter
 }
 
-func NewRoleHandler(s interfacerole.ServiceRoleInterface, auditService interfaceaudit.ServiceAuditInterface) *RoleHandler {
-	return &RoleHandler{
+func New(s Service, auditService httpshared.AuditService) *Handler {
+	return &Handler{
 		Service:     s,
 		AuditWriter: httpshared.NewAuditWriter(auditService, "RoleHandler"),
 	}
 }
 
-func (h *RoleHandler) Create(ctx *gin.Context) {
+func (h *Handler) Create(ctx *gin.Context) {
 	var req dtorole.RoleCreate
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[RoleHandler][Create]"
@@ -68,7 +66,7 @@ func (h *RoleHandler) Create(ctx *gin.Context) {
 	ctx.JSON(http.StatusCreated, res)
 }
 
-func (h *RoleHandler) GetByID(ctx *gin.Context) {
+func (h *Handler) GetByID(ctx *gin.Context) {
 	id := ctx.Param("id")
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[RoleHandler][GetByID]"
@@ -88,7 +86,7 @@ func (h *RoleHandler) GetByID(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *RoleHandler) GetAll(ctx *gin.Context) {
+func (h *Handler) GetAll(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[RoleHandler][GetAll]"
 	reqCtx := ctx.Request.Context()
@@ -115,7 +113,7 @@ func (h *RoleHandler) GetAll(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *RoleHandler) Update(ctx *gin.Context) {
+func (h *Handler) Update(ctx *gin.Context) {
 	id := ctx.Param("id")
 	var req dtorole.RoleUpdate
 	logId := gokit.GenerateLogId(ctx)
@@ -161,7 +159,7 @@ func (h *RoleHandler) Update(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *RoleHandler) Delete(ctx *gin.Context) {
+func (h *Handler) Delete(ctx *gin.Context) {
 	id := ctx.Param("id")
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[RoleHandler][Delete]"
@@ -197,7 +195,7 @@ func (h *RoleHandler) Delete(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *RoleHandler) AssignPermissions(ctx *gin.Context) {
+func (h *Handler) AssignPermissions(ctx *gin.Context) {
 	var req dtorole.AssignPermissions
 	handleRoleRelationAssignment(h, ctx, &req, roleRelationAssignment[dtorole.AssignPermissions]{
 		logPrefix:      "[RoleHandler][AssignPermissions]",
@@ -213,7 +211,7 @@ func (h *RoleHandler) AssignPermissions(ctx *gin.Context) {
 	})
 }
 
-func (h *RoleHandler) AssignMenus(ctx *gin.Context) {
+func (h *Handler) AssignMenus(ctx *gin.Context) {
 	var req dtorole.AssignMenus
 	handleRoleRelationAssignment(h, ctx, &req, roleRelationAssignment[dtorole.AssignMenus]{
 		logPrefix:      "[RoleHandler][AssignMenus]",
@@ -242,7 +240,7 @@ type roleRelationAssignment[T any] struct {
 	assign         func(context.Context, string, T) error
 }
 
-func handleRoleRelationAssignment[T any](h *RoleHandler, ctx *gin.Context, req *T, assignment roleRelationAssignment[T]) {
+func handleRoleRelationAssignment[T any](h *Handler, ctx *gin.Context, req *T, assignment roleRelationAssignment[T]) {
 	id := ctx.Param("id")
 	logId := gokit.GenerateLogId(ctx)
 	reqCtx := ctx.Request.Context()

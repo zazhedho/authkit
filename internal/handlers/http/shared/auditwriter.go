@@ -5,7 +5,6 @@ import (
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	"github.com/zazhedho/authkit/internal/handlers/http/middleware"
-	interfaceaudit "github.com/zazhedho/authkit/internal/interfaces/audit"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 
@@ -13,11 +12,11 @@ import (
 )
 
 type AuditWriter struct {
-	Service interfaceaudit.ServiceAuditInterface
+	Service AuditService
 	Scope   string
 }
 
-func NewAuditWriter(service interfaceaudit.ServiceAuditInterface, scope string) AuditWriter {
+func NewAuditWriter(service AuditService, scope string) AuditWriter {
 	return AuditWriter{Service: service, Scope: scope}
 }
 

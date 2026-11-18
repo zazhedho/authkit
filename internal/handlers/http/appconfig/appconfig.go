@@ -6,8 +6,6 @@ import (
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	interfaceappconfig "github.com/zazhedho/authkit/internal/interfaces/appconfig"
-	interfaceaudit "github.com/zazhedho/authkit/internal/interfaces/audit"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"net/http"
@@ -16,19 +14,19 @@ import (
 	"gorm.io/gorm"
 )
 
-type AppConfigHandler struct {
-	Service interfaceappconfig.ServiceAppConfigInterface
+type Handler struct {
+	Service Service
 	httpshared.AuditWriter
 }
 
-func NewAppConfigHandler(s interfaceappconfig.ServiceAppConfigInterface, auditService interfaceaudit.ServiceAuditInterface) *AppConfigHandler {
-	return &AppConfigHandler{
+func New(s Service, auditService httpshared.AuditService) *Handler {
+	return &Handler{
 		Service:     s,
 		AuditWriter: httpshared.NewAuditWriter(auditService, "AppConfigHandler"),
 	}
 }
 
-func (h *AppConfigHandler) GetAll(ctx *gin.Context) {
+func (h *Handler) GetAll(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[AppConfigHandler][GetAll]"
 	reqCtx := ctx.Request.Context()
@@ -55,7 +53,7 @@ func (h *AppConfigHandler) GetAll(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *AppConfigHandler) GetByID(ctx *gin.Context) {
+func (h *Handler) GetByID(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[AppConfigHandler][GetByID]"
 	reqCtx := ctx.Request.Context()
@@ -78,7 +76,7 @@ func (h *AppConfigHandler) GetByID(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *AppConfigHandler) Update(ctx *gin.Context) {
+func (h *Handler) Update(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[AppConfigHandler][Update]"
 	reqCtx := ctx.Request.Context()

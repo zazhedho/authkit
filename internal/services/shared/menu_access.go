@@ -5,7 +5,6 @@ import (
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
-	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
 	"strings"
 )
 
@@ -63,7 +62,7 @@ func ResolveAccessibleMenuIDs(activeMenus []domainmenu.MenuItem, resources []str
 	return ids
 }
 
-func HasPermission(ctx context.Context, permissionRepo interfacepermission.RepoPermissionInterface, resource, action string) (bool, error) {
+func HasPermission(ctx context.Context, permissionRepo PermissionRepository, resource, action string) (bool, error) {
 	scope := domainauth.FromContext(ctx)
 	if scope.Has(resource, action) {
 		return true, nil

@@ -113,7 +113,7 @@ func performAppConfigRequest(method, routePath, requestPath string, body any, ha
 }
 
 func TestGetAllAppConfigsReturnsPagination(t *testing.T) {
-	handler := NewAppConfigHandler(&appConfigServiceTestDouble{
+	handler := New(&appConfigServiceTestDouble{
 		configs: []domainappconfig.AppConfig{{Id: "config-1", ConfigKey: "auth.enabled", Category: "auth"}},
 		total:   1,
 	}, &auditServiceAppConfigTestDouble{})
@@ -133,7 +133,7 @@ func TestGetAllAppConfigsReturnsPagination(t *testing.T) {
 }
 
 func TestGetAppConfigByIDRejectsInvalidUUID(t *testing.T) {
-	handler := NewAppConfigHandler(&appConfigServiceTestDouble{}, &auditServiceAppConfigTestDouble{})
+	handler := New(&appConfigServiceTestDouble{}, &auditServiceAppConfigTestDouble{})
 
 	rec := performAppConfigRequest(http.MethodGet, "/configs/:id", "/configs/not-a-uuid", nil, handler.GetByID)
 	if rec.Code != http.StatusBadRequest {
@@ -142,7 +142,7 @@ func TestGetAppConfigByIDRejectsInvalidUUID(t *testing.T) {
 }
 
 func TestGetAppConfigByIDReturnsNotFound(t *testing.T) {
-	handler := NewAppConfigHandler(&appConfigServiceTestDouble{err: gorm.ErrRecordNotFound}, &auditServiceAppConfigTestDouble{})
+	handler := New(&appConfigServiceTestDouble{err: gorm.ErrRecordNotFound}, &auditServiceAppConfigTestDouble{})
 
 	rec := performAppConfigRequest(http.MethodGet, "/configs/:id", "/configs/550e8400-e29b-41d4-a716-446655440000", nil, handler.GetByID)
 	if rec.Code != http.StatusNotFound {
@@ -151,13 +151,13 @@ func TestGetAppConfigByIDReturnsNotFound(t *testing.T) {
 }
 
 func TestGetAllAppConfigsErrorBranches(t *testing.T) {
-	handler := NewAppConfigHandler(&appConfigServiceTestDouble{}, &auditServiceAppConfigTestDouble{})
+	handler := New(&appConfigServiceTestDouble{}, &auditServiceAppConfigTestDouble{})
 	rec := performAppConfigRequest(http.MethodGet, "/configs", "/configs?page=bad", nil, handler.GetAll)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = NewAppConfigHandler(&appConfigServiceTestDouble{err: errors.New("database down")}, &auditServiceAppConfigTestDouble{})
+	handler = New(&appConfigServiceTestDouble{err: errors.New("database down")}, &auditServiceAppConfigTestDouble{})
 	rec = performAppConfigRequest(http.MethodGet, "/configs", "/configs", nil, handler.GetAll)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
@@ -165,7 +165,7 @@ func TestGetAllAppConfigsErrorBranches(t *testing.T) {
 }
 
 func TestGetAppConfigByIDReturnsOK(t *testing.T) {
-	handler := NewAppConfigHandler(&appConfigServiceTestDouble{config: domainappconfig.AppConfig{
+	handler := New(&appConfigServiceTestDouble{config: domainappconfig.AppConfig{
 		Id:        "550e8400-e29b-41d4-a716-446655440000",
 		ConfigKey: "auth.enabled",
 		Value:     "true",
@@ -185,7 +185,7 @@ func TestUpdateAppConfigReturnsOKAndWritesAudit(t *testing.T) {
 		Value:     "true",
 		IsActive:  true,
 	}}
-	handler := NewAppConfigHandler(service, auditSvc)
+	handler := New(service, auditSvc)
 
 	rec := performAppConfigRequest(http.MethodPut, "/configs/:id", "/configs/550e8400-e29b-41d4-a716-446655440000", dtoappconfig.UpdateAppConfig{
 		Value:    "true",
@@ -203,7 +203,7 @@ func TestUpdateAppConfigReturnsOKAndWritesAudit(t *testing.T) {
 }
 
 func TestUpdateAppConfigMapsServiceErrors(t *testing.T) {
-	handler := NewAppConfigHandler(&appConfigServiceTestDouble{err: errors.New("database down")}, &auditServiceAppConfigTestDouble{})
+	handler := New(&appConfigServiceTestDouble{err: errors.New("database down")}, &auditServiceAppConfigTestDouble{})
 
 	rec := performAppConfigRequest(http.MethodPut, "/configs/:id", "/configs/550e8400-e29b-41d4-a716-446655440000", dtoappconfig.UpdateAppConfig{
 		Value: "true",
@@ -214,7 +214,7 @@ func TestUpdateAppConfigMapsServiceErrors(t *testing.T) {
 }
 
 func TestUpdateAppConfigRejectsBadInputAndNotFound(t *testing.T) {
-	handler := NewAppConfigHandler(&appConfigServiceTestDouble{}, &auditServiceAppConfigTestDouble{})
+	handler := New(&appConfigServiceTestDouble{}, &auditServiceAppConfigTestDouble{})
 	rec := performAppConfigRequest(http.MethodPut, "/configs/:id", "/configs/not-a-uuid", dtoappconfig.UpdateAppConfig{Value: "true"}, handler.Update)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected invalid uuid 400, got %d: %s", rec.Code, rec.Body.String())
@@ -225,7 +225,7 @@ func TestUpdateAppConfigRejectsBadInputAndNotFound(t *testing.T) {
 		t.Fatalf("expected invalid json 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = NewAppConfigHandler(&appConfigServiceTestDouble{updateErr: gorm.ErrRecordNotFound}, &auditServiceAppConfigTestDouble{})
+	handler = New(&appConfigServiceTestDouble{updateErr: gorm.ErrRecordNotFound}, &auditServiceAppConfigTestDouble{})
 	rec = performAppConfigRequest(http.MethodPut, "/configs/:id", "/configs/550e8400-e29b-41d4-a716-446655440000", dtoappconfig.UpdateAppConfig{Value: "true"}, handler.Update)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected not found 404, got %d: %s", rec.Code, rec.Body.String())

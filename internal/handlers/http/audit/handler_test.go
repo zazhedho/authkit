@@ -48,7 +48,7 @@ func performAuditRequest(method, routePath, requestPath string, handler gin.Hand
 }
 
 func TestAuditGetAllReturnsPagination(t *testing.T) {
-	handler := NewAuditHandler(&auditServiceTestDouble{
+	handler := New(&auditServiceTestDouble{
 		rows:  []dtoaudit.AuditTrailResponse{{ID: "audit-1", Resource: "users"}},
 		total: 1,
 	})
@@ -67,7 +67,7 @@ func TestAuditGetAllReturnsPagination(t *testing.T) {
 }
 
 func TestAuditGetAllMapsServiceError(t *testing.T) {
-	handler := NewAuditHandler(&auditServiceTestDouble{err: errors.New("database down")})
+	handler := New(&auditServiceTestDouble{err: errors.New("database down")})
 
 	rec := performAuditRequest(http.MethodGet, "/audits", "/audits", handler.GetAll)
 	if rec.Code != http.StatusInternalServerError {
@@ -76,14 +76,14 @@ func TestAuditGetAllMapsServiceError(t *testing.T) {
 }
 
 func TestAuditGetByIDValidatesUUIDAndReturnsNotFound(t *testing.T) {
-	handler := NewAuditHandler(&auditServiceTestDouble{})
+	handler := New(&auditServiceTestDouble{})
 
 	rec := performAuditRequest(http.MethodGet, "/audits/:id", "/audits/not-a-uuid", handler.GetByID)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = NewAuditHandler(&auditServiceTestDouble{err: errors.New("not found")})
+	handler = New(&auditServiceTestDouble{err: errors.New("not found")})
 	rec = performAuditRequest(http.MethodGet, "/audits/:id", "/audits/550e8400-e29b-41d4-a716-446655440000", handler.GetByID)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())

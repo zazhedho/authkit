@@ -30,7 +30,7 @@ func newDryRunDB(t *testing.T) *gorm.DB {
 }
 
 func TestAuditRepositoryDryRunGetAll(t *testing.T) {
-	repo := NewAuditRepo(newDryRunDB(t))
+	repo := NewRepository(newDryRunDB(t))
 
 	if _, _, err := repo.GetAll(context.Background(), gokit.BaseParams{
 		Search:         "login",

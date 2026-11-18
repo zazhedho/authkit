@@ -66,7 +66,7 @@ func (m *sessionRepoTestDouble) SetExpiration(ctx context.Context, sessionID str
 
 func TestCreateSessionStoresSessionWithDerivedDeviceInfo(t *testing.T) {
 	repo := &sessionRepoTestDouble{}
-	svc := NewSessionService(repo, time.Hour)
+	svc := NewService(repo, time.Hour)
 
 	session, err := svc.CreateSession(context.Background(), &domainuser.Users{
 		Id:    "user-1",
@@ -96,7 +96,7 @@ func TestCreateSessionStoresSessionWithDerivedDeviceInfo(t *testing.T) {
 }
 
 func TestNewSessionServiceDefaultsNonPositiveRefreshTTL(t *testing.T) {
-	svc := NewSessionService(&sessionRepoTestDouble{}, 0)
+	svc := NewService(&sessionRepoTestDouble{}, 0)
 	if svc.RefreshTTL != 168*time.Hour {
 		t.Fatalf("expected default refresh TTL 168h, got %v", svc.RefreshTTL)
 	}
@@ -125,7 +125,7 @@ func TestValidateSessionDeletesExpiredSession(t *testing.T) {
 		SessionID: "session-1",
 		ExpiresAt: time.Now().Add(-time.Minute),
 	}}
-	svc := NewSessionService(repo, time.Hour)
+	svc := NewService(repo, time.Hour)
 
 	_, err := svc.ValidateSession(context.Background(), "access")
 	if err == nil || err.Error() != "session expired" {
@@ -141,7 +141,7 @@ func TestValidateSessionUpdatesActivityForValidSession(t *testing.T) {
 		SessionID: "session-1",
 		ExpiresAt: time.Now().Add(time.Hour),
 	}}
-	svc := NewSessionService(repo, time.Hour)
+	svc := NewService(repo, time.Hour)
 
 	session, err := svc.ValidateSession(context.Background(), "access")
 	if err != nil {
@@ -158,7 +158,7 @@ func TestDestroyOtherSessionsKeepsCurrentSession(t *testing.T) {
 		{SessionID: "old-1"},
 		{SessionID: "old-2"},
 	}}
-	svc := NewSessionService(repo, time.Hour)
+	svc := NewService(repo, time.Hour)
 
 	if err := svc.DestroyOtherSessions(context.Background(), "user-1", "current"); err != nil {
 		t.Fatalf("expected success, got %v", err)
@@ -175,7 +175,7 @@ func TestSessionServicePassThroughMethods(t *testing.T) {
 			{SessionID: "session-1", DeviceInfo: "Browser", IP: "127.0.0.1"},
 		},
 	}
-	svc := NewSessionService(repo, time.Hour)
+	svc := NewService(repo, time.Hour)
 	ctx := context.Background()
 
 	infos, err := svc.GetUserSessions(ctx, "user-1", "session-1")

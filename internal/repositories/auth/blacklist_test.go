@@ -19,7 +19,7 @@ func expectPanic(t *testing.T, fn func()) {
 }
 
 func TestNewBlacklistRepoAndNilDBMethodPanics(t *testing.T) {
-	repo := NewBlacklistRepo(nil)
+	repo := NewRepository(nil)
 	if repo == nil {
 		t.Fatal("expected repo")
 	}

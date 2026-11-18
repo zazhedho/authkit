@@ -5,23 +5,22 @@ import (
 	"errors"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
-	interfaceaudit "github.com/zazhedho/authkit/internal/interfaces/audit"
 	"github.com/zazhedho/gokit"
 	"strings"
 	"time"
 )
 
-type AuditService struct {
-	AuditRepo interfaceaudit.RepoAuditInterface
+type Service struct {
+	AuditRepo Repository
 }
 
-func NewAuditService(auditRepo interfaceaudit.RepoAuditInterface) *AuditService {
-	return &AuditService{
+func NewService(auditRepo Repository) *Service {
+	return &Service{
 		AuditRepo: auditRepo,
 	}
 }
 
-func (s *AuditService) Store(ctx context.Context, req domainaudit.AuditEvent) error {
+func (s *Service) Store(ctx context.Context, req domainaudit.AuditEvent) error {
 	if strings.TrimSpace(req.Action) == "" {
 		return errors.New("action is required")
 	}
@@ -64,7 +63,7 @@ func (s *AuditService) Store(ctx context.Context, req domainaudit.AuditEvent) er
 	return s.AuditRepo.Store(ctx, data)
 }
 
-func (s *AuditService) GetAll(ctx context.Context, params gokit.BaseParams) ([]dtoaudit.AuditTrailResponse, int64, error) {
+func (s *Service) GetAll(ctx context.Context, params gokit.BaseParams) ([]dtoaudit.AuditTrailResponse, int64, error) {
 	items, total, err := s.AuditRepo.GetAll(ctx, params)
 	if err != nil {
 		return nil, 0, err
@@ -73,7 +72,7 @@ func (s *AuditService) GetAll(ctx context.Context, params gokit.BaseParams) ([]d
 	return toAuditResponses(items), total, nil
 }
 
-func (s *AuditService) GetByID(ctx context.Context, id string) (dtoaudit.AuditTrailResponse, error) {
+func (s *Service) GetByID(ctx context.Context, id string) (dtoaudit.AuditTrailResponse, error) {
 	item, err := s.AuditRepo.GetByID(ctx, id)
 	if err != nil {
 		return dtoaudit.AuditTrailResponse{}, err
@@ -81,5 +80,3 @@ func (s *AuditService) GetByID(ctx context.Context, id string) (dtoaudit.AuditTr
 
 	return toAuditResponse(item), nil
 }
-
-var _ interfaceaudit.ServiceAuditInterface = (*AuditService)(nil)

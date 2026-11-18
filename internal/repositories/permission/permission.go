@@ -4,25 +4,24 @@ import (
 	"context"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
 	"github.com/zazhedho/gokit"
 
 	"gorm.io/gorm"
 )
 
-type repo struct {
+type Repository struct {
 	*gokit.Repository[domainpermission.Permission]
 }
 
-func NewPermissionRepo(db *gorm.DB) interfacepermission.RepoPermissionInterface {
-	return &repo{Repository: gokit.NewRepository[domainpermission.Permission](db)}
+func NewRepository(db *gorm.DB) *Repository {
+	return &Repository{Repository: gokit.NewRepository[domainpermission.Permission](db)}
 }
 
-func (r *repo) GetByName(ctx context.Context, name string) (ret domainpermission.Permission, err error) {
+func (r *Repository) GetByName(ctx context.Context, name string) (ret domainpermission.Permission, err error) {
 	return r.GetOneByField(ctx, "name", name)
 }
 
-func (r *repo) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domainpermission.Permission, totalData int64, err error) {
+func (r *Repository) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domainpermission.Permission, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, params, gokit.QueryOptions{
 		Search:         gokit.BuildSearchFunc("name", "display_name", "description", "resource"),
 		AllowedFilters: []string{"id", "name", "display_name", "resource", "action", "created_at", "updated_at"},
@@ -37,11 +36,11 @@ func (r *repo) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domai
 	})
 }
 
-func (r *repo) GetByResource(ctx context.Context, resource string) (ret []domainpermission.Permission, err error) {
+func (r *Repository) GetByResource(ctx context.Context, resource string) (ret []domainpermission.Permission, err error) {
 	return r.GetManyByField(ctx, "resource", resource)
 }
 
-func (r *repo) GetUserPermissions(ctx context.Context, userId string) (ret []domainpermission.Permission, err error) {
+func (r *Repository) GetUserPermissions(ctx context.Context, userId string) (ret []domainpermission.Permission, err error) {
 	var user struct {
 		RoleId *string
 		Role   string

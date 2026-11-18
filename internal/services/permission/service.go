@@ -6,18 +6,17 @@ import (
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
 	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
-	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
 	"github.com/zazhedho/gokit"
 	"time"
 )
 
-type PermissionService struct {
-	PermissionRepo  interfacepermission.RepoPermissionInterface
+type Service struct {
+	PermissionRepo  Repository
 	PermissionCache cachepermission.Invalidator
 }
 
-func NewPermissionService(permissionRepo interfacepermission.RepoPermissionInterface, invalidators ...cachepermission.Invalidator) *PermissionService {
-	service := &PermissionService{
+func NewService(permissionRepo Repository, invalidators ...cachepermission.Invalidator) *Service {
+	service := &Service{
 		PermissionRepo: permissionRepo,
 	}
 	if len(invalidators) > 0 {
@@ -26,7 +25,7 @@ func NewPermissionService(permissionRepo interfacepermission.RepoPermissionInter
 	return service
 }
 
-func (s *PermissionService) Create(ctx context.Context, req dtopermission.PermissionCreate) (domainpermission.Permission, error) {
+func (s *Service) Create(ctx context.Context, req dtopermission.PermissionCreate) (domainpermission.Permission, error) {
 	existing, _ := s.PermissionRepo.GetByName(ctx, req.Name)
 	if existing.Id != "" {
 		return domainpermission.Permission{}, errors.New("permission with this name already exists")
@@ -50,23 +49,23 @@ func (s *PermissionService) Create(ctx context.Context, req dtopermission.Permis
 	return data, nil
 }
 
-func (s *PermissionService) GetByID(ctx context.Context, id string) (domainpermission.Permission, error) {
+func (s *Service) GetByID(ctx context.Context, id string) (domainpermission.Permission, error) {
 	return s.PermissionRepo.GetByID(ctx, id)
 }
 
-func (s *PermissionService) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainpermission.Permission, int64, error) {
+func (s *Service) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainpermission.Permission, int64, error) {
 	return s.PermissionRepo.GetAll(ctx, params)
 }
 
-func (s *PermissionService) GetByResource(ctx context.Context, resource string) ([]domainpermission.Permission, error) {
+func (s *Service) GetByResource(ctx context.Context, resource string) ([]domainpermission.Permission, error) {
 	return s.PermissionRepo.GetByResource(ctx, resource)
 }
 
-func (s *PermissionService) GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error) {
+func (s *Service) GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error) {
 	return s.PermissionRepo.GetUserPermissions(ctx, userId)
 }
 
-func (s *PermissionService) Update(ctx context.Context, id string, req dtopermission.PermissionUpdate) (domainpermission.Permission, error) {
+func (s *Service) Update(ctx context.Context, id string, req dtopermission.PermissionUpdate) (domainpermission.Permission, error) {
 	permission, err := s.PermissionRepo.GetByID(ctx, id)
 	if err != nil {
 		return domainpermission.Permission{}, err
@@ -92,7 +91,7 @@ func (s *PermissionService) Update(ctx context.Context, id string, req dtopermis
 	return permission, nil
 }
 
-func (s *PermissionService) Delete(ctx context.Context, id string) error {
+func (s *Service) Delete(ctx context.Context, id string) error {
 	if err := s.PermissionRepo.Delete(ctx, id); err != nil {
 		return err
 	}
@@ -100,10 +99,8 @@ func (s *PermissionService) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *PermissionService) invalidatePermissionCache(ctx context.Context) {
+func (s *Service) invalidatePermissionCache(ctx context.Context) {
 	if s.PermissionCache != nil {
 		s.PermissionCache.DeleteAll(ctx)
 	}
 }
-
-var _ interfacepermission.ServicePermissionInterface = (*PermissionService)(nil)

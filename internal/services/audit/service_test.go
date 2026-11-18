@@ -56,7 +56,7 @@ func TestGetAllDelegatesToRepository(t *testing.T) {
 		},
 		total: 1,
 	}
-	service := NewAuditService(repo)
+	service := NewService(repo)
 
 	items, total, err := service.GetAll(context.Background(), gokit.BaseParams{Page: 1, Limit: 10})
 	if err != nil {
@@ -84,7 +84,7 @@ func TestGetByIDDelegatesToRepository(t *testing.T) {
 	repo := &auditRepoMock{
 		item: domainaudit.AuditTrail{ID: "audit-1", Action: "login", Resource: "auth", Status: domainaudit.StatusSuccess},
 	}
-	service := NewAuditService(repo)
+	service := NewService(repo)
 
 	item, err := service.GetByID(context.Background(), "audit-1")
 	if err != nil {
@@ -99,7 +99,7 @@ func TestGetByIDDelegatesToRepository(t *testing.T) {
 }
 
 func TestGetByIDReturnsRepositoryError(t *testing.T) {
-	service := NewAuditService(&auditRepoMock{err: errors.New("not found")})
+	service := NewService(&auditRepoMock{err: errors.New("not found")})
 
 	_, err := service.GetByID(context.Background(), "missing")
 	if err == nil || err.Error() != "not found" {
@@ -109,7 +109,7 @@ func TestGetByIDReturnsRepositoryError(t *testing.T) {
 
 func TestStoreSanitizesSensitivePayloadAndHumanizesValues(t *testing.T) {
 	repo := &auditRepoMock{}
-	service := NewAuditService(repo)
+	service := NewService(repo)
 
 	err := service.Store(context.Background(), domainaudit.AuditEvent{
 		Action:   "refresh_token",

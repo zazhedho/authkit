@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/zazhedho/authkit/internal/config"
-	interfacereset "github.com/zazhedho/authkit/internal/interfaces/reset"
 	"testing"
 	"time"
 
@@ -112,7 +111,7 @@ func resetTestConfig() config.PasswordResetConfig {
 func TestRequestResetStoresTokenAndSendsURL(t *testing.T) {
 	repo := newResetRepoTestDouble()
 	sender := &resetSenderTestDouble{}
-	svc := NewPasswordResetService(repo, sender, resetTestConfig())
+	svc := NewService(repo, sender, resetTestConfig())
 
 	if err := svc.RequestReset(context.Background(), " Jane.Doe@Example.COM ", "Starter"); err != nil {
 		t.Fatalf("expected success, got %v", err)
@@ -133,7 +132,7 @@ func TestRequestResetReturnsThrottleOnRateLimit(t *testing.T) {
 	repo := newResetRepoTestDouble()
 	repo.sendCount = 2
 	repo.sendRetryAfter = 45 * time.Second
-	svc := NewPasswordResetService(repo, &resetSenderTestDouble{}, resetTestConfig())
+	svc := NewService(repo, &resetSenderTestDouble{}, resetTestConfig())
 
 	err := svc.RequestReset(context.Background(), "jane@example.com", "Starter")
 	throttle, ok := errors.AsType[*ThrottleError](err)
@@ -147,7 +146,7 @@ func TestRequestResetReturnsThrottleOnRateLimit(t *testing.T) {
 
 func TestRequestResetCleansUpWhenDeliveryFails(t *testing.T) {
 	repo := newResetRepoTestDouble()
-	svc := NewPasswordResetService(repo, &resetSenderTestDouble{err: errors.New("smtp down")}, resetTestConfig())
+	svc := NewService(repo, &resetSenderTestDouble{err: errors.New("smtp down")}, resetTestConfig())
 
 	err := svc.RequestReset(context.Background(), "jane@example.com", "Starter")
 	if !errors.Is(err, ErrResetDeliveryFailed) {
@@ -163,7 +162,7 @@ func TestVerifyResetReturnsEmailAndClearsState(t *testing.T) {
 	token := "reset-token"
 	hash := hashToken(token, "secret")
 	repo.tokens[hash] = "jane@example.com"
-	svc := NewPasswordResetService(repo, nil, resetTestConfig())
+	svc := NewService(repo, nil, resetTestConfig())
 
 	email, err := svc.VerifyReset(context.Background(), token)
 	if err != nil {
@@ -194,21 +193,21 @@ func TestBuildResetURLVariants(t *testing.T) {
 }
 
 func TestResetServiceNotConfigured(t *testing.T) {
-	err := NewPasswordResetService(nil, nil, resetTestConfig()).RequestReset(context.Background(), "jane@example.com", "Starter")
+	err := NewService(nil, nil, resetTestConfig()).RequestReset(context.Background(), "jane@example.com", "Starter")
 	if !errors.Is(err, ErrResetNotConfigured) {
 		t.Fatalf("expected not configured error, got %v", err)
 	}
 }
 
 func TestRequestResetRejectsInvalidEmailAndCooldown(t *testing.T) {
-	svc := NewPasswordResetService(newResetRepoTestDouble(), &resetSenderTestDouble{}, resetTestConfig())
+	svc := NewService(newResetRepoTestDouble(), &resetSenderTestDouble{}, resetTestConfig())
 	if err := svc.RequestReset(context.Background(), " ", "Starter"); !errors.Is(err, ErrResetInvalid) {
 		t.Fatalf("expected invalid reset error, got %v", err)
 	}
 
 	repo := newResetRepoTestDouble()
 	repo.cooldownTTL = 15 * time.Second
-	svc = NewPasswordResetService(repo, &resetSenderTestDouble{}, resetTestConfig())
+	svc = NewService(repo, &resetSenderTestDouble{}, resetTestConfig())
 	err := svc.RequestReset(context.Background(), "jane@example.com", "Starter")
 	throttle, ok := errors.AsType[*ThrottleError](err)
 	if !ok {
@@ -232,7 +231,7 @@ func TestRequestResetRepositoryErrors(t *testing.T) {
 			if repo.tokens == nil {
 				repo.tokens = map[string]string{}
 			}
-			svc := NewPasswordResetService(repo, &resetSenderTestDouble{}, resetTestConfig())
+			svc := NewService(repo, &resetSenderTestDouble{}, resetTestConfig())
 			if err := svc.RequestReset(context.Background(), "jane@example.com", "Starter"); err == nil {
 				t.Fatal("expected repository error")
 			}
@@ -242,20 +241,20 @@ func TestRequestResetRepositoryErrors(t *testing.T) {
 
 func TestVerifyResetErrorBranches(t *testing.T) {
 	t.Run("not configured", func(t *testing.T) {
-		_, err := NewPasswordResetService(nil, nil, resetTestConfig()).VerifyReset(context.Background(), "token")
+		_, err := NewService(nil, nil, resetTestConfig()).VerifyReset(context.Background(), "token")
 		if !errors.Is(err, ErrResetNotConfigured) {
 			t.Fatalf("expected not configured, got %v", err)
 		}
 	})
 	t.Run("blank token", func(t *testing.T) {
-		svc := NewPasswordResetService(newResetRepoTestDouble(), nil, resetTestConfig())
+		svc := NewService(newResetRepoTestDouble(), nil, resetTestConfig())
 		_, err := svc.VerifyReset(context.Background(), " ")
 		if !errors.Is(err, ErrResetInvalid) {
 			t.Fatalf("expected invalid reset, got %v", err)
 		}
 	})
 	t.Run("missing token", func(t *testing.T) {
-		svc := NewPasswordResetService(newResetRepoTestDouble(), nil, resetTestConfig())
+		svc := NewService(newResetRepoTestDouble(), nil, resetTestConfig())
 		_, err := svc.VerifyReset(context.Background(), "missing")
 		if !errors.Is(err, ErrResetInvalid) {
 			t.Fatalf("expected invalid reset, got %v", err)
@@ -264,7 +263,7 @@ func TestVerifyResetErrorBranches(t *testing.T) {
 	t.Run("get token error", func(t *testing.T) {
 		repo := newResetRepoTestDouble()
 		repo.getTokenErr = errors.New("redis down")
-		svc := NewPasswordResetService(repo, nil, resetTestConfig())
+		svc := NewService(repo, nil, resetTestConfig())
 		_, err := svc.VerifyReset(context.Background(), "token")
 		if err == nil {
 			t.Fatal("expected get token error")
@@ -287,7 +286,7 @@ func TestThrottleErrorString(t *testing.T) {
 // untouchableResetRepo panics on any repository call, so a test fails loudly if
 // the service reaches the repo.
 type untouchableResetRepo struct {
-	interfacereset.RepoPasswordResetInterface
+	Repository
 }
 
 func callWithoutRepoAccess(t *testing.T, call func() error) error {
@@ -304,7 +303,7 @@ func TestResetServiceRefusesEmptySecretBeforeTouchingRepo(t *testing.T) {
 	for _, secret := range []string{"", "   "} {
 		cfg := resetTestConfig()
 		cfg.Secret = secret
-		svc := NewPasswordResetService(untouchableResetRepo{}, &resetSenderTestDouble{}, cfg)
+		svc := NewService(untouchableResetRepo{}, &resetSenderTestDouble{}, cfg)
 
 		err := callWithoutRepoAccess(t, func() error {
 			return svc.RequestReset(context.Background(), "jane@example.com", "Starter")

@@ -9,8 +9,6 @@ import (
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	interfaceauth "github.com/zazhedho/authkit/internal/interfaces/auth"
-	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"net/http"
@@ -25,8 +23,8 @@ import (
 )
 
 type Middleware struct {
-	BlacklistRepo   interfaceauth.RepoAuthInterface
-	PermissionRepo  interfacepermission.RepoPermissionInterface
+	BlacklistRepo   TokenRevocations
+	PermissionRepo  PermissionLookup
 	PermissionCache *redis.Client
 	Tokens          *token.Tokens
 	// PermissionCacheTTL is how long cached permission keys live; a
@@ -34,8 +32,8 @@ type Middleware struct {
 	PermissionCacheTTL time.Duration
 }
 
-func NewMiddleware(blacklistRepo interfaceauth.RepoAuthInterface,
-	permissionRepo interfacepermission.RepoPermissionInterface,
+func NewMiddleware(blacklistRepo TokenRevocations,
+	permissionRepo PermissionLookup,
 	permissionCache *redis.Client,
 	tokens *token.Tokens,
 	permissionCacheTTL time.Duration) *Middleware {

@@ -6,30 +6,29 @@ import (
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	interfacesession "github.com/zazhedho/authkit/internal/interfaces/session"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-type ServiceSession struct {
-	SessionRepo interfacesession.RepoSessionInterface
+type Service struct {
+	SessionRepo Repository
 	RefreshTTL  time.Duration
 }
 
-// NewSessionService builds the session service; refreshTTL is the lifetime of a
+// NewService builds the session service; refreshTTL is the lifetime of a
 // session and falls back to token.DefaultRefreshTTL when not positive.
-func NewSessionService(sessionRepo interfacesession.RepoSessionInterface, refreshTTL time.Duration) *ServiceSession {
+func NewService(sessionRepo Repository, refreshTTL time.Duration) *Service {
 	if refreshTTL <= 0 {
 		refreshTTL = token.DefaultRefreshTTL
 	}
-	return &ServiceSession{
+	return &Service{
 		SessionRepo: sessionRepo,
 		RefreshTTL:  refreshTTL,
 	}
 }
 
-func (s *ServiceSession) CreateSession(ctx context.Context, user *domainuser.Users, accessToken string, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error) {
+func (s *Service) CreateSession(ctx context.Context, user *domainuser.Users, accessToken string, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error) {
 	sessionID := uuid.New().String()
 
 	expiresAt := time.Now().Add(s.RefreshTTL)
@@ -63,7 +62,7 @@ func (s *ServiceSession) CreateSession(ctx context.Context, user *domainuser.Use
 	return session, nil
 }
 
-func (s *ServiceSession) ValidateSession(ctx context.Context, token string) (*domainsession.Session, error) {
+func (s *Service) ValidateSession(ctx context.Context, token string) (*domainsession.Session, error) {
 	session, err := s.SessionRepo.GetByToken(ctx, token)
 	if err != nil {
 		return nil, fmt.Errorf("session not found or expired")
@@ -83,7 +82,7 @@ func (s *ServiceSession) ValidateSession(ctx context.Context, token string) (*do
 	return session, nil
 }
 
-func (s *ServiceSession) GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.SessionInfo, error) {
+func (s *Service) GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.SessionInfo, error) {
 	sessions, err := s.SessionRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -105,11 +104,11 @@ func (s *ServiceSession) GetUserSessions(ctx context.Context, userID string, cur
 	return sessionInfos, nil
 }
 
-func (s *ServiceSession) DestroySession(ctx context.Context, sessionID string) error {
+func (s *Service) DestroySession(ctx context.Context, sessionID string) error {
 	return s.SessionRepo.Delete(ctx, sessionID)
 }
 
-func (s *ServiceSession) DestroySessionByToken(ctx context.Context, token string) error {
+func (s *Service) DestroySessionByToken(ctx context.Context, token string) error {
 	session, err := s.SessionRepo.GetByToken(ctx, token)
 	if err != nil {
 		return err
@@ -117,27 +116,27 @@ func (s *ServiceSession) DestroySessionByToken(ctx context.Context, token string
 	return s.SessionRepo.Delete(ctx, session.SessionID)
 }
 
-func (s *ServiceSession) GetSessionByToken(ctx context.Context, token string) (*domainsession.Session, error) {
+func (s *Service) GetSessionByToken(ctx context.Context, token string) (*domainsession.Session, error) {
 	return s.SessionRepo.GetByToken(ctx, token)
 }
 
-func (s *ServiceSession) GetSessionByRefreshToken(ctx context.Context, refreshToken string) (*domainsession.Session, error) {
+func (s *Service) GetSessionByRefreshToken(ctx context.Context, refreshToken string) (*domainsession.Session, error) {
 	return s.SessionRepo.GetByRefreshToken(ctx, refreshToken)
 }
 
-func (s *ServiceSession) GetSessionBySessionID(ctx context.Context, sessionID string) (*domainsession.Session, error) {
+func (s *Service) GetSessionBySessionID(ctx context.Context, sessionID string) (*domainsession.Session, error) {
 	return s.SessionRepo.GetBySessionID(ctx, sessionID)
 }
 
-func (s *ServiceSession) RotateSessionTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
+func (s *Service) RotateSessionTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
 	return s.SessionRepo.RotateTokens(ctx, sessionID, accessToken, refreshToken, expiresAt)
 }
 
-func (s *ServiceSession) DestroyAllUserSessions(ctx context.Context, userID string) error {
+func (s *Service) DestroyAllUserSessions(ctx context.Context, userID string) error {
 	return s.SessionRepo.DeleteByUserID(ctx, userID)
 }
 
-func (s *ServiceSession) DestroyOtherSessions(ctx context.Context, userID string, currentSessionID string) error {
+func (s *Service) DestroyOtherSessions(ctx context.Context, userID string, currentSessionID string) error {
 	sessions, err := s.SessionRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return err
@@ -153,5 +152,3 @@ func (s *ServiceSession) DestroyOtherSessions(ctx context.Context, userID string
 
 	return nil
 }
-
-var _ interfacesession.ServiceSessionInterface = (*ServiceSession)(nil)

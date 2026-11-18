@@ -2,11 +2,13 @@ package session
 
 import (
 	"context"
-	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	"time"
+
+	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 )
 
-type RepoSessionInterface interface {
+// Repository is the Redis-backed session store the service needs.
+type Repository interface {
 	Create(ctx context.Context, session *domainsession.Session) error
 	GetBySessionID(ctx context.Context, sessionID string) (*domainsession.Session, error)
 	GetByUserID(ctx context.Context, userID string) ([]*domainsession.Session, error)
@@ -16,6 +18,4 @@ type RepoSessionInterface interface {
 	RotateTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error
 	Delete(ctx context.Context, sessionID string) error
 	DeleteByUserID(ctx context.Context, userID string) error
-	DeleteExpired(ctx context.Context) error
-	SetExpiration(ctx context.Context, sessionID string, expiration time.Duration) error
 }

@@ -2,12 +2,14 @@ package role
 
 import (
 	"context"
+
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
 	"github.com/zazhedho/gokit"
 )
 
-type ServiceRoleInterface interface {
+// Service is what the role handlers call.
+type Service interface {
 	Create(ctx context.Context, req dtorole.RoleCreate) (domainrole.Role, error)
 	GetByID(ctx context.Context, id string) (domainrole.Role, error)
 	GetByIDWithDetails(ctx context.Context, id string) (dtorole.RoleWithDetails, error)

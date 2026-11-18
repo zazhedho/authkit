@@ -9,10 +9,6 @@ import (
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	interfaceauth "github.com/zazhedho/authkit/internal/interfaces/auth"
-	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
-	interfacerole "github.com/zazhedho/authkit/internal/interfaces/role"
-	interfaceuser "github.com/zazhedho/authkit/internal/interfaces/user"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"github.com/zazhedho/gokit"
 	"strings"
@@ -21,11 +17,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type ServiceUser struct {
-	UserRepo        interfaceuser.RepoUserInterface
-	BlacklistRepo   interfaceauth.RepoAuthInterface
-	RoleRepo        interfacerole.RepoRoleInterface
-	PermissionRepo  interfacepermission.RepoPermissionInterface
+type Service struct {
+	UserRepo        Repository
+	BlacklistRepo   BlacklistRepository
+	RoleRepo        RoleRepository
+	PermissionRepo  PermissionRepository
 	PermissionCache cachepermission.Invalidator
 	Tokens          *token.Tokens
 	// DefaultRole is the role given to public registrations; empty means viewer.
@@ -33,16 +29,16 @@ type ServiceUser struct {
 	GoogleClientIDs []string
 }
 
-// UserServiceOptions carries the explicit configuration of ServiceUser.
-type UserServiceOptions struct {
+// Options carries the explicit configuration of Service.
+type Options struct {
 	Tokens          *token.Tokens
 	DefaultRole     string
 	GoogleClientIDs []string
 	PermissionCache cachepermission.Invalidator
 }
 
-func NewUserService(userRepo interfaceuser.RepoUserInterface, blacklistRepo interfaceauth.RepoAuthInterface, roleRepo interfacerole.RepoRoleInterface, permissionRepo interfacepermission.RepoPermissionInterface, opts UserServiceOptions) *ServiceUser {
-	return &ServiceUser{
+func NewService(userRepo Repository, blacklistRepo BlacklistRepository, roleRepo RoleRepository, permissionRepo PermissionRepository, opts Options) *Service {
+	return &Service{
 		UserRepo:        userRepo,
 		BlacklistRepo:   blacklistRepo,
 		RoleRepo:        roleRepo,
@@ -56,7 +52,7 @@ func NewUserService(userRepo interfaceuser.RepoUserInterface, blacklistRepo inte
 
 // // defaultRole is the role for public registrations; privileged roles fall back
 // // to viewer so misconfiguration cannot escalate privileges.
-func (s *ServiceUser) defaultRole() string {
+func (s *Service) defaultRole() string {
 	role := gokit.NormalizeKey(s.DefaultRole)
 	if role == "" || role == domainuser.RoleSuperAdmin || role == domainuser.RoleAdmin {
 		return domainuser.RoleViewer
@@ -64,7 +60,7 @@ func (s *ServiceUser) defaultRole() string {
 	return role
 }
 
-func (s *ServiceUser) RegisterUser(ctx context.Context, req dtouser.UserRegister) (domainuser.Users, error) {
+func (s *Service) RegisterUser(ctx context.Context, req dtouser.UserRegister) (domainuser.Users, error) {
 	phone := gokit.NormalizePhoneTo62(req.Phone)
 	email := gokit.SanitizeEmail(req.Email)
 
@@ -122,7 +118,7 @@ func (s *ServiceUser) RegisterUser(ctx context.Context, req dtouser.UserRegister
 	return data, nil
 }
 
-func (s *ServiceUser) AdminCreateUser(ctx context.Context, req dtouser.AdminCreateUser) (domainuser.Users, error) {
+func (s *Service) AdminCreateUser(ctx context.Context, req dtouser.AdminCreateUser) (domainuser.Users, error) {
 	scope := domainauth.FromContext(ctx)
 	phone := gokit.NormalizePhoneTo62(req.Phone)
 	email := gokit.SanitizeEmail(req.Email)
@@ -188,7 +184,7 @@ func (s *ServiceUser) AdminCreateUser(ctx context.Context, req dtouser.AdminCrea
 	return data, nil
 }
 
-func (s *ServiceUser) LoginUser(ctx context.Context, req dtouser.Login, logId string, metadata dtouser.LoginMetadata) (string, error) {
+func (s *Service) LoginUser(ctx context.Context, req dtouser.Login, logId string, metadata dtouser.LoginMetadata) (string, error) {
 	identifier, err := ResolveLoginIdentifier(req)
 	if err != nil {
 		return "", err
@@ -229,7 +225,7 @@ func (s *ServiceUser) LoginUser(ctx context.Context, req dtouser.Login, logId st
 	return token, nil
 }
 
-func (s *ServiceUser) LogoutUser(ctx context.Context, token string) error {
+func (s *Service) LogoutUser(ctx context.Context, token string) error {
 	expiresAt, err := s.Tokens.ExpiresAt(token)
 	if err != nil {
 		return err
@@ -250,7 +246,7 @@ func (s *ServiceUser) LogoutUser(ctx context.Context, token string) error {
 	return nil
 }
 
-func (s *ServiceUser) ImpersonateUser(ctx context.Context, targetUserId string, logId string) (string, error) {
+func (s *Service) ImpersonateUser(ctx context.Context, targetUserId string, logId string) (string, error) {
 	scope := domainauth.FromContext(ctx)
 	if scope.IsImpersonated {
 		return "", errors.New("cannot start nested impersonation")
@@ -279,7 +275,7 @@ func (s *ServiceUser) ImpersonateUser(ctx context.Context, targetUserId string, 
 	})
 }
 
-func (s *ServiceUser) StopImpersonation(ctx context.Context, logId string) (string, error) {
+func (s *Service) StopImpersonation(ctx context.Context, logId string) (string, error) {
 	scope := domainauth.FromContext(ctx)
 	originalUserId := scope.OriginalUserID
 	currentUserId := scope.UserID
@@ -299,19 +295,19 @@ func (s *ServiceUser) StopImpersonation(ctx context.Context, logId string) (stri
 	return s.Tokens.Generate(&originalUser, logId)
 }
 
-func (s *ServiceUser) GetUserById(ctx context.Context, id string) (domainuser.Users, error) {
+func (s *Service) GetUserById(ctx context.Context, id string) (domainuser.Users, error) {
 	return s.UserRepo.GetByID(ctx, id)
 }
 
-func (s *ServiceUser) GetUserByEmail(ctx context.Context, email string) (domainuser.Users, error) {
+func (s *Service) GetUserByEmail(ctx context.Context, email string) (domainuser.Users, error) {
 	return s.UserRepo.GetByEmail(ctx, email)
 }
 
-func (s *ServiceUser) GetUserByPhone(ctx context.Context, phone string) (domainuser.Users, error) {
+func (s *Service) GetUserByPhone(ctx context.Context, phone string) (domainuser.Users, error) {
 	return s.UserRepo.GetByPhone(ctx, phone)
 }
 
-func (s *ServiceUser) GetUserByAuth(ctx context.Context, id string) (map[string]any, error) {
+func (s *Service) GetUserByAuth(ctx context.Context, id string) (map[string]any, error) {
 	user, err := s.UserRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -331,7 +327,7 @@ func (s *ServiceUser) GetUserByAuth(ctx context.Context, id string) (map[string]
 	return buildUserAuthResponse(user, permissionNames), nil
 }
 
-func (s *ServiceUser) GetAllUsers(ctx context.Context, params gokit.BaseParams) ([]domainuser.Users, int64, error) {
+func (s *Service) GetAllUsers(ctx context.Context, params gokit.BaseParams) ([]domainuser.Users, int64, error) {
 	scope := domainauth.FromContext(ctx)
 	users, total, err := s.UserRepo.GetAll(ctx, params)
 	if err != nil {
@@ -352,7 +348,7 @@ func (s *ServiceUser) GetAllUsers(ctx context.Context, params gokit.BaseParams) 
 	return users, total, nil
 }
 
-func (s *ServiceUser) Update(ctx context.Context, id string, req dtouser.UserUpdate) (domainuser.Users, error) {
+func (s *Service) Update(ctx context.Context, id string, req dtouser.UserUpdate) (domainuser.Users, error) {
 	scope := domainauth.FromContext(ctx)
 	data, err := s.UserRepo.GetByID(ctx, id)
 	if err != nil {
@@ -390,7 +386,7 @@ func (s *ServiceUser) Update(ctx context.Context, id string, req dtouser.UserUpd
 	return data, nil
 }
 
-func (s *ServiceUser) applyRoleUpdate(ctx context.Context, actorRole, requestedRole string, user *domainuser.Users) error {
+func (s *Service) applyRoleUpdate(ctx context.Context, actorRole, requestedRole string, user *domainuser.Users) error {
 	newRoleName := gokit.NormalizeKey(strings.TrimSpace(requestedRole))
 	if newRoleName == "" {
 		return nil
@@ -414,7 +410,7 @@ func (s *ServiceUser) applyRoleUpdate(ctx context.Context, actorRole, requestedR
 	return nil
 }
 
-func (s *ServiceUser) ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword) (domainuser.Users, error) {
+func (s *Service) ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword) (domainuser.Users, error) {
 	if req.CurrentPassword == req.NewPassword {
 		return domainuser.Users{}, errors.New("new password must be different from current password")
 	}
@@ -447,7 +443,7 @@ func (s *ServiceUser) ChangePassword(ctx context.Context, id string, req dtouser
 	return data, nil
 }
 
-func (s *ServiceUser) ForgotPassword(ctx context.Context, req dtouser.ForgotPasswordRequest) (string, error) {
+func (s *Service) ForgotPassword(ctx context.Context, req dtouser.ForgotPasswordRequest) (string, error) {
 	data, err := s.UserRepo.GetByEmail(ctx, gokit.SanitizeEmail(req.Email))
 	if err != nil {
 		//nolint:nilerr // Avoid disclosing whether an email is registered.
@@ -462,7 +458,7 @@ func (s *ServiceUser) ForgotPassword(ctx context.Context, req dtouser.ForgotPass
 	return token, nil
 }
 
-func (s *ServiceUser) ResetPassword(ctx context.Context, req dtouser.ResetPasswordRequest) error {
+func (s *Service) ResetPassword(ctx context.Context, req dtouser.ResetPasswordRequest) error {
 	if err := ValidatePasswordStrength(req.NewPassword); err != nil {
 		return err
 	}
@@ -512,7 +508,7 @@ func (s *ServiceUser) ResetPassword(ctx context.Context, req dtouser.ResetPasswo
 	return nil
 }
 
-func (s *ServiceUser) ResetPasswordByEmail(ctx context.Context, email, newPassword string) error {
+func (s *Service) ResetPasswordByEmail(ctx context.Context, email, newPassword string) error {
 	if err := ValidatePasswordStrength(newPassword); err != nil {
 		return err
 	}
@@ -537,7 +533,7 @@ func (s *ServiceUser) ResetPasswordByEmail(ctx context.Context, email, newPasswo
 	return nil
 }
 
-func (s *ServiceUser) Delete(ctx context.Context, id string) error {
+func (s *Service) Delete(ctx context.Context, id string) error {
 	if err := s.UserRepo.Delete(ctx, id); err != nil {
 		return err
 	}
@@ -545,10 +541,8 @@ func (s *ServiceUser) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *ServiceUser) invalidateUserPermissionCache(ctx context.Context, userIDs ...string) {
+func (s *Service) invalidateUserPermissionCache(ctx context.Context, userIDs ...string) {
 	if s.PermissionCache != nil {
 		s.PermissionCache.DeleteUser(ctx, userIDs...)
 	}
 }
-
-var _ interfaceuser.ServiceUserInterface = (*ServiceUser)(nil)

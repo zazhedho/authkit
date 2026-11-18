@@ -5,7 +5,8 @@ import (
 	"time"
 )
 
-type RepoPasswordResetInterface interface {
+// Repository is the Redis-backed state the service needs.
+type Repository interface {
 	SetToken(ctx context.Context, hash, email string, ttl time.Duration) error
 	GetEmailByToken(ctx context.Context, hash string) (string, error)
 	DeleteToken(ctx context.Context, hash string) error

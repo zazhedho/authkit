@@ -5,7 +5,6 @@ import (
 	"errors"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
-	interfacerole "github.com/zazhedho/authkit/internal/interfaces/role"
 	"github.com/zazhedho/gokit"
 	"net/mail"
 	"regexp"
@@ -70,7 +69,7 @@ func buildUserAuthResponse(user domainuser.Users, permissions []string) map[stri
 	}
 }
 
-func findRoleIDByName(ctx context.Context, roleRepo interfacerole.RepoRoleInterface, roleName string) (*string, bool) {
+func findRoleIDByName(ctx context.Context, roleRepo RoleRepository, roleName string) (*string, bool) {
 	roleEntity, err := roleRepo.GetByName(ctx, roleName)
 	if err != nil || roleEntity.Id == "" {
 		return nil, false

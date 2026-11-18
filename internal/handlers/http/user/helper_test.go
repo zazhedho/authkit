@@ -59,7 +59,7 @@ func (m *appConfigServiceUserTestDouble) IsEnabled(ctx context.Context, configKe
 }
 
 func TestBuildAuthTokenResponse(t *testing.T) {
-	handler := NewUserHandler(&userServiceTestDouble{}, nil, nil, nil, nil, UserHandlerOptions{
+	handler := New(&userServiceTestDouble{}, nil, nil, nil, nil, Options{
 		Settings: config.UserHandler{AccessTTL: 12 * time.Hour, RefreshTTL: 72 * time.Hour},
 	})
 
@@ -131,7 +131,7 @@ func TestBuildImpersonationClaimsOverrideFromClaims(t *testing.T) {
 }
 
 func TestRuntimeConfigAndThrottleResponses(t *testing.T) {
-	handler := &HandlerUser{}
+	handler := &Handler{}
 	enabled, err := handler.isRuntimeConfigEnabled(context.Background(), "missing", true)
 	if err != nil || !enabled {
 		t.Fatalf("expected fallback config value, enabled=%v err=%v", enabled, err)
@@ -160,7 +160,7 @@ func TestRuntimeConfigAndThrottleResponses(t *testing.T) {
 }
 
 func TestNewUserHandlerAppliesDefaultFlagKeysAndTTLs(t *testing.T) {
-	handler := NewUserHandler(&userServiceTestDouble{}, nil, nil, nil, nil, UserHandlerOptions{})
+	handler := New(&userServiceTestDouble{}, nil, nil, nil, nil, Options{})
 	want := config.DefaultFlagKeys()
 	if handler.Settings.Flags != want {
 		t.Fatalf("expected default flag keys %+v, got %+v", want, handler.Settings.Flags)
@@ -174,7 +174,7 @@ func TestNewUserHandlerAppliesDefaultFlagKeysAndTTLs(t *testing.T) {
 }
 
 func TestNewUserHandlerKeepsExplicitCooldowns(t *testing.T) {
-	handler := NewUserHandler(&userServiceTestDouble{}, nil, nil, nil, nil, UserHandlerOptions{
+	handler := New(&userServiceTestDouble{}, nil, nil, nil, nil, Options{
 		Settings: config.UserHandler{OTPCooldown: 45 * time.Second, ResetCooldown: 2 * time.Minute},
 	})
 	if handler.Settings.OTPCooldown != 45*time.Second || handler.Settings.ResetCooldown != 2*time.Minute {

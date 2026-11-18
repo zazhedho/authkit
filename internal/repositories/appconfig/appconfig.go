@@ -3,21 +3,20 @@ package appconfig
 import (
 	"context"
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
-	interfaceappconfig "github.com/zazhedho/authkit/internal/interfaces/appconfig"
 	"github.com/zazhedho/gokit"
 
 	"gorm.io/gorm"
 )
 
-type repo struct {
+type Repository struct {
 	*gokit.Repository[domainappconfig.AppConfig]
 }
 
-func NewAppConfigRepo(db *gorm.DB) interfaceappconfig.RepoAppConfigInterface {
-	return &repo{Repository: gokit.NewRepository[domainappconfig.AppConfig](db)}
+func NewRepository(db *gorm.DB) *Repository {
+	return &Repository{Repository: gokit.NewRepository[domainappconfig.AppConfig](db)}
 }
 
-func (r *repo) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domainappconfig.AppConfig, totalData int64, err error) {
+func (r *Repository) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domainappconfig.AppConfig, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, params, gokit.QueryOptions{
 		Search:          gokit.BuildSearchFunc("config_key", "display_name", "category"),
 		AllowedFilters:  []string{"category", "is_active"},
@@ -34,6 +33,6 @@ func (r *repo) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domai
 	})
 }
 
-func (r *repo) GetByKey(ctx context.Context, configKey string) (ret domainappconfig.AppConfig, err error) {
+func (r *Repository) GetByKey(ctx context.Context, configKey string) (ret domainappconfig.AppConfig, err error) {
 	return r.GetOneByField(ctx, "config_key", configKey)
 }

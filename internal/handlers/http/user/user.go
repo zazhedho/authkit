@@ -13,13 +13,6 @@ import (
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 	"github.com/zazhedho/authkit/internal/infrastructure/ratelimit"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	interfaceappconfig "github.com/zazhedho/authkit/internal/interfaces/appconfig"
-	interfaceaudit "github.com/zazhedho/authkit/internal/interfaces/audit"
-	interfaceauth "github.com/zazhedho/authkit/internal/interfaces/auth"
-	interfaceotp "github.com/zazhedho/authkit/internal/interfaces/otp"
-	interfacereset "github.com/zazhedho/authkit/internal/interfaces/reset"
-	interfacesession "github.com/zazhedho/authkit/internal/interfaces/session"
-	interfaceuser "github.com/zazhedho/authkit/internal/interfaces/user"
 	serviceotp "github.com/zazhedho/authkit/internal/services/otp"
 	serviceuser "github.com/zazhedho/authkit/internal/services/user"
 	"github.com/zazhedho/gokit"
@@ -36,35 +29,35 @@ import (
 // none is configured.
 const defaultCooldown = 60 * time.Second
 
-type HandlerUser struct {
-	Service       interfaceuser.ServiceUserInterface
-	BlacklistRepo interfaceauth.RepoAuthInterface
-	SessionSvc    interfacesession.ServiceSessionInterface
+type Handler struct {
+	Service       Service
+	BlacklistRepo BlacklistRepository
+	SessionSvc    SessionService
 	LoginLimiter  ratelimit.LoginLimiter
 	httpshared.AuditWriter
-	AppConfigService interfaceappconfig.ServiceAppConfigInterface
-	OTPService       interfaceotp.ServiceOTPInterface
-	ResetService     interfacereset.ServicePasswordResetInterface
+	AppConfigService AppConfigService
+	OTPService       OTPService
+	ResetService     ResetService
 	Tokens           *token.Tokens
 	Settings         config.UserHandler
 }
 
-type UserHandlerOptions struct {
-	AppConfigService interfaceappconfig.ServiceAppConfigInterface
-	OTPService       interfaceotp.ServiceOTPInterface
-	ResetService     interfacereset.ServicePasswordResetInterface
+type Options struct {
+	AppConfigService AppConfigService
+	OTPService       OTPService
+	ResetService     ResetService
 	Tokens           *token.Tokens
 	Settings         config.UserHandler
 }
 
-func NewUserHandler(
-	s interfaceuser.ServiceUserInterface,
-	blacklistRepo interfaceauth.RepoAuthInterface,
-	sessionSvc interfacesession.ServiceSessionInterface,
+func New(
+	s Service,
+	blacklistRepo BlacklistRepository,
+	sessionSvc SessionService,
 	limiter ratelimit.LoginLimiter,
-	auditService interfaceaudit.ServiceAuditInterface,
-	options UserHandlerOptions,
-) *HandlerUser {
+	auditService httpshared.AuditService,
+	options Options,
+) *Handler {
 	userSettings := options.Settings
 	defaultFlags := config.DefaultFlagKeys()
 	if userSettings.Flags.PublicRegistration == "" {
@@ -90,7 +83,7 @@ func NewUserHandler(
 		userSettings.ResetCooldown = defaultCooldown
 	}
 
-	return &HandlerUser{
+	return &Handler{
 		Service:          s,
 		BlacklistRepo:    blacklistRepo,
 		SessionSvc:       sessionSvc,
@@ -104,7 +97,7 @@ func NewUserHandler(
 	}
 }
 
-func (h *HandlerUser) Register(ctx *gin.Context) {
+func (h *Handler) Register(ctx *gin.Context) {
 	var req dtouser.UserRegister
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][Register]"
@@ -216,7 +209,7 @@ func (h *HandlerUser) Register(ctx *gin.Context) {
 	ctx.JSON(http.StatusCreated, res)
 }
 
-func (h *HandlerUser) GetRegisterStatus(ctx *gin.Context) {
+func (h *Handler) GetRegisterStatus(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][GetRegisterStatus]"
 	reqCtx := ctx.Request.Context()
@@ -244,7 +237,7 @@ func (h *HandlerUser) GetRegisterStatus(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) SendRegisterOTP(ctx *gin.Context) {
+func (h *Handler) SendRegisterOTP(ctx *gin.Context) {
 	var req dtouser.SendRegisterOTPRequest
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][SendRegisterOTP]"
@@ -342,7 +335,7 @@ func (h *HandlerUser) SendRegisterOTP(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) AdminCreateUser(ctx *gin.Context) {
+func (h *Handler) AdminCreateUser(ctx *gin.Context) {
 	var req dtouser.AdminCreateUser
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][AdminCreateUser]"
@@ -392,7 +385,7 @@ func (h *HandlerUser) AdminCreateUser(ctx *gin.Context) {
 	ctx.JSON(http.StatusCreated, res)
 }
 
-func (h *HandlerUser) Login(ctx *gin.Context) {
+func (h *Handler) Login(ctx *gin.Context) {
 	var req dtouser.Login
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserController][Login]"
@@ -471,7 +464,7 @@ func (h *HandlerUser) Login(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) GoogleLogin(ctx *gin.Context) {
+func (h *Handler) GoogleLogin(ctx *gin.Context) {
 	var req dtouser.GoogleLogin
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][GoogleLogin]"
@@ -586,7 +579,7 @@ func (h *HandlerUser) GoogleLogin(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) RefreshToken(ctx *gin.Context) {
+func (h *Handler) RefreshToken(ctx *gin.Context) {
 	var req dtouser.RefreshTokenRequest
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][RefreshToken]"
@@ -792,7 +785,7 @@ func (h *HandlerUser) RefreshToken(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) Logout(ctx *gin.Context) {
+func (h *Handler) Logout(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserController][Logout]"
 	reqCtx := ctx.Request.Context()
@@ -846,7 +839,7 @@ func (h *HandlerUser) Logout(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) GetUserById(ctx *gin.Context) {
+func (h *Handler) GetUserById(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][GetUserByID]"
 	reqCtx := ctx.Request.Context()
@@ -876,7 +869,7 @@ func (h *HandlerUser) GetUserById(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) GetUserByAuth(ctx *gin.Context) {
+func (h *Handler) GetUserByAuth(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][GetUserByAuth]"
 	reqCtx := ctx.Request.Context()
@@ -919,7 +912,7 @@ func (h *HandlerUser) GetUserByAuth(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) ImpersonateUser(ctx *gin.Context) {
+func (h *Handler) ImpersonateUser(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][ImpersonateUser]"
 	reqCtx := ctx.Request.Context()
@@ -968,7 +961,7 @@ func (h *HandlerUser) ImpersonateUser(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) StopImpersonation(ctx *gin.Context) {
+func (h *Handler) StopImpersonation(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][StopImpersonation]"
 	reqCtx := ctx.Request.Context()
@@ -1019,7 +1012,7 @@ func (h *HandlerUser) StopImpersonation(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) GetAllUsers(ctx *gin.Context) {
+func (h *Handler) GetAllUsers(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][GetAllUsers]"
 	reqCtx := ctx.Request.Context()
@@ -1040,7 +1033,7 @@ func (h *HandlerUser) GetAllUsers(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) Update(ctx *gin.Context) {
+func (h *Handler) Update(ctx *gin.Context) {
 	var req dtouser.UserUpdate
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][Update]"
@@ -1096,7 +1089,7 @@ func (h *HandlerUser) Update(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) UpdateUserById(ctx *gin.Context) {
+func (h *Handler) UpdateUserById(ctx *gin.Context) {
 	var req dtouser.UserUpdate
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][UpdateUserById]"
@@ -1151,7 +1144,7 @@ func (h *HandlerUser) UpdateUserById(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) ChangePassword(ctx *gin.Context) {
+func (h *Handler) ChangePassword(ctx *gin.Context) {
 	var req dtouser.ChangePassword
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][ChangePassword]"
@@ -1216,7 +1209,7 @@ func (h *HandlerUser) ChangePassword(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) ForgotPassword(ctx *gin.Context) {
+func (h *Handler) ForgotPassword(ctx *gin.Context) {
 	var req dtouser.ForgotPasswordRequest
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][ForgotPassword]"
@@ -1279,7 +1272,7 @@ func (h *HandlerUser) ForgotPassword(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) ResetPassword(ctx *gin.Context) {
+func (h *Handler) ResetPassword(ctx *gin.Context) {
 	var req dtouser.ResetPasswordRequest
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][ResetPassword]"
@@ -1351,7 +1344,7 @@ func (h *HandlerUser) ResetPassword(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) revokePasswordResetSessions(ctx context.Context, userID string) error {
+func (h *Handler) revokePasswordResetSessions(ctx context.Context, userID string) error {
 	if h.SessionSvc == nil || strings.TrimSpace(userID) == "" {
 		return nil
 	}
@@ -1359,7 +1352,7 @@ func (h *HandlerUser) revokePasswordResetSessions(ctx context.Context, userID st
 	return h.SessionSvc.DestroyAllUserSessions(ctx, userID)
 }
 
-func (h *HandlerUser) Delete(ctx *gin.Context) {
+func (h *Handler) Delete(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][Delete]"
 	reqCtx := ctx.Request.Context()
@@ -1409,7 +1402,7 @@ func (h *HandlerUser) Delete(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *HandlerUser) DeleteUserById(ctx *gin.Context) {
+func (h *Handler) DeleteUserById(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][DeleteUserById]"
 	reqCtx := ctx.Request.Context()

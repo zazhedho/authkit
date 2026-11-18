@@ -30,7 +30,7 @@ func newDryRunDB(t *testing.T) *gorm.DB {
 }
 
 func TestAppConfigRepositoryDryRun(t *testing.T) {
-	repo := NewAppConfigRepo(newDryRunDB(t))
+	repo := NewRepository(newDryRunDB(t))
 	ctx := context.Background()
 
 	if _, err := repo.GetByKey(ctx, "site.name"); err != nil {

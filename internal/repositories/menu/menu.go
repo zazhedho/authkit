@@ -4,26 +4,25 @@ import (
 	"context"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	interfacemenu "github.com/zazhedho/authkit/internal/interfaces/menu"
 	"github.com/zazhedho/gokit"
 	"sort"
 
 	"gorm.io/gorm"
 )
 
-type repo struct {
+type Repository struct {
 	*gokit.Repository[domainmenu.MenuItem]
 }
 
-func NewMenuRepo(db *gorm.DB) interfacemenu.RepoMenuInterface {
-	return &repo{Repository: gokit.NewRepository[domainmenu.MenuItem](db)}
+func NewRepository(db *gorm.DB) *Repository {
+	return &Repository{Repository: gokit.NewRepository[domainmenu.MenuItem](db)}
 }
 
-func (r *repo) GetByName(ctx context.Context, name string) (ret domainmenu.MenuItem, err error) {
+func (r *Repository) GetByName(ctx context.Context, name string) (ret domainmenu.MenuItem, err error) {
 	return r.GetOneByField(ctx, "name", name)
 }
 
-func (r *repo) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domainmenu.MenuItem, totalData int64, err error) {
+func (r *Repository) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domainmenu.MenuItem, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, params, gokit.QueryOptions{
 		Search:         gokit.BuildSearchFunc("name", "display_name", "path"),
 		AllowedFilters: []string{"id", "name", "display_name", "path", "parent_id", "order_index", "is_active", "created_at", "updated_at"},
@@ -38,14 +37,14 @@ func (r *repo) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domai
 	})
 }
 
-func (r *repo) GetActiveMenus(ctx context.Context) (ret []domainmenu.MenuItem, err error) {
+func (r *Repository) GetActiveMenus(ctx context.Context) (ret []domainmenu.MenuItem, err error) {
 	if err = r.DB.WithContext(ctx).Where("is_active = ?", true).Order("order_index ASC").Find(&ret).Error; err != nil {
 		return nil, err
 	}
 	return ret, nil
 }
 
-func (r *repo) GetUserMenus(ctx context.Context, userId string) (ret []domainmenu.MenuItem, err error) {
+func (r *Repository) GetUserMenus(ctx context.Context, userId string) (ret []domainmenu.MenuItem, err error) {
 	var user struct {
 		RoleId *string
 		Role   string
@@ -92,7 +91,7 @@ func (r *repo) GetUserMenus(ctx context.Context, userId string) (ret []domainmen
 	return ret, nil
 }
 
-func (r *repo) includeActiveParents(ctx context.Context, menus []domainmenu.MenuItem) ([]domainmenu.MenuItem, error) {
+func (r *Repository) includeActiveParents(ctx context.Context, menus []domainmenu.MenuItem) ([]domainmenu.MenuItem, error) {
 	menuByID := make(map[string]domainmenu.MenuItem, len(menus))
 	pendingParentIDs := collectMenuParentIDs(menus, menuByID)
 	for len(pendingParentIDs) > 0 {

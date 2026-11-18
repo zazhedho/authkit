@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/zazhedho/authkit/internal/config"
-	interfaceotp "github.com/zazhedho/authkit/internal/interfaces/otp"
 	"testing"
 	"time"
 
@@ -125,7 +124,7 @@ func otpTestConfig() config.OTPConfig {
 func TestSendRegisterOTPStoresHashedOTPAndSendsNormalizedEmail(t *testing.T) {
 	repo := newOTPRepoTestDouble()
 	sender := &otpSenderTestDouble{}
-	svc := NewOTPService(repo, sender, otpTestConfig())
+	svc := NewService(repo, sender, otpTestConfig())
 
 	if err := svc.SendRegisterOTP(context.Background(), " Jane.Doe@Example.COM ", "Starter"); err != nil {
 		t.Fatalf("expected success, got %v", err)
@@ -148,7 +147,7 @@ func TestSendRegisterOTPStoresHashedOTPAndSendsNormalizedEmail(t *testing.T) {
 func TestSendRegisterOTPReturnsThrottleOnCooldown(t *testing.T) {
 	repo := newOTPRepoTestDouble()
 	repo.cooldownTTL = 30 * time.Second
-	svc := NewOTPService(repo, &otpSenderTestDouble{}, otpTestConfig())
+	svc := NewService(repo, &otpSenderTestDouble{}, otpTestConfig())
 
 	err := svc.SendRegisterOTP(context.Background(), "jane@example.com", "Starter")
 	throttle, ok := errors.AsType[*ThrottleError](err)
@@ -162,7 +161,7 @@ func TestSendRegisterOTPReturnsThrottleOnCooldown(t *testing.T) {
 
 func TestSendRegisterOTPCleansUpWhenDeliveryFails(t *testing.T) {
 	repo := newOTPRepoTestDouble()
-	svc := NewOTPService(repo, &otpSenderTestDouble{err: errors.New("smtp down")}, otpTestConfig())
+	svc := NewService(repo, &otpSenderTestDouble{err: errors.New("smtp down")}, otpTestConfig())
 
 	err := svc.SendRegisterOTP(context.Background(), "jane@example.com", "Starter")
 	if !errors.Is(err, ErrOTPDeliveryFailed) {
@@ -176,7 +175,7 @@ func TestSendRegisterOTPCleansUpWhenDeliveryFails(t *testing.T) {
 func TestVerifyRegisterOTPSucceedsAndClearsState(t *testing.T) {
 	repo := newOTPRepoTestDouble()
 	repo.otp["jane@example.com"] = hashOTP("123456", "secret")
-	svc := NewOTPService(repo, nil, otpTestConfig())
+	svc := NewService(repo, nil, otpTestConfig())
 
 	if err := svc.VerifyRegisterOTP(context.Background(), " Jane@Example.COM ", " 123456 "); err != nil {
 		t.Fatalf("expected success, got %v", err)
@@ -190,7 +189,7 @@ func TestVerifyRegisterOTPDeletesAfterTooManyAttempts(t *testing.T) {
 	repo := newOTPRepoTestDouble()
 	repo.otp["jane@example.com"] = hashOTP("123456", "secret")
 	repo.attempts["jane@example.com"] = 2
-	svc := NewOTPService(repo, nil, otpTestConfig())
+	svc := NewService(repo, nil, otpTestConfig())
 
 	err := svc.VerifyRegisterOTP(context.Background(), "jane@example.com", "000000")
 	if !errors.Is(err, ErrOTPTooManyAttempt) {
@@ -202,14 +201,14 @@ func TestVerifyRegisterOTPDeletesAfterTooManyAttempts(t *testing.T) {
 }
 
 func TestOTPServiceNotConfigured(t *testing.T) {
-	err := NewOTPService(nil, nil, otpTestConfig()).SendRegisterOTP(context.Background(), "jane@example.com", "Starter")
+	err := NewService(nil, nil, otpTestConfig()).SendRegisterOTP(context.Background(), "jane@example.com", "Starter")
 	if !errors.Is(err, ErrOTPNotConfigured) {
 		t.Fatalf("expected not configured error, got %v", err)
 	}
 }
 
 func TestSendRegisterOTPRejectsInvalidEmail(t *testing.T) {
-	svc := NewOTPService(newOTPRepoTestDouble(), &otpSenderTestDouble{}, otpTestConfig())
+	svc := NewService(newOTPRepoTestDouble(), &otpSenderTestDouble{}, otpTestConfig())
 	err := svc.SendRegisterOTP(context.Background(), "   ", "Starter")
 	if !errors.Is(err, ErrOTPInvalid) {
 		t.Fatalf("expected invalid otp error, got %v", err)
@@ -232,7 +231,7 @@ func TestSendRegisterOTPRepositoryErrors(t *testing.T) {
 			if repo.attempts == nil {
 				repo.attempts = map[string]int{}
 			}
-			svc := NewOTPService(repo, &otpSenderTestDouble{}, otpTestConfig())
+			svc := NewService(repo, &otpSenderTestDouble{}, otpTestConfig())
 			if err := svc.SendRegisterOTP(context.Background(), "jane@example.com", "Starter"); err == nil {
 				t.Fatal("expected repository error")
 			}
@@ -244,7 +243,7 @@ func TestSendRegisterOTPReturnsThrottleOnRateLimit(t *testing.T) {
 	repo := newOTPRepoTestDouble()
 	repo.sendCount = 2
 	repo.sendRetryAfter = 20 * time.Second
-	svc := NewOTPService(repo, &otpSenderTestDouble{}, otpTestConfig())
+	svc := NewService(repo, &otpSenderTestDouble{}, otpTestConfig())
 
 	err := svc.SendRegisterOTP(context.Background(), "jane@example.com", "Starter")
 	throttle, ok := errors.AsType[*ThrottleError](err)
@@ -258,19 +257,19 @@ func TestSendRegisterOTPReturnsThrottleOnRateLimit(t *testing.T) {
 
 func TestVerifyRegisterOTPErrorBranches(t *testing.T) {
 	t.Run("not configured", func(t *testing.T) {
-		err := NewOTPService(nil, nil, otpTestConfig()).VerifyRegisterOTP(context.Background(), "jane@example.com", "123456")
+		err := NewService(nil, nil, otpTestConfig()).VerifyRegisterOTP(context.Background(), "jane@example.com", "123456")
 		if !errors.Is(err, ErrOTPNotConfigured) {
 			t.Fatalf("expected not configured, got %v", err)
 		}
 	})
 	t.Run("invalid input", func(t *testing.T) {
-		svc := NewOTPService(newOTPRepoTestDouble(), nil, otpTestConfig())
+		svc := NewService(newOTPRepoTestDouble(), nil, otpTestConfig())
 		if err := svc.VerifyRegisterOTP(context.Background(), "", ""); !errors.Is(err, ErrOTPInvalid) {
 			t.Fatalf("expected invalid otp, got %v", err)
 		}
 	})
 	t.Run("missing otp", func(t *testing.T) {
-		svc := NewOTPService(newOTPRepoTestDouble(), nil, otpTestConfig())
+		svc := NewService(newOTPRepoTestDouble(), nil, otpTestConfig())
 		if err := svc.VerifyRegisterOTP(context.Background(), "jane@example.com", "123456"); !errors.Is(err, ErrOTPInvalid) {
 			t.Fatalf("expected invalid otp, got %v", err)
 		}
@@ -278,7 +277,7 @@ func TestVerifyRegisterOTPErrorBranches(t *testing.T) {
 	t.Run("get otp error", func(t *testing.T) {
 		repo := newOTPRepoTestDouble()
 		repo.getOTPErr = errors.New("redis down")
-		svc := NewOTPService(repo, nil, otpTestConfig())
+		svc := NewService(repo, nil, otpTestConfig())
 		if err := svc.VerifyRegisterOTP(context.Background(), "jane@example.com", "123456"); err == nil {
 			t.Fatal("expected get otp error")
 		}
@@ -287,7 +286,7 @@ func TestVerifyRegisterOTPErrorBranches(t *testing.T) {
 		repo := newOTPRepoTestDouble()
 		repo.otp["jane@example.com"] = hashOTP("123456", "secret")
 		repo.incrementAttemptErr = errors.New("redis down")
-		svc := NewOTPService(repo, nil, otpTestConfig())
+		svc := NewService(repo, nil, otpTestConfig())
 		if err := svc.VerifyRegisterOTP(context.Background(), "jane@example.com", "123456"); err == nil {
 			t.Fatal("expected increment attempts error")
 		}
@@ -295,7 +294,7 @@ func TestVerifyRegisterOTPErrorBranches(t *testing.T) {
 	t.Run("wrong code before max attempts", func(t *testing.T) {
 		repo := newOTPRepoTestDouble()
 		repo.otp["jane@example.com"] = hashOTP("123456", "secret")
-		svc := NewOTPService(repo, nil, otpTestConfig())
+		svc := NewService(repo, nil, otpTestConfig())
 		if err := svc.VerifyRegisterOTP(context.Background(), "jane@example.com", "000000"); !errors.Is(err, ErrOTPInvalid) {
 			t.Fatalf("expected invalid otp, got %v", err)
 		}
@@ -316,7 +315,7 @@ func TestThrottleErrorString(t *testing.T) {
 
 // untouchableOTPRepo panics on any repository call, so a test fails loudly if
 // the service reaches the repo.
-type untouchableOTPRepo struct{ interfaceotp.RepoOTPInterface }
+type untouchableOTPRepo struct{ Repository }
 
 func callWithoutRepoAccess(t *testing.T, call func() error) error {
 	t.Helper()
@@ -332,7 +331,7 @@ func TestOTPServiceRefusesEmptySecretBeforeTouchingRepo(t *testing.T) {
 	for _, secret := range []string{"", "   "} {
 		cfg := otpTestConfig()
 		cfg.Secret = secret
-		svc := NewOTPService(untouchableOTPRepo{}, &otpSenderTestDouble{}, cfg)
+		svc := NewService(untouchableOTPRepo{}, &otpSenderTestDouble{}, cfg)
 
 		err := callWithoutRepoAccess(t, func() error {
 			return svc.SendRegisterOTP(context.Background(), "jane@example.com", "Starter")

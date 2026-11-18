@@ -6,8 +6,6 @@ import (
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	dtomenu "github.com/zazhedho/authkit/internal/dto/menu"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	interfaceaudit "github.com/zazhedho/authkit/internal/interfaces/audit"
-	interfacemenu "github.com/zazhedho/authkit/internal/interfaces/menu"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"net/http"
@@ -15,19 +13,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type MenuHandler struct {
-	Service interfacemenu.ServiceMenuInterface
+type Handler struct {
+	Service Service
 	httpshared.AuditWriter
 }
 
-func NewMenuHandler(s interfacemenu.ServiceMenuInterface, auditService interfaceaudit.ServiceAuditInterface) *MenuHandler {
-	return &MenuHandler{
+func New(s Service, auditService httpshared.AuditService) *Handler {
+	return &Handler{
 		Service:     s,
 		AuditWriter: httpshared.NewAuditWriter(auditService, "MenuHandler"),
 	}
 }
 
-func (h *MenuHandler) GetByID(ctx *gin.Context) {
+func (h *Handler) GetByID(ctx *gin.Context) {
 	id := ctx.Param("id")
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[MenuHandler][GetByID]"
@@ -47,7 +45,7 @@ func (h *MenuHandler) GetByID(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *MenuHandler) GetAll(ctx *gin.Context) {
+func (h *Handler) GetAll(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[MenuHandler][GetAll]"
 	reqCtx := ctx.Request.Context()
@@ -74,7 +72,7 @@ func (h *MenuHandler) GetAll(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *MenuHandler) GetActiveMenus(ctx *gin.Context) {
+func (h *Handler) GetActiveMenus(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[MenuHandler][GetActiveMenus]"
 	reqCtx := ctx.Request.Context()
@@ -92,7 +90,7 @@ func (h *MenuHandler) GetActiveMenus(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *MenuHandler) GetUserMenus(ctx *gin.Context) {
+func (h *Handler) GetUserMenus(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[MenuHandler][GetUserMenus]"
 	reqCtx := ctx.Request.Context()
@@ -118,7 +116,7 @@ func (h *MenuHandler) GetUserMenus(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *MenuHandler) Update(ctx *gin.Context) {
+func (h *Handler) Update(ctx *gin.Context) {
 	id := ctx.Param("id")
 	var req dtomenu.MenuUpdate
 	logId := gokit.GenerateLogId(ctx)

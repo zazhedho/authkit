@@ -126,7 +126,7 @@ func performRoleRawRequest(method, routePath, requestPath, body string, handler 
 }
 
 func TestRoleCRUDHandlers(t *testing.T) {
-	handler := NewRoleHandler(&roleServiceHandlerTestDouble{
+	handler := New(&roleServiceHandlerTestDouble{
 		role:    domainrole.Role{Id: "role-1", Name: "staff"},
 		details: dtorole.RoleWithDetails{Id: "role-1", Name: "staff"},
 		roles:   []domainrole.Role{{Id: "role-1", Name: "staff"}},
@@ -151,14 +151,14 @@ func TestRoleCRUDHandlers(t *testing.T) {
 }
 
 func TestRoleMutationErrorsAndAssignments(t *testing.T) {
-	handler := NewRoleHandler(&roleServiceHandlerTestDouble{err: errors.New("role with this name already exists")}, &auditServiceRoleTestDouble{})
+	handler := New(&roleServiceHandlerTestDouble{err: errors.New("role with this name already exists")}, &auditServiceRoleTestDouble{})
 	rec := performRoleRequest(http.MethodPost, "/roles", "/roles", dtorole.RoleCreate{Name: "staff", DisplayName: "Staff"}, handler.Create)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected duplicate create 400, got %d", rec.Code)
 	}
 
 	service := &roleServiceHandlerTestDouble{}
-	handler = NewRoleHandler(service, &auditServiceRoleTestDouble{})
+	handler = New(service, &auditServiceRoleTestDouble{})
 	rec = performRoleRequest(http.MethodPost, "/roles/:id/permissions", "/roles/role-1/permissions", dtorole.AssignPermissions{PermissionIds: []string{"perm-1"}}, handler.AssignPermissions)
 	if rec.Code != http.StatusOK || len(service.assigned) != 1 || service.assigned[0] != "perm-1" {
 		t.Fatalf("expected permission assignment, code=%d assigned=%v", rec.Code, service.assigned)
@@ -171,7 +171,7 @@ func TestRoleMutationErrorsAndAssignments(t *testing.T) {
 }
 
 func TestRoleHandlersRejectInvalidJSON(t *testing.T) {
-	handler := NewRoleHandler(&roleServiceHandlerTestDouble{}, &auditServiceRoleTestDouble{})
+	handler := New(&roleServiceHandlerTestDouble{}, &auditServiceRoleTestDouble{})
 
 	tests := []struct {
 		name      string
@@ -197,43 +197,43 @@ func TestRoleHandlersRejectInvalidJSON(t *testing.T) {
 }
 
 func TestRoleHandlersServiceErrorBranches(t *testing.T) {
-	handler := NewRoleHandler(&roleServiceHandlerTestDouble{err: gorm.ErrRecordNotFound}, &auditServiceRoleTestDouble{})
+	handler := New(&roleServiceHandlerTestDouble{err: gorm.ErrRecordNotFound}, &auditServiceRoleTestDouble{})
 	rec := performRoleRequest(http.MethodGet, "/roles/:id", "/roles/role-1", nil, handler.GetByID)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected get by id 404, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = NewRoleHandler(&roleServiceHandlerTestDouble{}, &auditServiceRoleTestDouble{})
+	handler = New(&roleServiceHandlerTestDouble{}, &auditServiceRoleTestDouble{})
 	rec = performRoleRequest(http.MethodGet, "/roles", "/roles?page=bad", nil, handler.GetAll)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected get all bad query 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = NewRoleHandler(&roleServiceHandlerTestDouble{getAllErr: errors.New("database down")}, &auditServiceRoleTestDouble{})
+	handler = New(&roleServiceHandlerTestDouble{getAllErr: errors.New("database down")}, &auditServiceRoleTestDouble{})
 	rec = performRoleRequest(http.MethodGet, "/roles", "/roles", nil, handler.GetAll)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected get all 500, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = NewRoleHandler(&roleServiceHandlerTestDouble{err: errors.New("cannot update system role")}, &auditServiceRoleTestDouble{})
+	handler = New(&roleServiceHandlerTestDouble{err: errors.New("cannot update system role")}, &auditServiceRoleTestDouble{})
 	rec = performRoleRequest(http.MethodPut, "/roles/:id", "/roles/role-1", dtorole.RoleUpdate{DisplayName: "System"}, handler.Update)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected update forbidden, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = NewRoleHandler(&roleServiceHandlerTestDouble{deleteErr: gorm.ErrRecordNotFound}, &auditServiceRoleTestDouble{})
+	handler = New(&roleServiceHandlerTestDouble{deleteErr: gorm.ErrRecordNotFound}, &auditServiceRoleTestDouble{})
 	rec = performRoleRequest(http.MethodDelete, "/roles/:id", "/roles/role-1", nil, handler.Delete)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected delete 404, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = NewRoleHandler(&roleServiceHandlerTestDouble{assignPermissionsErr: errors.New("invalid permission ID: perm-x")}, &auditServiceRoleTestDouble{})
+	handler = New(&roleServiceHandlerTestDouble{assignPermissionsErr: errors.New("invalid permission ID: perm-x")}, &auditServiceRoleTestDouble{})
 	rec = performRoleRequest(http.MethodPost, "/roles/:id/permissions", "/roles/role-1/permissions", dtorole.AssignPermissions{PermissionIds: []string{"perm-x"}}, handler.AssignPermissions)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected assign permissions 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = NewRoleHandler(&roleServiceHandlerTestDouble{assignMenusErr: errors.New("database down")}, &auditServiceRoleTestDouble{})
+	handler = New(&roleServiceHandlerTestDouble{assignMenusErr: errors.New("database down")}, &auditServiceRoleTestDouble{})
 	rec = performRoleRequest(http.MethodPost, "/roles/:id/menus", "/roles/role-1/menus", dtorole.AssignMenus{MenuIds: []string{"menu-1"}}, handler.AssignMenus)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected assign menus 500, got %d: %s", rec.Code, rec.Body.String())

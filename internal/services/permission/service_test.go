@@ -57,7 +57,7 @@ func (m *permissionRepoTestDouble) GetUserPermissions(ctx context.Context, userI
 }
 
 func TestCreateRejectsDuplicatePermissionName(t *testing.T) {
-	svc := NewPermissionService(&permissionRepoTestDouble{
+	svc := NewService(&permissionRepoTestDouble{
 		permissionByKey: map[string]domainpermission.Permission{
 			"list_users": {Id: "perm-1", Name: "list_users"},
 		},
@@ -71,7 +71,7 @@ func TestCreateRejectsDuplicatePermissionName(t *testing.T) {
 
 func TestCreateStoresPermission(t *testing.T) {
 	repo := &permissionRepoTestDouble{}
-	svc := NewPermissionService(repo)
+	svc := NewService(repo)
 
 	got, err := svc.Create(context.Background(), dtopermission.PermissionCreate{
 		Name:        "list_users",
@@ -101,7 +101,7 @@ func TestUpdatePreservesEmptyFieldsAndSetsUpdatedAt(t *testing.T) {
 		Resource:    "users",
 		Action:      "list",
 	}}
-	svc := NewPermissionService(repo)
+	svc := NewService(repo)
 
 	got, err := svc.Update(context.Background(), "perm-1", dtopermission.PermissionUpdate{
 		Description: "new",
@@ -121,7 +121,7 @@ func TestUpdatePreservesEmptyFieldsAndSetsUpdatedAt(t *testing.T) {
 
 func TestDeleteDelegatesToRepository(t *testing.T) {
 	repo := &permissionRepoTestDouble{}
-	svc := NewPermissionService(repo)
+	svc := NewService(repo)
 
 	if err := svc.Delete(context.Background(), "perm-1"); err != nil {
 		t.Fatalf("expected success, got %v", err)
@@ -138,7 +138,7 @@ func TestPermissionServicePassThroughMethods(t *testing.T) {
 		Resource: "users",
 		Action:   "list",
 	}}
-	svc := NewPermissionService(repo)
+	svc := NewService(repo)
 
 	if got, err := svc.GetByID(context.Background(), "perm-1"); err != nil || got.Id != "perm-1" {
 		t.Fatalf("get by id: permission=%+v err=%v", got, err)

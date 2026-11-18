@@ -4,38 +4,36 @@ import (
 	"context"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	dtomenu "github.com/zazhedho/authkit/internal/dto/menu"
-	interfacemenu "github.com/zazhedho/authkit/internal/interfaces/menu"
-	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"github.com/zazhedho/gokit"
 	"time"
 )
 
-type MenuService struct {
-	MenuRepo       interfacemenu.RepoMenuInterface
-	PermissionRepo interfacepermission.RepoPermissionInterface
+type Service struct {
+	MenuRepo       Repository
+	PermissionRepo PermissionRepository
 }
 
-func NewMenuService(menuRepo interfacemenu.RepoMenuInterface, permissionRepo interfacepermission.RepoPermissionInterface) *MenuService {
-	return &MenuService{
+func NewService(menuRepo Repository, permissionRepo PermissionRepository) *Service {
+	return &Service{
 		MenuRepo:       menuRepo,
 		PermissionRepo: permissionRepo,
 	}
 }
 
-func (s *MenuService) GetByID(ctx context.Context, id string) (domainmenu.MenuItem, error) {
+func (s *Service) GetByID(ctx context.Context, id string) (domainmenu.MenuItem, error) {
 	return s.MenuRepo.GetByID(ctx, id)
 }
 
-func (s *MenuService) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainmenu.MenuItem, int64, error) {
+func (s *Service) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainmenu.MenuItem, int64, error) {
 	return s.MenuRepo.GetAll(ctx, params)
 }
 
-func (s *MenuService) GetActiveMenus(ctx context.Context) ([]domainmenu.MenuItem, error) {
+func (s *Service) GetActiveMenus(ctx context.Context) ([]domainmenu.MenuItem, error) {
 	return s.MenuRepo.GetActiveMenus(ctx)
 }
 
-func (s *MenuService) GetUserMenus(ctx context.Context, userId string) ([]domainmenu.MenuItem, error) {
+func (s *Service) GetUserMenus(ctx context.Context, userId string) ([]domainmenu.MenuItem, error) {
 	activeMenus, err := s.MenuRepo.GetActiveMenus(ctx)
 	if err != nil {
 		return nil, err
@@ -57,7 +55,7 @@ func (s *MenuService) GetUserMenus(ctx context.Context, userId string) ([]domain
 	return serviceshared.ResolveAccessibleMenus(activeMenus, resources), nil
 }
 
-func (s *MenuService) Update(ctx context.Context, id string, req dtomenu.MenuUpdate) (domainmenu.MenuItem, error) {
+func (s *Service) Update(ctx context.Context, id string, req dtomenu.MenuUpdate) (domainmenu.MenuItem, error) {
 	menu, err := s.MenuRepo.GetByID(ctx, id)
 	if err != nil {
 		return domainmenu.MenuItem{}, err
@@ -89,5 +87,3 @@ func (s *MenuService) Update(ctx context.Context, id string, req dtomenu.MenuUpd
 
 	return menu, nil
 }
-
-var _ interfacemenu.ServiceMenuInterface = (*MenuService)(nil)

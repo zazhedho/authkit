@@ -18,7 +18,7 @@ func expectPanic(t *testing.T, fn func()) {
 }
 
 func TestNewSessionRepositoryAndNilRedisMethodPanics(t *testing.T) {
-	repo := NewSessionRepository(nil)
+	repo := NewRepository(nil)
 	if repo == nil {
 		t.Fatal("expected repo")
 	}
