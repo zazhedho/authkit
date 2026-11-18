@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/zazhedho/authkit/internal/authscope"
 	"github.com/zazhedho/authkit/internal/authutil"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
@@ -504,5 +505,70 @@ func TestAuthMiddlewareRejectsLegacyTokenWithoutIssuer(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func performLoadPermissions(t *testing.T, repo *permissionRepoTestDouble, token string, withAuth bool) (*httptest.ResponseRecorder, authscope.Scope) {
+	t.Helper()
+	mdw := NewMiddleware(&authRepoTestDouble{}, repo, nil, testTokens(t), 2*time.Minute)
+	var got authscope.Scope
+	handlers := []gin.HandlerFunc{}
+	if withAuth {
+		handlers = append(handlers, mdw.AuthMiddleware())
+	}
+	handlers = append(handlers, mdw.LoadPermissionsMiddleware(), func(ctx *gin.Context) {
+		got = authscope.FromContext(ctx.Request.Context())
+	})
+	rec := performMiddlewareRequest(token, handlers...)
+	return rec, got
+}
+
+func TestLoadPermissionsFillsScope(t *testing.T) {
+	repo := &permissionRepoTestDouble{permissions: []domainpermission.Permission{{Resource: "media", Action: "list_any"}}}
+	_, scope := performLoadPermissions(t, repo, testToken(t, "access", authutil.RoleViewer), true)
+
+	if !scope.Has("media", "list_any") {
+		t.Fatal("expected media:list_any to be granted")
+	}
+	if scope.Has("x", "y") {
+		t.Fatal("x:y must not be granted")
+	}
+}
+
+func TestLoadPermissionsDoesNotReject(t *testing.T) {
+	rec, _ := performLoadPermissions(t, &permissionRepoTestDouble{}, testToken(t, "access", authutil.RoleViewer), true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLoadPermissionsSuperadmin(t *testing.T) {
+	rec, scope := performLoadPermissions(t, &permissionRepoTestDouble{}, testToken(t, "access", authutil.RoleSuperAdmin), true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !scope.Has("any", "thing") {
+		t.Fatal("superadmin must pass every Has check")
+	}
+}
+
+func TestLoadPermissionsUserNotFound(t *testing.T) {
+	rec, _ := performLoadPermissions(t, &permissionRepoTestDouble{err: gorm.ErrRecordNotFound}, testToken(t, "access", authutil.RoleViewer), true)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLoadPermissionsRepoError(t *testing.T) {
+	rec, _ := performLoadPermissions(t, &permissionRepoTestDouble{err: errors.New("db down")}, testToken(t, "access", authutil.RoleViewer), true)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLoadPermissionsWithoutAuth(t *testing.T) {
+	rec, _ := performLoadPermissions(t, &permissionRepoTestDouble{}, "", false)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

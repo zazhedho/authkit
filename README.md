@@ -88,6 +88,10 @@ api.GET("/trips", kit.Auth(), listTrips)
 // Authenticated and holding the (resource, action) permission.
 api.POST("/trips", kit.Auth(), kit.Can("trips", "create"), createTrip)
 
+// Authenticated, with the permissions loaded but none required: the handler
+// branches on scope.Has (for example a "list_any" permission).
+api.GET("/files", kit.Auth(), kit.LoadPermissions(), listFiles)
+
 // Authenticated and one of the given roles.
 api.GET("/reports", kit.Auth(), kit.Role("admin", "staff"), reports)
 ```
@@ -99,14 +103,18 @@ and `github.com/zazhedho/authkit` to your imports):
 func listTrips(c *gin.Context) {
 	scope := authkit.ScopeFrom(c.Request.Context()) // UserID, Username, Role, impersonation fields
 	// After kit.Auth() alone the permission set is EMPTY, so scope.Has is false
-	// for every non-superadmin. kit.Can(...) loads the permissions; behind it,
+	// for every non-superadmin. kit.Can(...) or kit.LoadPermissions() loads them; behind it,
 	// scope.Has("trips", "create") reflects the user's real grants.
 	c.JSON(http.StatusOK, gin.H{"user": scope.UserID, "role": scope.Role})
 }
 ```
 
-`Can` and `Role` must come after `Auth`. Superadmin bypasses both. `ScopeFrom`
-returns identity and role after `Auth`; permissions are only populated by `Can`. Permissions are
+`Can`, `LoadPermissions` and `Role` must come after `Auth`. Superadmin bypasses
+`Can` and `Role`, and passes every `Has` check. `LoadPermissions` fills the
+scope's permissions like `Can` does (403 for a deleted user, 500 on a lookup
+error) but never rejects a user for lacking one. `ScopeFrom` returns identity
+and role after `Auth`; permissions are only populated by `Can` or
+`LoadPermissions`. Permissions are
 plain rows (`resource`, `action`); add yours with `cmd/module-seed` (see
 Extending). `kit.Audit()` and `kit.AppConfig()` expose the audit and app-config
 services (`authkit.AuditService`, `authkit.AppConfigService`).
@@ -403,8 +411,8 @@ from your pool and leaves your `*sql.DB` open.
   `-icon`, `-order-index` and `-parent-name` adjust it). Put the output in your own
   migration.
 - **Without `Mount`.** The handlers, services and repositories are internal
-  and not importable. Use `Mount` for the route set and `Auth`, `Can` and
-  `Role` for your own routes; mount it on a group (for example `/api`) to place
+  and not importable. Use `Mount` for the route set and `Auth`, `Can`,
+  `LoadPermissions` and `Role` for your own routes; mount it on a group (for example `/api`) to place
   it in your path layout.
 
 ## Development

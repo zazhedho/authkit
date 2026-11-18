@@ -169,70 +169,17 @@ func (m *Middleware) PermissionMiddleware(resource, action string) gin.HandlerFu
 		logId = gokit.GenerateLogId(ctx)
 		logPrefix = "[PermissionMiddleware]"
 
-		authData, exists := ctx.Get(authutil.CtxKeyAuthData)
-		if !exists {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; AuthData not found", logPrefix))
-			res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
-			ctx.AbortWithStatusJSON(http.StatusForbidden, res)
-			return
-		}
-		dataJWT, ok := authData.(map[string]any)
+		scope, ok := m.loadScopePermissions(ctx, logId, logPrefix)
 		if !ok {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Invalid AuthData type", logPrefix))
-			res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
-			ctx.AbortWithStatusJSON(http.StatusForbidden, res)
-			return
-		}
-
-		userRole := strings.TrimSpace(gokit.InterfaceString(dataJWT["role"]))
-		if userRole == "" {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; there is no role user", logPrefix))
-			res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
-			ctx.AbortWithStatusJSON(http.StatusForbidden, res)
-			return
-		}
-
-		// Superadmin bypasses all permission checks
-		if userRole == authutil.RoleSuperAdmin {
-			ctx.Next()
-			return
-		}
-
-		userId := strings.TrimSpace(gokit.InterfaceString(dataJWT["user_id"]))
-		if userId == "" {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Invalid token claims: user_id is empty", logPrefix))
-			res := gokit.Unauthorized(logId, "Invalid or expired token. Please login again.")
-			ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)
 			return
 		}
 
 		targetResource := strings.TrimSpace(resource)
 		targetAction := strings.TrimSpace(action)
 
-		permissionKeys, err := m.loadPermissionKeys(ctx.Request.Context(), userId)
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				logus.WriteLogWithContext(ctx, logus.LogLevelWarn, fmt.Sprintf("%s; User '%s' not found when loading permissions", logPrefix, userId))
-				res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
-				ctx.AbortWithStatusJSON(http.StatusForbidden, res)
-				return
-			}
-
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Failed to get user permissions: %s", logPrefix, err.Error()))
-			res := gokit.InternalServerError(logId)
-			ctx.AbortWithStatusJSON(http.StatusInternalServerError, res)
-			return
-		}
-
-		dataJWT["permissions"] = permissionKeys
-		ctx.Set(authutil.CtxKeyAuthData, dataJWT)
-		ctx.Set("permissions", permissionKeys)
-
-		scope := authscope.NewFromClaims(dataJWT, permissionKeys)
-		ctx.Request = ctx.Request.WithContext(authscope.WithContext(ctx.Request.Context(), scope))
-
+		// Superadmin bypasses all permission checks (Has is true for it).
 		if !scope.Has(targetResource, targetAction) {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; User '%s' lacks permission '%s:%s'", logPrefix, userId, targetResource, targetAction))
+			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; User '%s' lacks permission '%s:%s'", logPrefix, scope.UserID, targetResource, targetAction))
 			res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
 			ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 			return
@@ -240,6 +187,84 @@ func (m *Middleware) PermissionMiddleware(resource, action string) gin.HandlerFu
 
 		ctx.Next()
 	}
+}
+
+// LoadPermissionsMiddleware loads the user's permissions into the request
+// scope like PermissionMiddleware, but never rejects for lacking one.
+func (m *Middleware) LoadPermissionsMiddleware() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		logId := gokit.GenerateLogId(ctx)
+
+		if _, ok := m.loadScopePermissions(ctx, logId, "[LoadPermissionsMiddleware]"); !ok {
+			return
+		}
+
+		ctx.Next()
+	}
+}
+
+// loadScopePermissions is the loading half shared by PermissionMiddleware and
+// LoadPermissionsMiddleware. It aborts the request and returns false when the
+// permissions cannot be established; superadmin returns without a lookup.
+func (m *Middleware) loadScopePermissions(ctx *gin.Context, logId uuid.UUID, logPrefix string) (authscope.Scope, bool) {
+	authData, exists := ctx.Get(authutil.CtxKeyAuthData)
+	if !exists {
+		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; AuthData not found", logPrefix))
+		res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
+		ctx.AbortWithStatusJSON(http.StatusForbidden, res)
+		return authscope.Scope{}, false
+	}
+	dataJWT, ok := authData.(map[string]any)
+	if !ok {
+		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Invalid AuthData type", logPrefix))
+		res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
+		ctx.AbortWithStatusJSON(http.StatusForbidden, res)
+		return authscope.Scope{}, false
+	}
+
+	userRole := strings.TrimSpace(gokit.InterfaceString(dataJWT["role"]))
+	if userRole == "" {
+		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; there is no role user", logPrefix))
+		res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
+		ctx.AbortWithStatusJSON(http.StatusForbidden, res)
+		return authscope.Scope{}, false
+	}
+
+	if userRole == authutil.RoleSuperAdmin {
+		return authscope.NewFromClaims(dataJWT, nil), true
+	}
+
+	userId := strings.TrimSpace(gokit.InterfaceString(dataJWT["user_id"]))
+	if userId == "" {
+		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Invalid token claims: user_id is empty", logPrefix))
+		res := gokit.Unauthorized(logId, "Invalid or expired token. Please login again.")
+		ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)
+		return authscope.Scope{}, false
+	}
+
+	permissionKeys, err := m.loadPermissionKeys(ctx.Request.Context(), userId)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logus.WriteLogWithContext(ctx, logus.LogLevelWarn, fmt.Sprintf("%s; User '%s' not found when loading permissions", logPrefix, userId))
+			res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
+			ctx.AbortWithStatusJSON(http.StatusForbidden, res)
+			return authscope.Scope{}, false
+		}
+
+		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Failed to get user permissions: %s", logPrefix, err.Error()))
+		res := gokit.InternalServerError(logId)
+		ctx.AbortWithStatusJSON(http.StatusInternalServerError, res)
+		return authscope.Scope{}, false
+	}
+
+	dataJWT["permissions"] = permissionKeys
+	ctx.Set(authutil.CtxKeyAuthData, dataJWT)
+	ctx.Set("permissions", permissionKeys)
+
+	scope := authscope.NewFromClaims(dataJWT, permissionKeys)
+	ctx.Request = ctx.Request.WithContext(authscope.WithContext(ctx.Request.Context(), scope))
+
+	return scope, true
 }
 
 func (m *Middleware) loadPermissionKeys(ctx context.Context, userID string) ([]string, error) {

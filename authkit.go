@@ -190,6 +190,13 @@ func (k *Kit) Can(resource, action string) gin.HandlerFunc {
 	return k.middleware.PermissionMiddleware(resource, action)
 }
 
+// LoadPermissions returns the middleware that loads the user's permissions into
+// the scope without requiring any, so a handler can branch on Scope.Has (for
+// "_any" style checks). Use it after Auth.
+func (k *Kit) LoadPermissions() gin.HandlerFunc {
+	return k.middleware.LoadPermissionsMiddleware()
+}
+
 // Role returns the middleware that requires the authenticated user to have one
 // of the allowed roles. Superadmin bypasses it. Use it after Auth.
 func (k *Kit) Role(allowed ...string) gin.HandlerFunc {
@@ -211,5 +218,5 @@ func (k *Kit) IssueAccessToken(userID, name, role string) (string, error) {
 }
 
 // // ScopeFrom returns the scope on ctx. After Auth alone the permission set is
-// // empty (Has is false for non-superadmins); Can loads it.
+// // empty (Has is false for non-superadmins); Can or LoadPermissions loads it.
 func ScopeFrom(ctx context.Context) Scope { return authscope.FromContext(ctx) }

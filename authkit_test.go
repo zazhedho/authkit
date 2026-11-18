@@ -85,7 +85,7 @@ func TestNewWithoutRedisOrMailer(t *testing.T) {
 	if kit.Audit() == nil || kit.AppConfig() == nil {
 		t.Fatal("accessors must be non-nil")
 	}
-	if kit.Auth() == nil || kit.Can("a", "b") == nil || kit.Role("x") == nil {
+	if kit.Auth() == nil || kit.Can("a", "b") == nil || kit.Role("x") == nil || kit.LoadPermissions() == nil {
 		t.Fatal("middleware constructors must be non-nil")
 	}
 }
