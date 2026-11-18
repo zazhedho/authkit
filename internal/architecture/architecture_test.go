@@ -1182,13 +1182,24 @@ func importsRoot(importPath string) bool {
 // TestInternalDoesNotImportRoot: the public package wires internal/, so an
 // internal package importing it would be an import cycle waiting to happen.
 func TestInternalDoesNotImportRoot(t *testing.T) {
+	forEachImportUnder(t, "internal/", func(p, ip string) {
+		if importsRoot(ip) {
+			t.Errorf("%s imports the root package %s", p, ip)
+		}
+	})
+}
+
+// forEachImportUnder calls visit with every import of the Go files whose path
+// starts with prefix.
+func forEachImportUnder(t *testing.T, prefix string, visit func(path, importPath string)) {
+	t.Helper()
 	goFiles(t, func(p string, file *ast.File) {
-		if !strings.HasPrefix(p, "internal/") {
+		if !strings.HasPrefix(p, prefix) {
 			return
 		}
 		for _, imp := range file.Imports {
-			if ip, err := strconv.Unquote(imp.Path.Value); err == nil && importsRoot(ip) {
-				t.Errorf("%s imports the root package %s", p, ip)
+			if ip, err := strconv.Unquote(imp.Path.Value); err == nil {
+				visit(p, ip)
 			}
 		}
 	})
@@ -1225,14 +1236,9 @@ func cmdImportViolation(importPath string) bool {
 // TestCmdImportsOnlyModuleseed: the seed command is a thin entry point over
 // internal/moduleseed; the rest of the module stays behind the public API.
 func TestCmdImportsOnlyModuleseed(t *testing.T) {
-	goFiles(t, func(p string, file *ast.File) {
-		if !strings.HasPrefix(p, "cmd/") {
-			return
-		}
-		for _, imp := range file.Imports {
-			if ip, err := strconv.Unquote(imp.Path.Value); err == nil && cmdImportViolation(ip) {
-				t.Errorf("%s imports %s; cmd/ may import only internal/moduleseed of this module", p, ip)
-			}
+	forEachImportUnder(t, "cmd/", func(p, ip string) {
+		if cmdImportViolation(ip) {
+			t.Errorf("%s imports %s; cmd/ may import only internal/moduleseed of this module", p, ip)
 		}
 	})
 }

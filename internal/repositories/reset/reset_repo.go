@@ -51,16 +51,7 @@ func (r *Repository) ClearCooldown(ctx context.Context, email string) error {
 }
 
 func (r *Repository) IncrementSendCount(ctx context.Context, email string, ttl time.Duration) (int, time.Duration, error) {
-	key := fmt.Sprintf("%s%s", resetRateKeyPrefix, email)
-	count, err := r.Redis.Incr(ctx, key).Result()
-	if err != nil {
-		return 0, 0, err
-	}
-	if count == 1 && ttl > 0 {
-		_ = r.Redis.Expire(ctx, key, ttl).Err()
-	}
-	retryAfter, _ := r.Redis.TTL(ctx, key).Result()
-	return int(count), retryAfter, nil
+	return repositoryshared.IncrementWithTTL(ctx, r.Redis, fmt.Sprintf("%s%s", resetRateKeyPrefix, email), ttl)
 }
 
 func (r *Repository) ClearSendCount(ctx context.Context, email string) error {

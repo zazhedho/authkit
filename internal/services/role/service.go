@@ -102,22 +102,9 @@ func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.Ro
 
 func (s *Service) GetAll(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainrole.Role, int64, error) {
 	roles, total, err := s.RoleRepo.GetAll(ctx, req)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	if actor.Role != domainuser.RoleSuperAdmin {
-		filteredRoles := make([]domainrole.Role, 0)
-		for _, role := range roles {
-			if role.Name != domainuser.RoleSuperAdmin {
-				filteredRoles = append(filteredRoles, role)
-			}
-		}
-		superadminCount := int64(len(roles) - len(filteredRoles))
-		return filteredRoles, total - superadminCount, nil
-	}
-
-	return roles, total, nil
+	return serviceshared.HideSuperAdmin(actor, roles, total, err, func(role domainrole.Role) bool {
+		return role.Name == domainuser.RoleSuperAdmin
+	})
 }
 
 func (s *Service) Update(ctx context.Context, id string, req dtorole.RoleUpdate) (domainrole.Role, error) {

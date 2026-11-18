@@ -106,28 +106,24 @@ func (r *Repository) GetByUserID(ctx context.Context, userID string) ([]*domains
 }
 
 func (r *Repository) GetByToken(ctx context.Context, token string) (*domainsession.Session, error) {
-	tokenKey := fmt.Sprintf("%s%s", accessTokenSessionKey, token)
-
-	sessionID, err := r.Redis.Get(ctx, tokenKey).Result()
-	if errors.Is(err, redis.Nil) {
-		return nil, repositoryshared.RedisMsg(err, domainsession.ErrNotFound, "session not found for token")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session by token: %w", err)
-	}
-
-	return r.GetBySessionID(ctx, sessionID)
+	return r.getByTokenKey(ctx, accessTokenSessionKey, token, "token")
 }
 
 func (r *Repository) GetByRefreshToken(ctx context.Context, refreshToken string) (*domainsession.Session, error) {
-	tokenKey := fmt.Sprintf("%s%s", refreshTokenSessionKey, refreshToken)
+	return r.getByTokenKey(ctx, refreshTokenSessionKey, refreshToken, "refresh token")
+}
+
+// getByTokenKey resolves a session through one of its token indexes. kind
+// names the token in the error messages.
+func (r *Repository) getByTokenKey(ctx context.Context, keyPrefix, token, kind string) (*domainsession.Session, error) {
+	tokenKey := fmt.Sprintf("%s%s", keyPrefix, token)
 
 	sessionID, err := r.Redis.Get(ctx, tokenKey).Result()
 	if errors.Is(err, redis.Nil) {
-		return nil, repositoryshared.RedisMsg(err, domainsession.ErrNotFound, "session not found for refresh token")
+		return nil, repositoryshared.RedisMsg(err, domainsession.ErrNotFound, "session not found for "+kind)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to get session by refresh token: %w", err)
+		return nil, fmt.Errorf("failed to get session by %s: %w", kind, err)
 	}
 
 	return r.GetBySessionID(ctx, sessionID)

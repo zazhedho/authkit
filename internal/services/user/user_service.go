@@ -332,22 +332,9 @@ func (s *Service) GetUserByAuth(ctx context.Context, id string) (map[string]any,
 
 func (s *Service) GetAllUsers(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainuser.Users, int64, error) {
 	users, total, err := s.UserRepo.GetAll(ctx, req)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	if actor.Role != domainuser.RoleSuperAdmin {
-		filteredUsers := make([]domainuser.Users, 0)
-		for _, user := range users {
-			if user.Role != domainuser.RoleSuperAdmin {
-				filteredUsers = append(filteredUsers, user)
-			}
-		}
-		superadminCount := int64(len(users) - len(filteredUsers))
-		return filteredUsers, total - superadminCount, nil
-	}
-
-	return users, total, nil
+	return serviceshared.HideSuperAdmin(actor, users, total, err, func(user domainuser.Users) bool {
+		return user.Role == domainuser.RoleSuperAdmin
+	})
 }
 
 func (s *Service) Update(ctx context.Context, actor domainauth.Actor, id string, req dtouser.UserUpdate) (domainuser.Users, error) {
