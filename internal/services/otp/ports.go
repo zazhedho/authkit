@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// Repository is the Redis-backed state the service needs.
 type Repository interface {
 	SetOTP(ctx context.Context, email, hashed string, ttl time.Duration) error
 	GetOTP(ctx context.Context, email string) (string, error)

@@ -9,7 +9,6 @@ import (
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 )
 
-// Repository is the role persistence the service needs.
 type Repository interface {
 	Store(ctx context.Context, data domainrole.Role) error
 	GetByID(ctx context.Context, id string) (domainrole.Role, error)

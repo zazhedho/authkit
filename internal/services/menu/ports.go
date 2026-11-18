@@ -8,7 +8,6 @@ import (
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 )
 
-// Repository is the menu persistence the service needs.
 type Repository interface {
 	GetByID(ctx context.Context, id string) (domainmenu.MenuItem, error)
 	GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainmenu.MenuItem, int64, error)

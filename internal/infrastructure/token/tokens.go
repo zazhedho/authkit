@@ -216,8 +216,8 @@ func (t *Tokens) ExpiresAt(tokenString string) (time.Time, error) {
 	return time.Unix(int64(exp), 0), nil
 }
 
-// GenerateImpersonated issues an access token for user that records the
-// original identity the impersonation started from.
+// GenerateImpersonated issues an access token that records the original identity
+// the impersonation started from.
 func (t *Tokens) GenerateImpersonated(userID, username, role, logID, originalUserID, originalUsername, originalRole string) (string, error) {
 	return t.GenerateWithClaims(userID, username, role, logID, &AppClaims{
 		IsImpersonated:   true,

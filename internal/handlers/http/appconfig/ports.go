@@ -8,7 +8,6 @@ import (
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 )
 
-// Service is what the app-config handlers call.
 type Service interface {
 	GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainappconfig.AppConfig, int64, error)
 	GetByID(ctx context.Context, id string) (domainappconfig.AppConfig, error)

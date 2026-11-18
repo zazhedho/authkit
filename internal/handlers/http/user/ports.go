@@ -11,7 +11,6 @@ import (
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 )
 
-// Service is what the user handlers call.
 type Service interface {
 	RegisterUser(ctx context.Context, req dtouser.UserRegister) (domainuser.Users, error)
 	AdminCreateUser(ctx context.Context, actor domainauth.Actor, req dtouser.AdminCreateUser) (domainuser.Users, error)

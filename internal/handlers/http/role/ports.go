@@ -9,7 +9,6 @@ import (
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
 )
 
-// Service is what the role handlers call.
 type Service interface {
 	Create(ctx context.Context, req dtorole.RoleCreate) (domainrole.Role, error)
 	GetByID(ctx context.Context, id string) (domainrole.Role, error)

@@ -7,7 +7,6 @@ import (
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 )
 
-// Repository is the Redis-backed session store the service needs.
 type Repository interface {
 	Create(ctx context.Context, session *domainsession.Session) error
 	GetBySessionID(ctx context.Context, sessionID string) (*domainsession.Session, error)

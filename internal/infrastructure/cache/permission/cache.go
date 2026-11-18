@@ -100,7 +100,6 @@ func NewCache(client *redis.Client) *Cache {
 	return &Cache{client: client}
 }
 
-// Get returns the cached keys for userID and whether they were found.
 func (c *Cache) Get(ctx context.Context, userID string) ([]string, bool) {
 	if c == nil {
 		return nil, false

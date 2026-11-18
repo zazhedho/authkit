@@ -7,7 +7,6 @@ import (
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 )
 
-// Repository is the persistence the service needs.
 type Repository interface {
 	Store(ctx context.Context, data domainpermission.Permission) error
 	GetByID(ctx context.Context, id string) (domainpermission.Permission, error)

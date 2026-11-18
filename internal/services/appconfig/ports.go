@@ -7,7 +7,6 @@ import (
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 )
 
-// Repository is the persistence the service needs.
 type Repository interface {
 	GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainappconfig.AppConfig, int64, error)
 	GetByID(ctx context.Context, id string) (domainappconfig.AppConfig, error)

@@ -8,7 +8,6 @@ import (
 	dtomenu "github.com/zazhedho/authkit/internal/dto/menu"
 )
 
-// Service is what the menu handlers call.
 type Service interface {
 	GetByID(ctx context.Context, id string) (domainmenu.MenuItem, error)
 	GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainmenu.MenuItem, int64, error)
