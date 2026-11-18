@@ -2,7 +2,7 @@ package permission
 
 import (
 	"context"
-	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"testing"
 	"time"
 
@@ -41,7 +41,7 @@ func TestPermissionRepositoryDryRun(t *testing.T) {
 	if _, err := repo.GetByResource(ctx, "users"); err != nil {
 		t.Fatalf("get by resource: %v", err)
 	}
-	if _, _, err := repo.GetAll(ctx, dtopermission.ListRequest{
+	if _, _, err := repo.GetAll(ctx, dtoshared.ListRequest{
 		Search:         "users",
 		Filters:        map[string]any{"resource": "users", "action": "read"},
 		OrderBy:        "resource",

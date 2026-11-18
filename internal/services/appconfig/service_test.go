@@ -5,6 +5,7 @@ import (
 	"errors"
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"testing"
 	"time"
 )
@@ -29,7 +30,7 @@ func (m *appConfigRepoMock) GetByID(ctx context.Context, id string) (domainappco
 	}
 	return m.byID, nil
 }
-func (m *appConfigRepoMock) GetAll(ctx context.Context, req dtoappconfig.ListRequest) ([]domainappconfig.AppConfig, int64, error) {
+func (m *appConfigRepoMock) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainappconfig.AppConfig, int64, error) {
 	return append([]domainappconfig.AppConfig{}, m.list...), m.total, nil
 }
 func (m *appConfigRepoMock) Update(ctx context.Context, data domainappconfig.AppConfig) error {
@@ -238,7 +239,7 @@ func TestAppConfigServicePassThroughMethodsAndIsEnabled(t *testing.T) {
 	}
 	service := NewService(repo)
 
-	configs, total, err := service.GetAll(context.Background(), dtoappconfig.ListRequest{})
+	configs, total, err := service.GetAll(context.Background(), dtoshared.ListRequest{})
 	if err != nil || total != 1 || len(configs) != 1 {
 		t.Fatalf("get all: configs=%+v total=%d err=%v", configs, total, err)
 	}

@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"time"
 
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
@@ -23,7 +24,7 @@ type Service interface {
 	GetUserByEmail(ctx context.Context, email string) (domainuser.Users, error)
 	GetUserByPhone(ctx context.Context, phone string) (domainuser.Users, error)
 	GetUserByAuth(ctx context.Context, id string) (map[string]any, error)
-	GetAllUsers(ctx context.Context, actor domainauth.Actor, req dtouser.ListRequest) ([]domainuser.Users, int64, error)
+	GetAllUsers(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainuser.Users, int64, error)
 	Update(ctx context.Context, actor domainauth.Actor, id string, req dtouser.UserUpdate) (domainuser.Users, error)
 	ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword) (domainuser.Users, error)
 	ForgotPassword(ctx context.Context, req dtouser.ForgotPasswordRequest) (string, error)

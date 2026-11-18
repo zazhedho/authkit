@@ -8,9 +8,8 @@ import (
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	dtomenu "github.com/zazhedho/authkit/internal/dto/menu"
-	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"testing"
 )
 
@@ -36,7 +35,7 @@ func (m *roleRepoMock) Store(ctx context.Context, data domainrole.Role) error {
 func (m *roleRepoMock) GetByID(ctx context.Context, id string) (domainrole.Role, error) {
 	return m.role, nil
 }
-func (m *roleRepoMock) GetAll(ctx context.Context, req dtorole.ListRequest) ([]domainrole.Role, int64, error) {
+func (m *roleRepoMock) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainrole.Role, int64, error) {
 	return append([]domainrole.Role{}, m.roles...), int64(len(m.roles)), nil
 }
 func (m *roleRepoMock) Update(ctx context.Context, data domainrole.Role) error {
@@ -89,7 +88,7 @@ func (m *permissionRepoMock) GetByID(ctx context.Context, id string) (domainperm
 	}
 	return permission, nil
 }
-func (m *permissionRepoMock) GetAll(ctx context.Context, req dtopermission.ListRequest) ([]domainpermission.Permission, int64, error) {
+func (m *permissionRepoMock) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainpermission.Permission, int64, error) {
 	return nil, 0, nil
 }
 func (m *permissionRepoMock) Update(ctx context.Context, data domainpermission.Permission) error {
@@ -117,7 +116,7 @@ func (m *menuRepoMock) Store(ctx context.Context, data domainmenu.MenuItem) erro
 func (m *menuRepoMock) GetByID(ctx context.Context, id string) (domainmenu.MenuItem, error) {
 	return domainmenu.MenuItem{}, errors.New("not implemented")
 }
-func (m *menuRepoMock) GetAll(ctx context.Context, req dtomenu.ListRequest) ([]domainmenu.MenuItem, int64, error) {
+func (m *menuRepoMock) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainmenu.MenuItem, int64, error) {
 	return nil, 0, nil
 }
 func (m *menuRepoMock) Update(ctx context.Context, data domainmenu.MenuItem) error { return nil }
@@ -232,7 +231,7 @@ func TestRoleServiceCRUDAndDetails(t *testing.T) {
 		t.Fatalf("unexpected details: %+v", details)
 	}
 
-	roles, total, err := service.GetAll(context.Background(), roleActor("user-1", "Staff", domainuser.RoleStaff), dtorole.ListRequest{})
+	roles, total, err := service.GetAll(context.Background(), roleActor("user-1", "Staff", domainuser.RoleStaff), dtoshared.ListRequest{})
 	if err != nil {
 		t.Fatalf("get all: %v", err)
 	}

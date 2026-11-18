@@ -2,7 +2,7 @@ package permission
 
 import (
 	"context"
-	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 )
@@ -11,7 +11,7 @@ import (
 type Repository interface {
 	Store(ctx context.Context, data domainpermission.Permission) error
 	GetByID(ctx context.Context, id string) (domainpermission.Permission, error)
-	GetAll(ctx context.Context, req dtopermission.ListRequest) ([]domainpermission.Permission, int64, error)
+	GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainpermission.Permission, int64, error)
 	Update(ctx context.Context, data domainpermission.Permission) error
 	Delete(ctx context.Context, id string) error
 	GetByName(ctx context.Context, name string) (domainpermission.Permission, error)

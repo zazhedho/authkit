@@ -2,7 +2,7 @@ package role
 
 import (
 	"context"
-	dtorole "github.com/zazhedho/authkit/internal/dto/role"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
@@ -13,7 +13,7 @@ import (
 type Repository interface {
 	Store(ctx context.Context, data domainrole.Role) error
 	GetByID(ctx context.Context, id string) (domainrole.Role, error)
-	GetAll(ctx context.Context, req dtorole.ListRequest) ([]domainrole.Role, int64, error)
+	GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainrole.Role, int64, error)
 	Update(ctx context.Context, data domainrole.Role) error
 	Delete(ctx context.Context, id string) error
 	GetByName(ctx context.Context, name string) (domainrole.Role, error)

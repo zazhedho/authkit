@@ -2,7 +2,7 @@ package user
 
 import (
 	"context"
-	dtouser "github.com/zazhedho/authkit/internal/dto/user"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"time"
 
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
@@ -15,7 +15,7 @@ import (
 type Repository interface {
 	Store(ctx context.Context, data domainuser.Users) error
 	GetByID(ctx context.Context, id string) (domainuser.Users, error)
-	GetAll(ctx context.Context, req dtouser.ListRequest) ([]domainuser.Users, int64, error)
+	GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainuser.Users, int64, error)
 	Update(ctx context.Context, data domainuser.Users) error
 	Delete(ctx context.Context, id string) error
 	GetByEmail(ctx context.Context, email string) (domainuser.Users, error)

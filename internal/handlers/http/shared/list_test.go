@@ -2,12 +2,11 @@ package shared
 
 import (
 	"context"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"reflect"
 	"testing"
 
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
-	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
-	dtorole "github.com/zazhedho/authkit/internal/dto/role"
 	"github.com/zazhedho/gokit"
 )
 
@@ -17,15 +16,10 @@ func TestListRequestCopiesEveryField(t *testing.T) {
 		Page: 3, Limit: 10, Offset: 20, Columns: []string{"ignored"},
 	}
 
-	role := ListRequest[dtorole.ListRequest](params)
-	want := dtorole.ListRequest{Search: "x", Filters: map[string]any{"a": 1}, OrderBy: "name", OrderDirection: "DESC", Page: 3, Limit: 10, Offset: 20}
-	if !reflect.DeepEqual(role, want) {
-		t.Fatalf("expected %+v, got %+v", want, role)
-	}
-
-	audit := ListRequest[dtoaudit.ListRequest](params)
-	if audit.Search != "x" || audit.Limit != 10 || audit.Offset != 20 {
-		t.Fatalf("unexpected audit request %+v", audit)
+	got := ListRequest(params)
+	want := dtoshared.ListRequest{Search: "x", Filters: map[string]any{"a": 1}, OrderBy: "name", OrderDirection: "DESC", Page: 3, Limit: 10, Offset: 20}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected %+v, got %+v", want, got)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"strings"
 	"time"
@@ -66,7 +67,7 @@ func (s *Service) Store(ctx context.Context, req domainaudit.AuditEvent) error {
 	return s.AuditRepo.Store(ctx, data)
 }
 
-func (s *Service) GetAll(ctx context.Context, req dtoaudit.ListRequest) ([]dtoaudit.AuditTrailResponse, int64, error) {
+func (s *Service) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]dtoaudit.AuditTrailResponse, int64, error) {
 	items, total, err := s.AuditRepo.GetAll(ctx, req)
 	if err != nil {
 		return nil, 0, err

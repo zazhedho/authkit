@@ -21,18 +21,3 @@ type FlagKeys struct {
 	RegisterOTP        string
 	PasswordResetEmail string
 }
-
-const (
-	DefaultFlagPublicRegistration = "auth.public_registration_enabled"
-	DefaultFlagRegisterOTP        = "auth.register_otp_enabled"
-	DefaultFlagPasswordResetEmail = "auth.password_reset_email_enabled"
-)
-
-// DefaultFlagKeys returns the built-in app-config keys.
-func DefaultFlagKeys() FlagKeys {
-	return FlagKeys{
-		PublicRegistration: DefaultFlagPublicRegistration,
-		RegisterOTP:        DefaultFlagRegisterOTP,
-		PasswordResetEmail: DefaultFlagPasswordResetEmail,
-	}
-}

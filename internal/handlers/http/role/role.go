@@ -100,7 +100,7 @@ func (h *Handler) GetAll(ctx *gin.Context) {
 		return
 	}
 
-	data, total, err := h.Service.GetAll(reqCtx, httpshared.ActorFrom(reqCtx), httpshared.ListRequest[dtorole.ListRequest](params))
+	data, total, err := h.Service.GetAll(reqCtx, httpshared.ActorFrom(reqCtx), httpshared.ListRequest(params))
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetAll; Error: %+v", logPrefix, err))
 		res := gokit.InternalServerError(logId)

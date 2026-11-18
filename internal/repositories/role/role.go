@@ -3,7 +3,7 @@ package role
 import (
 	"context"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
-	dtorole "github.com/zazhedho/authkit/internal/dto/role"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 
@@ -46,7 +46,7 @@ func (r *Repository) GetByName(ctx context.Context, name string) (ret domainrole
 	return ret, translateErr(err)
 }
 
-func (r *Repository) GetAll(ctx context.Context, req dtorole.ListRequest) (ret []domainrole.Role, totalData int64, err error) {
+func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainrole.Role, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
 		Search:         gokit.BuildSearchFunc("name", "display_name", "description"),
 		AllowedFilters: []string{"id", "name", "display_name", "is_system", "created_at", "updated_at"},

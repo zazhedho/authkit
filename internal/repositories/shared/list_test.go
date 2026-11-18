@@ -1,15 +1,15 @@
 package shared
 
 import (
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"reflect"
 	"testing"
 
-	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	"github.com/zazhedho/gokit"
 )
 
 func TestBaseParamsCopiesEveryListField(t *testing.T) {
-	got := BaseParams(dtouser.ListRequest{
+	got := BaseParams(dtoshared.ListRequest{
 		Search: "jane", Filters: map[string]any{"role": "admin"}, OrderBy: "name", OrderDirection: "ASC",
 		Page: 2, Limit: 25, Offset: 25,
 	})

@@ -6,7 +6,7 @@ import (
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
-	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"testing"
 )
 
@@ -53,7 +53,7 @@ func (m *permissionRepoSharedTestDouble) Store(ctx context.Context, data domainp
 func (m *permissionRepoSharedTestDouble) GetByID(ctx context.Context, id string) (domainpermission.Permission, error) {
 	return domainpermission.Permission{}, errors.New("not implemented")
 }
-func (m *permissionRepoSharedTestDouble) GetAll(ctx context.Context, req dtopermission.ListRequest) ([]domainpermission.Permission, int64, error) {
+func (m *permissionRepoSharedTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainpermission.Permission, int64, error) {
 	return nil, 0, nil
 }
 func (m *permissionRepoSharedTestDouble) Update(ctx context.Context, data domainpermission.Permission) error {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"time"
 )
@@ -17,7 +18,7 @@ func NewService(repo Repository) *Service {
 	return &Service{Repo: repo}
 }
 
-func (s *Service) GetAll(ctx context.Context, req dtoappconfig.ListRequest) ([]domainappconfig.AppConfig, int64, error) {
+func (s *Service) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainappconfig.AppConfig, int64, error) {
 	return s.Repo.GetAll(ctx, req)
 }
 

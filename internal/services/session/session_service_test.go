@@ -95,13 +95,6 @@ func TestCreateSessionStoresSessionWithDerivedDeviceInfo(t *testing.T) {
 	}
 }
 
-func TestNewSessionServiceDefaultsNonPositiveRefreshTTL(t *testing.T) {
-	svc := NewService(&sessionRepoTestDouble{}, 0)
-	if svc.RefreshTTL != 168*time.Hour {
-		t.Fatalf("expected default refresh TTL 168h, got %v", svc.RefreshTTL)
-	}
-}
-
 func TestExtractDeviceInfoVariants(t *testing.T) {
 	tests := map[string]string{
 		"Mozilla/5.0 (Linux; Android 13; Pixel)":       "Android Mobile",

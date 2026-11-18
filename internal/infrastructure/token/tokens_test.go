@@ -15,7 +15,7 @@ const testJWTKey = "test-secret-must-be-at-least-32-bytes"
 
 func newTestTokens(t *testing.T) *Tokens {
 	t.Helper()
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app"})
+	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
 	if err != nil {
 		t.Fatalf("NewTokens: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestNewTokensRejectsMissingOrShortKey(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := NewTokens(TokenConfig{Key: tc.key, AppName: "test-app"})
+			tokens, err := NewTokens(TokenConfig{Key: tc.key, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("expected %v, got %v", tc.want, err)
 			}
@@ -47,18 +47,18 @@ func TestNewTokensRejectsMissingOrShortKey(t *testing.T) {
 }
 
 func TestNewTokensAcceptsMinimumLengthKey(t *testing.T) {
-	if _, err := NewTokens(TokenConfig{Key: strings.Repeat("k", 32), AppName: "test-app"}); err != nil {
+	if _, err := NewTokens(TokenConfig{Key: strings.Repeat("k", 32), AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute}); err != nil {
 		t.Fatalf("expected 32 character key to be valid, got %v", err)
 	}
 }
 
-func TestNewTokensAppliesDefaultTTLs(t *testing.T) {
+func TestNewTokensUsesInjectedTTLs(t *testing.T) {
 	tokens := newTestTokens(t)
-	if tokens.AccessTTL() != 24*time.Hour {
-		t.Fatalf("expected default access TTL 24h, got %v", tokens.AccessTTL())
+	if tokens.AccessTTL() != time.Hour {
+		t.Fatalf("expected injected access TTL 1h, got %v", tokens.AccessTTL())
 	}
-	if tokens.RefreshTTL() != 168*time.Hour {
-		t.Fatalf("expected default refresh TTL 168h, got %v", tokens.RefreshTTL())
+	if tokens.RefreshTTL() != 2*time.Hour {
+		t.Fatalf("expected injected refresh TTL 2h, got %v", tokens.RefreshTTL())
 	}
 
 	token, err := tokens.GeneratePasswordReset("user-1", "", "", "reset-1")
@@ -69,7 +69,7 @@ func TestNewTokensAppliesDefaultTTLs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExpiresAt: %v", err)
 	}
-	assertExpiresAround(t, expiresAt, 900*time.Second)
+	assertExpiresAround(t, expiresAt, 15*time.Minute)
 }
 
 func assertExpiresAround(t *testing.T, expiresAt time.Time, ttl time.Duration) {
@@ -99,7 +99,7 @@ func TestGenerateIncludesAccessClaims(t *testing.T) {
 }
 
 func TestGenerateExpiryFollowsAccessTTL(t *testing.T) {
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", AccessTTL: 2 * time.Hour})
+	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", AccessTTL: 2 * time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
 	if err != nil {
 		t.Fatalf("NewTokens: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestGenerateExpiryFollowsAccessTTL(t *testing.T) {
 }
 
 func TestGenerateRefreshIncludesRefreshTokenType(t *testing.T) {
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", RefreshTTL: 48 * time.Hour})
+	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", RefreshTTL: 48 * time.Hour, AccessTTL: time.Hour, ResetTTL: 15 * time.Minute})
 	if err != nil {
 		t.Fatalf("NewTokens: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestGenerateWithClaimsAppliesOverride(t *testing.T) {
 }
 
 func TestGeneratePasswordResetIncludesDedicatedTokenType(t *testing.T) {
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", ResetTTL: 10 * time.Minute})
+	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", ResetTTL: 10 * time.Minute, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 	if err != nil {
 		t.Fatalf("NewTokens: %v", err)
 	}
@@ -311,19 +311,16 @@ func TestGetAuthTokenStripsBearerPrefix(t *testing.T) {
 	}
 }
 
-func TestNilTokensTTLsFallBackToDefaults(t *testing.T) {
+func TestNilTokensTTLsAreZero(t *testing.T) {
 	var tokens *Tokens
-	if tokens.AccessTTL() != 24*time.Hour {
-		t.Fatalf("expected default access TTL on nil receiver, got %v", tokens.AccessTTL())
-	}
-	if tokens.RefreshTTL() != 168*time.Hour {
-		t.Fatalf("expected default refresh TTL on nil receiver, got %v", tokens.RefreshTTL())
+	if tokens.AccessTTL() != 0 || tokens.RefreshTTL() != 0 {
+		t.Fatalf("expected zero TTLs on nil receiver, got %v %v", tokens.AccessTTL(), tokens.RefreshTTL())
 	}
 }
 
 func newTokensForApp(t *testing.T, app string) *Tokens {
 	t.Helper()
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: app})
+	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: app, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
 	if err != nil {
 		t.Fatalf("NewTokens(%q): %v", app, err)
 	}
@@ -438,7 +435,7 @@ func TestClaimsAcceptsAudienceListContainingApp(t *testing.T) {
 
 func TestNewTokensRequiresAppName(t *testing.T) {
 	for _, name := range []string{"", "  "} {
-		tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: name})
+		tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: name, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
 		if !errors.Is(err, ErrAppNameRequired) {
 			t.Fatalf("AppName %q: expected ErrAppNameRequired, got %v", name, err)
 		}

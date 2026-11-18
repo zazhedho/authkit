@@ -2,7 +2,7 @@ package menu
 
 import (
 	"context"
-	dtomenu "github.com/zazhedho/authkit/internal/dto/menu"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"testing"
 	"time"
 
@@ -38,7 +38,7 @@ func TestMenuRepositoryDryRun(t *testing.T) {
 	if _, err := repo.GetByName(ctx, "dashboard"); err != nil {
 		t.Fatalf("get by name: %v", err)
 	}
-	if _, _, err := repo.GetAll(ctx, dtomenu.ListRequest{
+	if _, _, err := repo.GetAll(ctx, dtoshared.ListRequest{
 		Search:         "dash",
 		Filters:        map[string]any{"name": "dashboard", "is_active": true},
 		OrderBy:        "order_index",

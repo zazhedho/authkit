@@ -1,22 +1,14 @@
 package shared
 
-import "github.com/zazhedho/gokit"
+import (
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
+	"github.com/zazhedho/gokit"
+)
 
-// listFields is the shape every dto/<module>.ListRequest shares.
-type listFields = struct {
-	Search         string
-	Filters        map[string]any
-	OrderBy        string
-	OrderDirection string
-	Page           int
-	Limit          int
-	Offset         int
-}
-
-// ListRequest converts the parsed query into a module's dto ListRequest, e.g.
-// ListRequest[dtouser.ListRequest](params).
-func ListRequest[T ~listFields](params gokit.BaseParams) T {
-	return T(listFields{
+// ListRequest converts the parsed query into the dto every module's service
+// takes.
+func ListRequest(params gokit.BaseParams) dtoshared.ListRequest {
+	return dtoshared.ListRequest{
 		Search:         params.Search,
 		Filters:        params.Filters,
 		OrderBy:        params.OrderBy,
@@ -24,5 +16,5 @@ func ListRequest[T ~listFields](params gokit.BaseParams) T {
 		Page:           params.Page,
 		Limit:          params.Limit,
 		Offset:         params.Offset,
-	})
+	}
 }

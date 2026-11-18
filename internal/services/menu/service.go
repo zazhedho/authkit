@@ -4,6 +4,7 @@ import (
 	"context"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	dtomenu "github.com/zazhedho/authkit/internal/dto/menu"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"time"
 )
@@ -24,7 +25,7 @@ func (s *Service) GetByID(ctx context.Context, id string) (domainmenu.MenuItem, 
 	return s.MenuRepo.GetByID(ctx, id)
 }
 
-func (s *Service) GetAll(ctx context.Context, req dtomenu.ListRequest) ([]domainmenu.MenuItem, int64, error) {
+func (s *Service) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainmenu.MenuItem, int64, error) {
 	return s.MenuRepo.GetAll(ctx, req)
 }
 

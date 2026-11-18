@@ -5,6 +5,7 @@ import (
 	"errors"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"testing"
 )
 
@@ -26,7 +27,7 @@ func (m *permissionRepoTestDouble) GetByID(ctx context.Context, id string) (doma
 	}
 	return m.permission, nil
 }
-func (m *permissionRepoTestDouble) GetAll(ctx context.Context, req dtopermission.ListRequest) ([]domainpermission.Permission, int64, error) {
+func (m *permissionRepoTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainpermission.Permission, int64, error) {
 	return []domainpermission.Permission{m.permission}, 1, nil
 }
 func (m *permissionRepoTestDouble) Update(ctx context.Context, data domainpermission.Permission) error {
@@ -142,7 +143,7 @@ func TestPermissionServicePassThroughMethods(t *testing.T) {
 	if got, err := svc.GetByID(context.Background(), "perm-1"); err != nil || got.Id != "perm-1" {
 		t.Fatalf("get by id: permission=%+v err=%v", got, err)
 	}
-	if got, total, err := svc.GetAll(context.Background(), dtopermission.ListRequest{}); err != nil || total != 1 || len(got) != 1 {
+	if got, total, err := svc.GetAll(context.Background(), dtoshared.ListRequest{}); err != nil || total != 1 || len(got) != 1 {
 		t.Fatalf("get all: permissions=%+v total=%d err=%v", got, total, err)
 	}
 	if got, err := svc.GetByResource(context.Background(), "users"); err != nil || len(got) != 1 {

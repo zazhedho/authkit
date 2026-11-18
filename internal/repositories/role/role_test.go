@@ -2,7 +2,7 @@ package role
 
 import (
 	"context"
-	dtorole "github.com/zazhedho/authkit/internal/dto/role"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -35,7 +35,7 @@ func TestRoleRepositoryDryRun(t *testing.T) {
 	if _, err := repo.GetByName(ctx, "admin"); err != nil {
 		t.Fatalf("get by name: %v", err)
 	}
-	if _, _, err := repo.GetAll(ctx, dtorole.ListRequest{
+	if _, _, err := repo.GetAll(ctx, dtoshared.ListRequest{
 		Search:         "admin",
 		Filters:        map[string]any{"name": "admin", "is_system": false},
 		OrderBy:        "name",

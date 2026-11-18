@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/zazhedho/authkit/internal/config"
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
-	"github.com/zazhedho/authkit/internal/infrastructure/token"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -26,7 +25,7 @@ type appConfigServiceUserTestDouble struct {
 	keys    []string
 }
 
-func (m *appConfigServiceUserTestDouble) GetAll(ctx context.Context, req dtoappconfig.ListRequest) ([]domainappconfig.AppConfig, int64, error) {
+func (m *appConfigServiceUserTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainappconfig.AppConfig, int64, error) {
 	return nil, 0, nil
 }
 func (m *appConfigServiceUserTestDouble) GetByID(ctx context.Context, id string) (domainappconfig.AppConfig, error) {
@@ -164,27 +163,17 @@ func TestRuntimeConfigAndThrottleResponses(t *testing.T) {
 	}
 }
 
-func TestNewUserHandlerAppliesDefaultFlagKeysAndTTLs(t *testing.T) {
-	handler := New(&userServiceTestDouble{}, nil, nil, nil, Options{})
-	// The handler repeats the root defaults; this keeps the copies in step.
-	want := FlagKeys(config.DefaultFlagKeys())
-	if handler.Settings.Flags != want {
-		t.Fatalf("expected default flag keys %+v, got %+v", want, handler.Settings.Flags)
+func TestNewUserHandlerKeepsInjectedSettings(t *testing.T) {
+	want := Settings{
+		AccessTTL:     time.Hour,
+		RefreshTTL:    2 * time.Hour,
+		OTPCooldown:   45 * time.Second,
+		ResetCooldown: 2 * time.Minute,
+		Flags:         FlagKeys{PublicRegistration: "a", RegisterOTP: "b", PasswordResetEmail: "c"},
 	}
-	if handler.Settings.AccessTTL != token.DefaultAccessTTL || handler.Settings.RefreshTTL != token.DefaultRefreshTTL {
-		t.Fatalf("expected default TTLs, got %v %v", handler.Settings.AccessTTL, handler.Settings.RefreshTTL)
-	}
-	if handler.Settings.OTPCooldown != 60*time.Second || handler.Settings.ResetCooldown != 60*time.Second {
-		t.Fatalf("expected default 60s cooldowns, got %v %v", handler.Settings.OTPCooldown, handler.Settings.ResetCooldown)
-	}
-}
-
-func TestNewUserHandlerKeepsExplicitCooldowns(t *testing.T) {
-	handler := New(&userServiceTestDouble{}, nil, nil, nil, Options{
-		Settings: Settings{OTPCooldown: 45 * time.Second, ResetCooldown: 2 * time.Minute},
-	})
-	if handler.Settings.OTPCooldown != 45*time.Second || handler.Settings.ResetCooldown != 2*time.Minute {
-		t.Fatalf("explicit cooldowns were overwritten: %v %v", handler.Settings.OTPCooldown, handler.Settings.ResetCooldown)
+	handler := New(&userServiceTestDouble{}, nil, nil, nil, Options{Settings: want})
+	if handler.Settings != want {
+		t.Fatalf("settings were altered: got %+v, want %+v", handler.Settings, want)
 	}
 }
 

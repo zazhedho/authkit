@@ -12,6 +12,7 @@ import (
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"github.com/zazhedho/gokit"
 	"net/http"
 	"net/http/httptest"
@@ -47,7 +48,7 @@ func (m *roleServiceHandlerTestDouble) GetByID(ctx context.Context, id string) (
 func (m *roleServiceHandlerTestDouble) GetByIDWithDetails(ctx context.Context, id string) (dtorole.RoleWithDetails, error) {
 	return m.details, m.err
 }
-func (m *roleServiceHandlerTestDouble) GetAll(ctx context.Context, actor domainauth.Actor, req dtorole.ListRequest) ([]domainrole.Role, int64, error) {
+func (m *roleServiceHandlerTestDouble) GetAll(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainrole.Role, int64, error) {
 	if m.getAllErr != nil {
 		return nil, 0, m.getAllErr
 	}

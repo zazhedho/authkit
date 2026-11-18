@@ -4,7 +4,7 @@ import (
 	"context"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	dtomenu "github.com/zazhedho/authkit/internal/dto/menu"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 	"sort"
@@ -38,7 +38,7 @@ func (r *Repository) GetByName(ctx context.Context, name string) (ret domainmenu
 	return ret, translateErr(err)
 }
 
-func (r *Repository) GetAll(ctx context.Context, req dtomenu.ListRequest) (ret []domainmenu.MenuItem, totalData int64, err error) {
+func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainmenu.MenuItem, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
 		Search:         gokit.BuildSearchFunc("name", "display_name", "path"),
 		AllowedFilters: []string{"id", "name", "display_name", "path", "parent_id", "order_index", "is_active", "created_at", "updated_at"},

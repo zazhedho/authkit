@@ -21,21 +21,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// defaultCooldown is the OTP / password reset resend cooldown reported when
-// none is configured.
-const defaultCooldown = 60 * time.Second
-
-// Defaults applied when Settings leaves a value unset; the root package
-// applies the same ones to its Config, and a test keeps them in step.
-const (
-	defaultAccessTTL  = 24 * time.Hour
-	defaultRefreshTTL = 168 * time.Hour
-
-	defaultFlagPublicRegistration = "auth.public_registration_enabled"
-	defaultFlagRegisterOTP        = "auth.register_otp_enabled"
-	defaultFlagPasswordResetEmail = "auth.password_reset_email_enabled"
-)
-
 // FlagKeys are the runtime app-config keys the handler consults.
 type FlagKeys struct {
 	PublicRegistration string
@@ -81,30 +66,6 @@ func New(
 	auditService httpshared.AuditService,
 	options Options,
 ) *Handler {
-	userSettings := options.Settings
-	if userSettings.Flags.PublicRegistration == "" {
-		userSettings.Flags.PublicRegistration = defaultFlagPublicRegistration
-	}
-	if userSettings.Flags.RegisterOTP == "" {
-		userSettings.Flags.RegisterOTP = defaultFlagRegisterOTP
-	}
-	if userSettings.Flags.PasswordResetEmail == "" {
-		userSettings.Flags.PasswordResetEmail = defaultFlagPasswordResetEmail
-	}
-
-	if userSettings.AccessTTL <= 0 {
-		userSettings.AccessTTL = defaultAccessTTL
-	}
-	if userSettings.RefreshTTL <= 0 {
-		userSettings.RefreshTTL = defaultRefreshTTL
-	}
-	if userSettings.OTPCooldown <= 0 {
-		userSettings.OTPCooldown = defaultCooldown
-	}
-	if userSettings.ResetCooldown <= 0 {
-		userSettings.ResetCooldown = defaultCooldown
-	}
-
 	return &Handler{
 		Service:          s,
 		SessionSvc:       sessionSvc,
@@ -114,7 +75,7 @@ func New(
 		OTPService:       options.OTPService,
 		ResetService:     options.ResetService,
 		Tokens:           options.Tokens,
-		Settings:         userSettings,
+		Settings:         options.Settings,
 	}
 }
 
@@ -1041,7 +1002,7 @@ func (h *Handler) GetAllUsers(ctx *gin.Context) {
 	params, _ := gokit.GetBaseParams(ctx.Request.URL.Query(), "updated_at", "desc", 10)
 	params.Filters = gokit.WhitelistFilter(params.Filters, []string{"role"})
 
-	users, totalData, err := h.Service.GetAllUsers(reqCtx, httpshared.ActorFrom(reqCtx), httpshared.ListRequest[dtouser.ListRequest](params))
+	users, totalData, err := h.Service.GetAllUsers(reqCtx, httpshared.ActorFrom(reqCtx), httpshared.ListRequest(params))
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GetAllUsers; ERROR: %+v;", logPrefix, err))
 		res := gokit.InternalServerError(logId)

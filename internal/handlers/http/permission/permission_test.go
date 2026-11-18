@@ -10,6 +10,7 @@ import (
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"github.com/zazhedho/gokit"
 	"net/http"
 	"net/http/httptest"
@@ -43,7 +44,7 @@ func (m *permissionServiceTestDouble) GetByID(ctx context.Context, id string) (d
 	}
 	return m.permission, nil
 }
-func (m *permissionServiceTestDouble) GetAll(ctx context.Context, req dtopermission.ListRequest) ([]domainpermission.Permission, int64, error) {
+func (m *permissionServiceTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainpermission.Permission, int64, error) {
 	if m.err != nil {
 		return nil, 0, m.err
 	}

@@ -3,7 +3,7 @@ package user
 import (
 	"context"
 	"database/sql/driver"
-	dtouser "github.com/zazhedho/authkit/internal/dto/user"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"regexp"
 	"testing"
 
@@ -41,7 +41,7 @@ func TestUserRepositoryDryRun(t *testing.T) {
 	if _, err := repo.GetByPhone(ctx, "08123456789"); err != nil {
 		t.Fatalf("get by phone: %v", err)
 	}
-	if _, _, err := repo.GetAll(ctx, dtouser.ListRequest{
+	if _, _, err := repo.GetAll(ctx, dtoshared.ListRequest{
 		Search:         "jane",
 		Filters:        map[string]any{"role": "admin", "email": "jane@example.com"},
 		OrderBy:        "email",

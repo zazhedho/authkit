@@ -358,7 +358,7 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 				t.Errorf("%s token expires in %v, want about %v", name, d, tc.want)
 			}
 		}
-		foreign, err := token.NewTokens(token.TokenConfig{Key: testJWTKey, AppName: "other-app"})
+		foreign, err := token.NewTokens(token.TokenConfig{Key: testJWTKey, AppName: "other-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,13 +19,13 @@ type auditServiceTestDouble struct {
 	row   dtoaudit.AuditTrailResponse
 	total int64
 	err   error
-	got   dtoaudit.ListRequest
+	got   dtoshared.ListRequest
 }
 
 func (m *auditServiceTestDouble) Store(ctx context.Context, req domainaudit.AuditEvent) error {
 	return nil
 }
-func (m *auditServiceTestDouble) GetAll(ctx context.Context, req dtoaudit.ListRequest) ([]dtoaudit.AuditTrailResponse, int64, error) {
+func (m *auditServiceTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]dtoaudit.AuditTrailResponse, int64, error) {
 	m.got = req
 	if m.err != nil {
 		return nil, 0, m.err

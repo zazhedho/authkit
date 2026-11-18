@@ -2,7 +2,7 @@ package appconfig
 
 import (
 	"context"
-	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -35,7 +35,7 @@ func TestAppConfigRepositoryDryRun(t *testing.T) {
 	if _, err := repo.GetByKey(ctx, "site.name"); err != nil {
 		t.Fatalf("get by key: %v", err)
 	}
-	if _, _, err := repo.GetAll(ctx, dtoappconfig.ListRequest{
+	if _, _, err := repo.GetAll(ctx, dtoshared.ListRequest{
 		Search:         "site",
 		Filters:        map[string]any{"category": "general", "is_active": true},
 		OrderBy:        "display_name",

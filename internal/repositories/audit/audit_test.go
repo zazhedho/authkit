@@ -2,7 +2,7 @@ package audit
 
 import (
 	"context"
-	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -31,7 +31,7 @@ func newDryRunDB(t *testing.T) *gorm.DB {
 func TestAuditRepositoryDryRunGetAll(t *testing.T) {
 	repo := NewRepository(newDryRunDB(t))
 
-	if _, _, err := repo.GetAll(context.Background(), dtoaudit.ListRequest{
+	if _, _, err := repo.GetAll(context.Background(), dtoshared.ListRequest{
 		Search:         "login",
 		Filters:        map[string]any{"action": "login", "status": "success"},
 		OrderBy:        "occurred_at",

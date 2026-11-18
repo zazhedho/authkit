@@ -96,8 +96,11 @@ func performMiddlewareRequestWithSetup(handlers []gin.HandlerFunc, setup func(*g
 func testTokens(t *testing.T) *token.Tokens {
 	t.Helper()
 	tokens, err := token.NewTokens(token.TokenConfig{
-		Key:     "test-secret-must-be-at-least-32-bytes",
-		AppName: "test-app",
+		Key:        "test-secret-must-be-at-least-32-bytes",
+		AppName:    "test-app",
+		AccessTTL:  time.Hour,
+		RefreshTTL: 2 * time.Hour,
+		ResetTTL:   15 * time.Minute,
 	})
 	if err != nil {
 		t.Fatalf("failed to build tokens: %v", err)
@@ -403,8 +406,11 @@ func TestPermissionMiddlewareHandlesRepositoryErrors(t *testing.T) {
 func foreignAppToken(t *testing.T, role string) string {
 	t.Helper()
 	other, err := token.NewTokens(token.TokenConfig{
-		Key:     "test-secret-must-be-at-least-32-bytes",
-		AppName: "other-app",
+		Key:        "test-secret-must-be-at-least-32-bytes",
+		AppName:    "other-app",
+		AccessTTL:  time.Hour,
+		RefreshTTL: 2 * time.Hour,
+		ResetTTL:   15 * time.Minute,
 	})
 	if err != nil {
 		t.Fatalf("failed to build tokens: %v", err)

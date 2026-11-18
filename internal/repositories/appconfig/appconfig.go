@@ -3,7 +3,7 @@ package appconfig
 import (
 	"context"
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
-	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 
@@ -18,7 +18,7 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{Repository: gokit.NewRepository[domainappconfig.AppConfig](db)}
 }
 
-func (r *Repository) GetAll(ctx context.Context, req dtoappconfig.ListRequest) (ret []domainappconfig.AppConfig, totalData int64, err error) {
+func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainappconfig.AppConfig, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
 		Search:          gokit.BuildSearchFunc("config_key", "display_name", "category"),
 		AllowedFilters:  []string{"category", "is_active"},

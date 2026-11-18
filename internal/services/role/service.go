@@ -7,6 +7,7 @@ import (
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"time"
 )
@@ -98,7 +99,7 @@ func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.Ro
 	}, nil
 }
 
-func (s *Service) GetAll(ctx context.Context, actor domainauth.Actor, req dtorole.ListRequest) ([]domainrole.Role, int64, error) {
+func (s *Service) GetAll(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainrole.Role, int64, error) {
 	roles, total, err := s.RoleRepo.GetAll(ctx, req)
 	if err != nil {
 		return nil, 0, err

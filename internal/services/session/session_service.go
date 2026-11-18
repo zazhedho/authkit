@@ -10,20 +10,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// defaultRefreshTTL matches the refresh token lifetime default (seven days).
-const defaultRefreshTTL = 168 * time.Hour
-
 type Service struct {
 	SessionRepo Repository
 	RefreshTTL  time.Duration
 }
 
 // NewService builds the session service; refreshTTL is the lifetime of a
-// session and falls back to defaultRefreshTTL when not positive.
+// session.
 func NewService(sessionRepo Repository, refreshTTL time.Duration) *Service {
-	if refreshTTL <= 0 {
-		refreshTTL = defaultRefreshTTL
-	}
 	return &Service{
 		SessionRepo: sessionRepo,
 		RefreshTTL:  refreshTTL,

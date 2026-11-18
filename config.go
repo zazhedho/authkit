@@ -69,6 +69,8 @@ func (c Config) String() string {
 func (c Config) GoString() string { return c.String() }
 
 const (
+	defaultAccessTTL          = 24 * time.Hour
+	defaultRefreshTTL         = 168 * time.Hour
 	defaultPermissionCacheTTL = 300 * time.Second
 	defaultLoginLimit         = 5
 	defaultLoginWindow        = 60 * time.Second
@@ -79,19 +81,23 @@ const (
 	defaultOTPCooldown        = 60 * time.Second
 	defaultOTPRateLimit       = 5
 	defaultOTPMaxAttempts     = 5
-	defaultResetTTL           = token.DefaultResetTTL
+	defaultResetTTL           = 900 * time.Second
 	defaultResetCooldown      = 60 * time.Second
 	defaultResetRateLimit     = 5
+
+	defaultFlagPublicRegistration = "auth.public_registration_enabled"
+	defaultFlagRegisterOTP        = "auth.register_otp_enabled"
+	defaultFlagPasswordResetEmail = "auth.password_reset_email_enabled"
 )
 
 // withDefaults returns c with every unset (zero or non-positive) value replaced
 // by its default. It never invents a secret.
 func (c Config) withDefaults() Config {
 	if c.AccessTokenTTL <= 0 {
-		c.AccessTokenTTL = token.DefaultAccessTTL
+		c.AccessTokenTTL = defaultAccessTTL
 	}
 	if c.RefreshTokenTTL <= 0 {
-		c.RefreshTokenTTL = token.DefaultRefreshTTL
+		c.RefreshTokenTTL = defaultRefreshTTL
 	}
 	if strings.TrimSpace(c.DefaultRole) == "" {
 		c.DefaultRole = domainuser.RoleViewer
@@ -148,15 +154,14 @@ func (c Config) withDefaults() Config {
 		c.Reset.RateWindow = c.Reset.TTL
 	}
 
-	defaults := config.DefaultFlagKeys()
 	if strings.TrimSpace(c.Flags.PublicRegistration) == "" {
-		c.Flags.PublicRegistration = defaults.PublicRegistration
+		c.Flags.PublicRegistration = defaultFlagPublicRegistration
 	}
 	if strings.TrimSpace(c.Flags.RegisterOTP) == "" {
-		c.Flags.RegisterOTP = defaults.RegisterOTP
+		c.Flags.RegisterOTP = defaultFlagRegisterOTP
 	}
 	if strings.TrimSpace(c.Flags.PasswordResetEmail) == "" {
-		c.Flags.PasswordResetEmail = defaults.PasswordResetEmail
+		c.Flags.PasswordResetEmail = defaultFlagPasswordResetEmail
 	}
 	return c
 }

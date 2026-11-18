@@ -10,6 +10,7 @@ import (
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	dtomenu "github.com/zazhedho/authkit/internal/dto/menu"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"github.com/zazhedho/gokit"
 	"net/http"
 	"net/http/httptest"
@@ -32,7 +33,7 @@ func (m *menuServiceHandlerTestDouble) GetByID(ctx context.Context, id string) (
 	}
 	return m.menu, nil
 }
-func (m *menuServiceHandlerTestDouble) GetAll(ctx context.Context, req dtomenu.ListRequest) ([]domainmenu.MenuItem, int64, error) {
+func (m *menuServiceHandlerTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainmenu.MenuItem, int64, error) {
 	if m.err != nil {
 		return nil, 0, m.err
 	}

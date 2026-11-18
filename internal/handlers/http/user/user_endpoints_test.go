@@ -9,6 +9,7 @@ import (
 	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	"net/http"
@@ -114,7 +115,7 @@ func (s *userServiceTestDouble) GetUserByAuth(ctx context.Context, id string) (m
 	}
 	return map[string]any{"id": id, "name": s.user.Name, "role": s.user.Role}, nil
 }
-func (s *userServiceTestDouble) GetAllUsers(ctx context.Context, actor domainauth.Actor, req dtouser.ListRequest) ([]domainuser.Users, int64, error) {
+func (s *userServiceTestDouble) GetAllUsers(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainuser.Users, int64, error) {
 	if s.err != nil {
 		return nil, 0, s.err
 	}
@@ -946,8 +947,11 @@ func TestUserHandlerResetPasswordRevokesSessions(t *testing.T) {
 
 func testHandlerTokens() *token.Tokens {
 	tokens, err := token.NewTokens(token.TokenConfig{
-		Key:     "test-secret-must-be-at-least-32-bytes",
-		AppName: "test-app",
+		Key:        "test-secret-must-be-at-least-32-bytes",
+		AppName:    "test-app",
+		AccessTTL:  time.Hour,
+		RefreshTTL: 2 * time.Hour,
+		ResetTTL:   15 * time.Minute,
 	})
 	if err != nil {
 		panic(err)
@@ -965,8 +969,11 @@ func testHandlerOptions() Options {
 
 func otherAppTokens() *token.Tokens {
 	tokens, err := token.NewTokens(token.TokenConfig{
-		Key:     "test-secret-must-be-at-least-32-bytes",
-		AppName: "other-app",
+		Key:        "test-secret-must-be-at-least-32-bytes",
+		AppName:    "other-app",
+		AccessTTL:  time.Hour,
+		RefreshTTL: 2 * time.Hour,
+		ResetTTL:   15 * time.Minute,
 	})
 	if err != nil {
 		panic(err)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"strings"
@@ -328,7 +329,7 @@ func (s *Service) GetUserByAuth(ctx context.Context, id string) (map[string]any,
 	return buildUserAuthResponse(user, permissionNames), nil
 }
 
-func (s *Service) GetAllUsers(ctx context.Context, actor domainauth.Actor, req dtouser.ListRequest) ([]domainuser.Users, int64, error) {
+func (s *Service) GetAllUsers(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainuser.Users, int64, error) {
 	users, total, err := s.UserRepo.GetAll(ctx, req)
 	if err != nil {
 		return nil, 0, err

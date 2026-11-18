@@ -7,8 +7,7 @@ import (
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
-	dtorole "github.com/zazhedho/authkit/internal/dto/role"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	"testing"
@@ -60,7 +59,7 @@ func (m *userRepoMock) GetByID(ctx context.Context, id string) (domainuser.Users
 	}
 	return m.user, nil
 }
-func (m *userRepoMock) GetAll(ctx context.Context, req dtouser.ListRequest) ([]domainuser.Users, int64, error) {
+func (m *userRepoMock) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainuser.Users, int64, error) {
 	if m.getAllErr != nil {
 		return nil, 0, m.getAllErr
 	}
@@ -130,7 +129,7 @@ func (m *roleRepoUserMock) Store(ctx context.Context, data domainrole.Role) erro
 func (m *roleRepoUserMock) GetByID(ctx context.Context, id string) (domainrole.Role, error) {
 	return domainrole.Role{}, errors.New("not implemented")
 }
-func (m *roleRepoUserMock) GetAll(ctx context.Context, req dtorole.ListRequest) ([]domainrole.Role, int64, error) {
+func (m *roleRepoUserMock) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainrole.Role, int64, error) {
 	return nil, 0, nil
 }
 func (m *roleRepoUserMock) Update(ctx context.Context, data domainrole.Role) error { return nil }
@@ -175,7 +174,7 @@ func (m *permissionRepoUserMock) Store(ctx context.Context, data domainpermissio
 func (m *permissionRepoUserMock) GetByID(ctx context.Context, id string) (domainpermission.Permission, error) {
 	return domainpermission.Permission{}, errors.New("not implemented")
 }
-func (m *permissionRepoUserMock) GetAll(ctx context.Context, req dtopermission.ListRequest) ([]domainpermission.Permission, int64, error) {
+func (m *permissionRepoUserMock) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainpermission.Permission, int64, error) {
 	return nil, 0, nil
 }
 func (m *permissionRepoUserMock) Update(ctx context.Context, data domainpermission.Permission) error {
@@ -734,11 +733,11 @@ func TestUserServicePassThroughAndFilteringMethods(t *testing.T) {
 		t.Fatalf("get by auth: user=%+v err=%v", got, err)
 	}
 
-	users, total, err := service.GetAllUsers(context.Background(), authActor("viewer-1", "Viewer", domainuser.RoleViewer), dtouser.ListRequest{})
+	users, total, err := service.GetAllUsers(context.Background(), authActor("viewer-1", "Viewer", domainuser.RoleViewer), dtoshared.ListRequest{})
 	if err != nil || total != 1 || len(users) != 1 || users[0].Role == domainuser.RoleSuperAdmin {
 		t.Fatalf("expected superadmin filtered for non-superadmin, users=%+v total=%d err=%v", users, total, err)
 	}
-	users, total, err = service.GetAllUsers(context.Background(), authActor("root", "Root", domainuser.RoleSuperAdmin), dtouser.ListRequest{})
+	users, total, err = service.GetAllUsers(context.Background(), authActor("root", "Root", domainuser.RoleSuperAdmin), dtoshared.ListRequest{})
 	if err != nil || total != 2 || len(users) != 2 {
 		t.Fatalf("expected superadmin to see all users, users=%+v total=%d err=%v", users, total, err)
 	}
@@ -1012,7 +1011,7 @@ func TestUserServiceLogoutAndListErrors(t *testing.T) {
 	}
 
 	service = newTestUserService(t, &userRepoMock{getAllErr: errors.New("list failed")}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	if _, _, err := service.GetAllUsers(context.Background(), domainauth.Actor{}, dtouser.ListRequest{}); err == nil || err.Error() != "list failed" {
+	if _, _, err := service.GetAllUsers(context.Background(), domainauth.Actor{}, dtoshared.ListRequest{}); err == nil || err.Error() != "list failed" {
 		t.Fatalf("expected get all error, got %v", err)
 	}
 }
@@ -1041,7 +1040,7 @@ const testUserJWTKey = "test-secret-must-be-at-least-32-bytes"
 
 func testUserTokens(t *testing.T) *token.Tokens {
 	t.Helper()
-	tokens, err := token.NewTokens(token.TokenConfig{Key: testUserJWTKey, AppName: "test-app"})
+	tokens, err := token.NewTokens(token.TokenConfig{Key: testUserJWTKey, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
 	if err != nil {
 		t.Fatalf("failed to build tokens: %v", err)
 	}
@@ -1206,7 +1205,7 @@ func TestRegisterUserFailsWhenDefaultRoleDoesNotExist(t *testing.T) {
 
 func otherAppUserTokens(t *testing.T) *token.Tokens {
 	t.Helper()
-	tokens, err := token.NewTokens(token.TokenConfig{Key: testUserJWTKey, AppName: "other-app"})
+	tokens, err := token.NewTokens(token.TokenConfig{Key: testUserJWTKey, AppName: "other-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
 	if err != nil {
 		t.Fatalf("failed to build tokens: %v", err)
 	}

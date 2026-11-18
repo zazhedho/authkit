@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
-	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"strings"
 	"testing"
 )
@@ -29,7 +29,7 @@ func (m *auditRepoMock) GetByID(ctx context.Context, id string) (domainaudit.Aud
 	return m.item, nil
 }
 
-func (m *auditRepoMock) GetAll(ctx context.Context, req dtoaudit.ListRequest) ([]domainaudit.AuditTrail, int64, error) {
+func (m *auditRepoMock) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainaudit.AuditTrail, int64, error) {
 	if m.err != nil {
 		return nil, 0, m.err
 	}
@@ -58,7 +58,7 @@ func TestGetAllDelegatesToRepository(t *testing.T) {
 	}
 	service := NewService(repo)
 
-	items, total, err := service.GetAll(context.Background(), dtoaudit.ListRequest{Page: 1, Limit: 10})
+	items, total, err := service.GetAll(context.Background(), dtoshared.ListRequest{Page: 1, Limit: 10})
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}

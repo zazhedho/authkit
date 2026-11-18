@@ -5,6 +5,7 @@ import (
 	"errors"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"time"
 )
@@ -55,7 +56,7 @@ func (s *Service) GetByID(ctx context.Context, id string) (domainpermission.Perm
 	return s.PermissionRepo.GetByID(ctx, id)
 }
 
-func (s *Service) GetAll(ctx context.Context, req dtopermission.ListRequest) ([]domainpermission.Permission, int64, error) {
+func (s *Service) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainpermission.Permission, int64, error) {
 	return s.PermissionRepo.GetAll(ctx, req)
 }
 

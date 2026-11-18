@@ -10,14 +10,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-const (
-	DefaultAccessTTL  = 24 * time.Hour
-	DefaultRefreshTTL = 168 * time.Hour
-	DefaultResetTTL   = 900 * time.Second
-)
-
 // TokenConfig configures Tokens. Key needs 32+ characters. AppName is written
-// to iss and aud and must match on verification; zero TTLs take defaults.
+// to iss and aud and must match on verification. The caller supplies every TTL.
 type TokenConfig struct {
 	Key        string
 	AppName    string
@@ -56,30 +50,21 @@ func NewTokens(cfg TokenConfig) (*Tokens, error) {
 		refreshTTL: cfg.RefreshTTL,
 		resetTTL:   cfg.ResetTTL,
 	}
-	if t.accessTTL <= 0 {
-		t.accessTTL = DefaultAccessTTL
-	}
-	if t.refreshTTL <= 0 {
-		t.refreshTTL = DefaultRefreshTTL
-	}
-	if t.resetTTL <= 0 {
-		t.resetTTL = DefaultResetTTL
-	}
 	return t, nil
 }
 
-// AccessTTL and RefreshTTL return the defaults on a nil receiver, matching the
-// other methods' fail-closed handling of a missing *Tokens.
+// AccessTTL and RefreshTTL return zero on a nil receiver, matching the other
+// methods' fail-closed handling of a missing *Tokens.
 func (t *Tokens) AccessTTL() time.Duration {
 	if t == nil {
-		return DefaultAccessTTL
+		return 0
 	}
 	return t.accessTTL
 }
 
 func (t *Tokens) RefreshTTL() time.Duration {
 	if t == nil {
-		return DefaultRefreshTTL
+		return 0
 	}
 	return t.refreshTTL
 }

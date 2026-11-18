@@ -9,6 +9,7 @@ import (
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"github.com/zazhedho/gokit"
 	"net/http"
 	"net/http/httptest"
@@ -28,7 +29,7 @@ type appConfigServiceTestDouble struct {
 	updateErr  error
 }
 
-func (m *appConfigServiceTestDouble) GetAll(ctx context.Context, req dtoappconfig.ListRequest) ([]domainappconfig.AppConfig, int64, error) {
+func (m *appConfigServiceTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainappconfig.AppConfig, int64, error) {
 	if m.err != nil {
 		return nil, 0, m.err
 	}
