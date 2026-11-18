@@ -988,10 +988,11 @@ func TestCrossModuleRuleDetectsViolations(t *testing.T) {
 var constructorTrees = []string{"internal/services", "internal/repositories", "internal/handlers"}
 
 // constructorDirSkipped reports whether the constructor rule leaves dir alone:
-// a reserved shared package holds helpers, not a module's Service, Repository
-// or Handler (NewID returns a string, AuditWriter is a public value type).
+// only the reserved top-level <tree>/shared holds helpers rather than a
+// module's Service, Repository or Handler (NewID returns a string).
 func constructorDirSkipped(dir string) bool {
-	return path.Base(dir) == sharedName
+	_, module, rest, ok := moduleTree(dir)
+	return ok && module == sharedName && rest == ""
 }
 
 func TestConstructorRuleSkipsOnlySharedDirs(t *testing.T) {
@@ -1001,11 +1002,26 @@ func TestConstructorRuleSkipsOnlySharedDirs(t *testing.T) {
 		"internal/services/user":             false,
 		"internal/handlers/http/middleware":  false,
 		"internal/repositories/shared/extra": false,
+		"internal/services/user/shared":      false,
+		"internal/handlers/http/user/shared": false,
 	}
 	for dir, want := range cases {
 		if got := constructorDirSkipped(dir); got != want {
 			t.Errorf("constructorDirSkipped(%q) = %v, want %v", dir, got, want)
 		}
+	}
+}
+
+// TestConstructorRuleFlagsNestedSharedDir: a package that merely happens to be
+// called shared inside a module is still checked.
+func TestConstructorRuleFlagsNestedSharedDir(t *testing.T) {
+	dir := "internal/services/user/shared"
+	if constructorDirSkipped(dir) {
+		t.Fatalf("%s must not be skipped", dir)
+	}
+	files := parseSources(t, "package shared\ntype I interface{}\nfunc NewI() I { return nil }")
+	if got := constructorViolations(files); len(got) != 1 {
+		t.Errorf("NewI() I: %v, want 1 violation", got)
 	}
 }
 
