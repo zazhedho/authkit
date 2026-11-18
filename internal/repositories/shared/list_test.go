@@ -1,9 +1,10 @@
 package shared
 
 import (
-	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"reflect"
 	"testing"
+
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 
 	"github.com/zazhedho/gokit"
 )

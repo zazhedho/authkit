@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	"testing"
 	"time"
+
+	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 
 	redismock "github.com/go-redis/redismock/v9"
 	"github.com/redis/go-redis/v9"

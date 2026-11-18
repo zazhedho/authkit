@@ -2,6 +2,7 @@ package appconfig
 
 import (
 	"context"
+
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"

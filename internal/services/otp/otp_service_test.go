@@ -3,9 +3,10 @@ package otp
 import (
 	"context"
 	"errors"
-	domainotp "github.com/zazhedho/authkit/internal/domain/otp"
 	"testing"
 	"time"
+
+	domainotp "github.com/zazhedho/authkit/internal/domain/otp"
 )
 
 type otpRepoTestDouble struct {

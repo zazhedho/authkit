@@ -3,13 +3,14 @@ package role
 import (
 	"context"
 	"errors"
+	"time"
+
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
-	"time"
 )
 
 type Service struct {

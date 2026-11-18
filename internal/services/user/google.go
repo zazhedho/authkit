@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	dtouser "github.com/zazhedho/authkit/internal/dto/user"
-	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	dtouser "github.com/zazhedho/authkit/internal/dto/user"
+	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 
 	"golang.org/x/crypto/bcrypt"
 )

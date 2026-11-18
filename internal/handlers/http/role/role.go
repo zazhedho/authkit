@@ -3,12 +3,14 @@ package role
 import (
 	"context"
 	"fmt"
+	"net/http"
+
+	"github.com/zazhedho/gokit"
+	"github.com/zazhedho/logus"
+
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	"github.com/zazhedho/gokit"
-	"github.com/zazhedho/logus"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )

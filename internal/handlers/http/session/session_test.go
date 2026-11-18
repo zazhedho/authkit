@@ -3,16 +3,18 @@ package session
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/zazhedho/gokit"
+
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
-	"github.com/zazhedho/gokit"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )

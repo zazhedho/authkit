@@ -2,12 +2,14 @@ package shared
 
 import (
 	"context"
-	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"reflect"
 	"testing"
 
-	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
+
 	"github.com/zazhedho/gokit"
+
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 )
 
 func TestListRequestCopiesEveryField(t *testing.T) {

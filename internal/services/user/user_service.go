@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
-	"strings"
-	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )

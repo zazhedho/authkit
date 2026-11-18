@@ -2,10 +2,12 @@ package appconfig
 
 import (
 	"context"
+
+	"github.com/zazhedho/gokit"
+
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
-	"github.com/zazhedho/gokit"
 
 	"gorm.io/gorm"
 )

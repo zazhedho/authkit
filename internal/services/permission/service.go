@@ -3,11 +3,12 @@ package permission
 import (
 	"context"
 	"errors"
+	"time"
+
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
-	"time"
 )
 
 type Service struct {

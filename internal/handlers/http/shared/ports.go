@@ -3,9 +3,10 @@ package shared
 import (
 	"context"
 
+	"github.com/zazhedho/gokit"
+
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
-	"github.com/zazhedho/gokit"
 )
 
 // AuditService is what an AuditWriter stores events through. Its method set

@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/zazhedho/gokit"
+
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
@@ -14,7 +16,6 @@ import (
 	"github.com/zazhedho/authkit/internal/handlers/http/middleware"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 	"github.com/zazhedho/authkit/internal/infrastructure/mailer"
-	"github.com/zazhedho/gokit"
 )
 
 // Scope is the authenticated identity of a request: user, role and the

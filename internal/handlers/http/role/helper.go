@@ -2,11 +2,13 @@ package role
 
 import (
 	"errors"
-	domainrole "github.com/zazhedho/authkit/internal/domain/role"
-	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	"github.com/zazhedho/gokit"
 	"net/http"
 	"strings"
+
+	"github.com/zazhedho/gokit"
+
+	domainrole "github.com/zazhedho/authkit/internal/domain/role"
+	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 
 	"github.com/google/uuid"
 )

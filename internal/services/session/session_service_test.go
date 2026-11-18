@@ -3,10 +3,11 @@ package session
 import (
 	"context"
 	"errors"
-	domainsession "github.com/zazhedho/authkit/internal/domain/session"
-	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	"testing"
 	"time"
+
+	domainsession "github.com/zazhedho/authkit/internal/domain/session"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
 type sessionRepoTestDouble struct {

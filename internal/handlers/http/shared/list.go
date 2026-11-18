@@ -1,8 +1,9 @@
 package shared
 
 import (
-	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"github.com/zazhedho/gokit"
+
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 )
 
 // ListRequest converts the parsed query into the dto every module's service

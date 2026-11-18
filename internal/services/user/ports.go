@@ -2,8 +2,9 @@ package user
 
 import (
 	"context"
-	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"time"
+
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"

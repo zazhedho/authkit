@@ -3,8 +3,9 @@ package user
 import (
 	"context"
 	"errors"
-	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	"regexp"
+
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
 func ValidatePasswordStrength(password string) error {

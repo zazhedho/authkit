@@ -3,10 +3,11 @@ package permission
 import (
 	"context"
 	"errors"
+	"testing"
+
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
-	"testing"
 )
 
 type permissionRepoTestDouble struct {

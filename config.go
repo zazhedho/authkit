@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/zazhedho/gokit"
+	"gorm.io/gorm"
+
 	"github.com/zazhedho/authkit/internal/config"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	"github.com/zazhedho/gokit"
-	"gorm.io/gorm"
 )
 
 // OTPConfig configures registration OTP generation, limits and lifetime.

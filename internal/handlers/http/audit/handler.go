@@ -2,10 +2,12 @@ package audit
 
 import (
 	"fmt"
-	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
+	"net/http"
+
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
-	"net/http"
+
+	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 
 	"github.com/gin-gonic/gin"
 )

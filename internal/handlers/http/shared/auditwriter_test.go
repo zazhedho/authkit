@@ -3,12 +3,14 @@ package shared
 import (
 	"context"
 	"errors"
-	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
-	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
-	"github.com/zazhedho/gokit"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/zazhedho/gokit"
+
+	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 
 	"github.com/gin-gonic/gin"
 )

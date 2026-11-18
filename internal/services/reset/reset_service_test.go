@@ -3,9 +3,10 @@ package reset
 import (
 	"context"
 	"errors"
-	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
 	"testing"
 	"time"
+
+	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
 )
 
 type resetRepoTestDouble struct {

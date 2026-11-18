@@ -3,11 +3,12 @@ package appconfig
 import (
 	"context"
 	"errors"
+	"time"
+
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
-	"time"
 )
 
 type Service struct {

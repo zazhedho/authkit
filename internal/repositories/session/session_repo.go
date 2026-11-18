@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
+
+	"github.com/zazhedho/logus"
+
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
-	"github.com/zazhedho/logus"
-	"time"
 
 	"github.com/redis/go-redis/v9"
 )

@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	domainotp "github.com/zazhedho/authkit/internal/domain/otp"
-	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	"github.com/zazhedho/logus"
 	"strings"
 	"time"
+
+	"github.com/zazhedho/logus"
+
+	domainotp "github.com/zazhedho/authkit/internal/domain/otp"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
 // Config holds the OTP timing and limits; Secret keys the stored code hashes.

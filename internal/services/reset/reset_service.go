@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
-	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	"strings"
 	"time"
+
+	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
 // Config holds the reset timing and limits; Secret keys the stored token

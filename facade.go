@@ -3,12 +3,13 @@ package authkit
 import (
 	"context"
 
+	"github.com/zazhedho/gokit"
+
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 	serviceappconfig "github.com/zazhedho/authkit/internal/services/appconfig"
 	serviceaudit "github.com/zazhedho/authkit/internal/services/audit"
-	"github.com/zazhedho/gokit"
 )
 
 // The services take a ListRequest so they stay free of gokit, but the public

@@ -3,9 +3,10 @@ package session
 import (
 	"context"
 	"fmt"
+	"time"
+
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	"time"
 
 	"github.com/google/uuid"
 )

@@ -12,9 +12,10 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
+
 	"github.com/zazhedho/authkit/internal/config"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	"gorm.io/gorm"
 )
 
 const testJWTKey = "test-secret-must-be-at-least-32-bytes"

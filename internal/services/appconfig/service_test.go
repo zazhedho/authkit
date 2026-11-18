@@ -3,11 +3,12 @@ package appconfig
 import (
 	"context"
 	"errors"
+	"testing"
+	"time"
+
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
-	"testing"
-	"time"
 )
 
 type appConfigRepoMock struct {

@@ -1,10 +1,11 @@
 package mailer
 
 import (
-	"github.com/zazhedho/gokit"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/zazhedho/gokit"
 )
 
 func TestNewBrevoSenderValidatesRequiredConfig(t *testing.T) {

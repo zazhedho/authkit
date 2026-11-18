@@ -2,10 +2,12 @@ package middleware
 
 import (
 	"fmt"
-	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
-	"github.com/zazhedho/logus"
 	"net/http"
 	"time"
+
+	"github.com/zazhedho/logus"
+
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 
 	"github.com/gin-gonic/gin"
 )

@@ -2,10 +2,11 @@ package shared
 
 import (
 	"context"
+	"strings"
+
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
-	"strings"
 )
 
 func ResolveAccessibleMenus(activeMenus []domainmenu.MenuItem, resources []string) []domainmenu.MenuItem {

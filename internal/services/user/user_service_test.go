@@ -3,6 +3,9 @@ package user
 import (
 	"context"
 	"errors"
+	"testing"
+	"time"
+
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
@@ -10,8 +13,6 @@ import (
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	"testing"
-	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )

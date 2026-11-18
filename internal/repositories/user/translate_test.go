@@ -6,9 +6,10 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"gorm.io/gorm"
+
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	"github.com/zazhedho/authkit/internal/testutil"
-	"gorm.io/gorm"
 )
 
 func TestRepositoryTranslatesErrorsToDomain(t *testing.T) {

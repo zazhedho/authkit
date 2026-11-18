@@ -5,16 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/zazhedho/gokit"
+
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
-	"github.com/zazhedho/gokit"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )

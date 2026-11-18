@@ -3,12 +3,13 @@ package audit
 import (
 	"context"
 	"errors"
+	"strings"
+	"time"
+
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
-	"strings"
-	"time"
 )
 
 type Service struct {

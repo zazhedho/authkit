@@ -2,10 +2,12 @@ package role
 
 import (
 	"context"
+
+	"github.com/zazhedho/gokit"
+
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
-	"github.com/zazhedho/gokit"
 
 	"gorm.io/gorm"
 )

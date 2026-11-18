@@ -3,10 +3,11 @@ package audit
 import (
 	"context"
 	"errors"
-	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
-	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"strings"
 	"testing"
+
+	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 )
 
 type auditRepoMock struct {

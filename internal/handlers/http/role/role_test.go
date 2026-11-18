@@ -6,6 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/zazhedho/gokit"
+
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
@@ -13,10 +19,6 @@ import (
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
-	"github.com/zazhedho/gokit"
-	"net/http"
-	"net/http/httptest"
-	"testing"
 
 	"github.com/gin-gonic/gin"
 )

@@ -1,8 +1,9 @@
 package shared
 
 import (
-	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"github.com/zazhedho/gokit"
+
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 )
 
 // BaseParams converts a list request into the gokit query the generic

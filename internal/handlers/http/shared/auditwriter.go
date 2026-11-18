@@ -2,10 +2,12 @@ package shared
 
 import (
 	"fmt"
-	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
-	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
+
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
+
+	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 
 	"github.com/gin-gonic/gin"
 )

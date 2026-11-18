@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"

@@ -3,10 +3,12 @@ package auth
 import (
 	"context"
 	"errors"
+	"time"
+
+	"github.com/zazhedho/gokit"
+
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
-	"github.com/zazhedho/gokit"
-	"time"
 
 	"gorm.io/gorm"
 )

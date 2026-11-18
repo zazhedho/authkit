@@ -2,8 +2,9 @@ package role
 
 import (
 	"context"
-	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"testing"
+
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/postgres"

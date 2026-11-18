@@ -3,6 +3,8 @@ package role
 import (
 	"context"
 	"errors"
+	"testing"
+
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
@@ -10,7 +12,6 @@ import (
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
-	"testing"
 )
 
 func roleActor(userID, username, role string, permissions ...string) domainauth.Actor {

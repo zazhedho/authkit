@@ -4,6 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/zazhedho/gokit"
+	"github.com/zazhedho/logus"
+
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainotp "github.com/zazhedho/authkit/internal/domain/otp"
@@ -11,11 +18,6 @@ import (
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	"github.com/zazhedho/gokit"
-	"github.com/zazhedho/logus"
-	"net/http"
-	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )

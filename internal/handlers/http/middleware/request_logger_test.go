@@ -1,13 +1,15 @@
 package middleware
 
 import (
-	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
-	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	"github.com/zazhedho/gokit"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/zazhedho/gokit"
+
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 
 	"github.com/gin-gonic/gin"
 )

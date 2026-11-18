@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
-	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
-	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 
 	"github.com/gin-gonic/gin"
 )

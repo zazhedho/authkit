@@ -2,6 +2,7 @@ package role
 
 import (
 	"context"
+
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 

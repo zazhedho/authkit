@@ -14,13 +14,14 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
 	"github.com/zazhedho/authkit/internal/config"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	serviceuser "github.com/zazhedho/authkit/internal/services/user"
 	"github.com/zazhedho/authkit/internal/testutil"
-	"gorm.io/gorm"
 )
 
 func init() { gin.SetMode(gin.TestMode) }

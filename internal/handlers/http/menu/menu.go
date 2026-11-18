@@ -2,13 +2,15 @@ package menu
 
 import (
 	"fmt"
+	"net/http"
+
+	"github.com/zazhedho/gokit"
+	"github.com/zazhedho/logus"
+
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	dtomenu "github.com/zazhedho/authkit/internal/dto/menu"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	"github.com/zazhedho/gokit"
-	"github.com/zazhedho/logus"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )

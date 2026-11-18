@@ -2,11 +2,13 @@ package permission
 
 import (
 	"errors"
-	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
-	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	"github.com/zazhedho/gokit"
 	"net/http"
 	"strings"
+
+	"github.com/zazhedho/gokit"
+
+	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
+	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 
 	"github.com/google/uuid"
 )

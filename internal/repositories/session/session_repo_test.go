@@ -2,9 +2,10 @@ package session
 
 import (
 	"context"
-	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	"testing"
 	"time"
+
+	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 )
 
 func expectPanic(t *testing.T, fn func()) {

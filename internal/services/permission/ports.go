@@ -2,6 +2,7 @@ package permission
 
 import (
 	"context"
+
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"

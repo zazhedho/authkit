@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"

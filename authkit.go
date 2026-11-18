@@ -9,6 +9,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/zazhedho/gokit"
+	"github.com/zazhedho/logus"
+
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	httpappconfig "github.com/zazhedho/authkit/internal/handlers/http/appconfig"
 	httpaudit "github.com/zazhedho/authkit/internal/handlers/http/audit"
@@ -40,8 +43,6 @@ import (
 	servicerole "github.com/zazhedho/authkit/internal/services/role"
 	servicesession "github.com/zazhedho/authkit/internal/services/session"
 	serviceuser "github.com/zazhedho/authkit/internal/services/user"
-	"github.com/zazhedho/gokit"
-	"github.com/zazhedho/logus"
 )
 
 // Kit is the assembled users, auth and RBAC module. Build it once with New and

@@ -3,11 +3,12 @@ package shared
 import (
 	"context"
 	"errors"
+	"testing"
+
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
-	"testing"
 )
 
 func TestResolveAccessibleMenus_IncludesParentAndPreservesActiveOrder(t *testing.T) {

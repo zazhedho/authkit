@@ -3,14 +3,16 @@ package user
 import (
 	"context"
 	"database/sql/driver"
-	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	"regexp"
 	"testing"
 
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
+
 	"github.com/DATA-DOG/go-sqlmock"
-	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
 func newDryRunDB(t *testing.T) *gorm.DB {

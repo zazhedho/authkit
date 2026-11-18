@@ -3,9 +3,10 @@ package auth
 import (
 	"context"
 	"errors"
-	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	"testing"
 	"time"
+
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 )
 
 func expectPanic(t *testing.T, fn func()) {

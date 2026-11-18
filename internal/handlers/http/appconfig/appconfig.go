@@ -3,13 +3,15 @@ package appconfig
 import (
 	"errors"
 	"fmt"
+	"net/http"
+
+	"github.com/zazhedho/gokit"
+	"github.com/zazhedho/logus"
+
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	"github.com/zazhedho/gokit"
-	"github.com/zazhedho/logus"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )

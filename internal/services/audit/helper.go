@@ -3,10 +3,11 @@ package audit
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
-	"strings"
 )
 
 func toAuditResponses(items []domainaudit.AuditTrail) []dtoaudit.AuditTrailResponse {

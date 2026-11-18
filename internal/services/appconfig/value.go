@@ -3,10 +3,11 @@ package appconfig
 import (
 	"encoding/json"
 	"fmt"
-	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"strconv"
 	"strings"
 	"time"
+
+	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 )
 
 func parseString(raw, fallback string) string {
