@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
+	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/logus"
 	"time"
 
@@ -66,7 +67,7 @@ func (r *Repository) GetBySessionID(ctx context.Context, sessionID string) (*dom
 
 	data, err := r.Redis.Get(ctx, sessionKey).Result()
 	if errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("session not found")
+		return nil, reposhared.RedisMsg(err, domainsession.ErrNotFound, "session not found")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session: %w", err)
@@ -107,7 +108,7 @@ func (r *Repository) GetByToken(ctx context.Context, token string) (*domainsessi
 
 	sessionID, err := r.Redis.Get(ctx, tokenKey).Result()
 	if errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("session not found for token")
+		return nil, reposhared.RedisMsg(err, domainsession.ErrNotFound, "session not found for token")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session by token: %w", err)
@@ -121,7 +122,7 @@ func (r *Repository) GetByRefreshToken(ctx context.Context, refreshToken string)
 
 	sessionID, err := r.Redis.Get(ctx, tokenKey).Result()
 	if errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("session not found for refresh token")
+		return nil, reposhared.RedisMsg(err, domainsession.ErrNotFound, "session not found for refresh token")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session by refresh token: %w", err)

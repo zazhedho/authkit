@@ -17,7 +17,6 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type permissionServiceTestDouble struct {
@@ -172,7 +171,7 @@ func TestCreatePermissionRejectsInvalidJSON(t *testing.T) {
 
 func TestGetPermissionByIDReturnsNotFound(t *testing.T) {
 	handler := New(
-		&permissionServiceTestDouble{err: gorm.ErrRecordNotFound},
+		&permissionServiceTestDouble{err: domainpermission.ErrNotFound},
 		&auditServicePermissionTestDouble{},
 	)
 

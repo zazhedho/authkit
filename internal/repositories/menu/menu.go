@@ -4,6 +4,7 @@ import (
 	"context"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 	"sort"
 
@@ -18,8 +19,22 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{Repository: gokit.NewRepository[domainmenu.MenuItem](db)}
 }
 
+func translateErr(err error) error {
+	return reposhared.Gorm(err, domainmenu.ErrNotFound, nil)
+}
+
+func (r *Repository) GetByID(ctx context.Context, id string) (domainmenu.MenuItem, error) {
+	ret, err := r.Repository.GetByID(ctx, id)
+	return ret, translateErr(err)
+}
+
+func (r *Repository) Update(ctx context.Context, item domainmenu.MenuItem) error {
+	return translateErr(r.Repository.Update(ctx, item))
+}
+
 func (r *Repository) GetByName(ctx context.Context, name string) (ret domainmenu.MenuItem, err error) {
-	return r.GetOneByField(ctx, "name", name)
+	ret, err = r.GetOneByField(ctx, "name", name)
+	return ret, translateErr(err)
 }
 
 func (r *Repository) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domainmenu.MenuItem, totalData int64, err error) {
@@ -50,7 +65,7 @@ func (r *Repository) GetUserMenus(ctx context.Context, userId string) (ret []dom
 		Role   string
 	}
 	if err = r.DB.WithContext(ctx).Table("users").Select("role_id, role").Where("id = ?", userId).First(&user).Error; err != nil {
-		return nil, err
+		return nil, reposhared.Gorm(err, domainuser.ErrNotFound, nil)
 	}
 
 	if user.Role == domainuser.RoleSuperAdmin {

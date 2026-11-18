@@ -2,19 +2,21 @@ package role
 
 import (
 	"errors"
+	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
+	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	"github.com/zazhedho/gokit"
 	"net/http"
 	"strings"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 func roleMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiResponse) {
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	// A dangling permission id surfaces through the role endpoints as a 404 too.
+	if errors.Is(err, domainrole.ErrNotFound) || errors.Is(err, domainpermission.ErrNotFound) {
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, "role not found")
 	}
-	if errors.Is(err, gorm.ErrDuplicatedKey) {
+	if errors.Is(err, domainrole.ErrDuplicate) {
 		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logId, "role with this name already exists")
 	}
 

@@ -19,7 +19,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
-	"gorm.io/gorm"
 )
 
 type Middleware struct {
@@ -243,7 +242,7 @@ func (m *Middleware) loadScopePermissions(ctx *gin.Context, logId uuid.UUID, log
 
 	permissionKeys, err := m.loadPermissionKeys(ctx.Request.Context(), userId)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, domainuser.ErrNotFound) {
 			logus.WriteLogWithContext(ctx, logus.LogLevelWarn, fmt.Sprintf("%s; User '%s' not found when loading permissions", logPrefix, userId))
 			res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
 			ctx.AbortWithStatusJSON(http.StatusForbidden, res)

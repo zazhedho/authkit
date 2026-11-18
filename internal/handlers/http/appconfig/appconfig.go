@@ -3,6 +3,7 @@ package appconfig
 import (
 	"errors"
 	"fmt"
+	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
@@ -11,7 +12,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type Handler struct {
@@ -106,7 +106,7 @@ func (h *Handler) Update(ctx *gin.Context) {
 		})
 
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Update; Error: %+v", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, domainappconfig.ErrNotFound) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgResourceNotFound, logId, nil)
 			res.Error = "config data not found"
 			ctx.JSON(http.StatusNotFound, res)

@@ -6,13 +6,12 @@ import (
 	"errors"
 	"github.com/zazhedho/authkit/internal/config"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
+	domainotp "github.com/zazhedho/authkit/internal/domain/otp"
+	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	serviceotp "github.com/zazhedho/authkit/internal/services/otp"
-	servicereset "github.com/zazhedho/authkit/internal/services/reset"
-	serviceuser "github.com/zazhedho/authkit/internal/services/user"
 	"github.com/zazhedho/gokit"
 	"net/http"
 	"net/http/httptest"
@@ -24,8 +23,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-
-	"gorm.io/gorm"
 )
 
 type userServiceTestDouble struct {
@@ -713,7 +710,7 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 	handler.Login(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
 
-	handler = New(&userServiceTestDouble{loginErr: gorm.ErrRecordNotFound}, nil, nil, &loginLimiterUserHandlerTestDouble{registerBlocked: true, ttl: time.Minute}, nil, testHandlerOptions())
+	handler = New(&userServiceTestDouble{loginErr: domainuser.ErrNotFound}, nil, nil, &loginLimiterUserHandlerTestDouble{registerBlocked: true, ttl: time.Minute}, nil, testHandlerOptions())
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/login", `{"identifier":"jane@example.com","password":"secret123"}`, nil)
 	handler.Login(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusTooManyRequests)
@@ -723,7 +720,7 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 	handler.Login(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
 
-	handler = New(&userServiceTestDouble{googleErr: serviceuser.ErrGoogleNotConfigured}, nil, nil, nil, nil, testHandlerOptions())
+	handler = New(&userServiceTestDouble{googleErr: domainuser.ErrGoogleNotConfigured}, nil, nil, nil, nil, testHandlerOptions())
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/google/login", `{"id_token":"token"}`, nil)
 	handler.GoogleLogin(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusServiceUnavailable)
@@ -753,7 +750,7 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 	handler.RefreshToken(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
 
-	handler = New(&userServiceTestDouble{err: gorm.ErrRecordNotFound}, &blacklistRepoUserHandlerTestDouble{}, nil, nil, nil, testHandlerOptions())
+	handler = New(&userServiceTestDouble{err: domainuser.ErrNotFound}, &blacklistRepoUserHandlerTestDouble{}, nil, nil, nil, testHandlerOptions())
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/refresh-token", `{"refresh_token":"`+refreshToken+`"}`, nil)
 	handler.RefreshToken(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusNotFound)
@@ -792,12 +789,12 @@ func TestUserHandlerOTPErrorBranches(t *testing.T) {
 	handler.Register(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusServiceUnavailable)
 
-	handler.OTPService = &otpServiceUserHandlerTestDouble{err: serviceotp.ErrOTPTooManyAttempt}
+	handler.OTPService = &otpServiceUserHandlerTestDouble{err: domainotp.ErrTooManyAttempt}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/register", `{"name":"Jane Doe","email":"new@example.com","phone":"628123456789","password":"secret123","otp_code":"123456"}`, nil)
 	handler.Register(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
 
-	handler.OTPService = &otpServiceUserHandlerTestDouble{err: serviceotp.ErrOTPNotConfigured}
+	handler.OTPService = &otpServiceUserHandlerTestDouble{err: domainotp.ErrNotConfigured}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/register", `{"name":"Jane Doe","email":"new@example.com","phone":"628123456789","password":"secret123","otp_code":"123456"}`, nil)
 	handler.Register(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusServiceUnavailable)
@@ -812,12 +809,12 @@ func TestUserHandlerOTPErrorBranches(t *testing.T) {
 	handler.SendRegisterOTP(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusServiceUnavailable)
 
-	handler.OTPService = &otpServiceUserHandlerTestDouble{err: &serviceotp.ThrottleError{Reason: "rate_limit", RetryAfter: time.Second}}
+	handler.OTPService = &otpServiceUserHandlerTestDouble{err: &domainotp.ThrottleError{Reason: "rate_limit", RetryAfter: time.Second}}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/register/otp/send", `{"email":"new@example.com"}`, nil)
 	handler.SendRegisterOTP(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusTooManyRequests)
 
-	handler.OTPService = &otpServiceUserHandlerTestDouble{err: serviceotp.ErrOTPDeliveryFailed}
+	handler.OTPService = &otpServiceUserHandlerTestDouble{err: domainotp.ErrDeliveryFailed}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/register/otp/send", `{"email":"new@example.com"}`, nil)
 	handler.SendRegisterOTP(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusServiceUnavailable)
@@ -831,7 +828,7 @@ func TestUserHandlerOTPErrorBranches(t *testing.T) {
 func TestUserHandlerNotFoundAndValidationErrorBranches(t *testing.T) {
 	userID := uuid.NewString()
 	scope := domainauth.New(userID, "Jane Doe", "user", nil)
-	handler := New(&userServiceTestDouble{err: gorm.ErrRecordNotFound}, nil, nil, nil, nil, testHandlerOptions())
+	handler := New(&userServiceTestDouble{err: domainuser.ErrNotFound}, nil, nil, nil, nil, testHandlerOptions())
 
 	tests := []struct {
 		name   string
@@ -902,12 +899,12 @@ func TestUserHandlerEmailPasswordResetBranches(t *testing.T) {
 		t.Fatalf("expected reset cooldown in response, body=%s", rec.Body.String())
 	}
 
-	handler.ResetService = &resetServiceUserHandlerTestDouble{err: &servicereset.ThrottleError{Reason: "rate_limit", RetryAfter: time.Second}}
+	handler.ResetService = &resetServiceUserHandlerTestDouble{err: &domainreset.ThrottleError{Reason: "rate_limit", RetryAfter: time.Second}}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/forgot-password", `{"email":"jane@example.com"}`, nil)
 	handler.ForgotPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusTooManyRequests)
 
-	handler.ResetService = &resetServiceUserHandlerTestDouble{err: servicereset.ErrResetDeliveryFailed}
+	handler.ResetService = &resetServiceUserHandlerTestDouble{err: domainreset.ErrDeliveryFailed}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/forgot-password", `{"email":"jane@example.com"}`, nil)
 	handler.ForgotPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusServiceUnavailable)
@@ -917,7 +914,7 @@ func TestUserHandlerEmailPasswordResetBranches(t *testing.T) {
 	handler.ResetPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusServiceUnavailable)
 
-	handler.ResetService = &resetServiceUserHandlerTestDouble{err: servicereset.ErrResetInvalid}
+	handler.ResetService = &resetServiceUserHandlerTestDouble{err: domainreset.ErrInvalid}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"reset-token","new_password":"secret456"}`, nil)
 	handler.ResetPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
@@ -927,7 +924,7 @@ func TestUserHandlerEmailPasswordResetBranches(t *testing.T) {
 	handler.ResetPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusOK)
 
-	handler = New(&userServiceTestDouble{err: gorm.ErrDuplicatedKey}, nil, nil, nil, nil, Options{Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: &resetServiceUserHandlerTestDouble{email: "jane@example.com"}})
+	handler = New(&userServiceTestDouble{err: domainuser.ErrDuplicate}, nil, nil, nil, nil, Options{Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: &resetServiceUserHandlerTestDouble{email: "jane@example.com"}})
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"reset-token","new_password":"secret456"}`, nil)
 	handler.ResetPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusBadRequest)

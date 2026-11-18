@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
+	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 	"time"
 
@@ -31,11 +32,16 @@ func (r *Repository) Store(ctx context.Context, blacklist domainauth.Blacklist) 
 		return err
 	}
 
-	return r.Repository.Store(ctx, blacklist)
+	return translateErr(r.Repository.Store(ctx, blacklist))
+}
+
+func translateErr(err error) error {
+	return reposhared.Gorm(err, domainauth.ErrNotFound, domainauth.ErrDuplicate)
 }
 
 func (r *Repository) GetByToken(ctx context.Context, token string) (domainauth.Blacklist, error) {
-	return r.GetOneByField(ctx, "token", token)
+	ret, err := r.GetOneByField(ctx, "token", token)
+	return ret, translateErr(err)
 }
 
 func (r *Repository) ExistsByToken(ctx context.Context, token string) (bool, error) {

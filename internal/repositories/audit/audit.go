@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 
 	"gorm.io/gorm"
@@ -30,4 +31,9 @@ func (r *Repository) GetAll(ctx context.Context, params gokit.BaseParams) (ret [
 		},
 		DefaultOrders: []string{"occurred_at DESC", "created_at DESC"},
 	})
+}
+
+func (r *Repository) GetByID(ctx context.Context, id string) (domainaudit.AuditTrail, error) {
+	ret, err := r.Repository.GetByID(ctx, id)
+	return ret, reposhared.Gorm(err, domainaudit.ErrNotFound, nil)
 }

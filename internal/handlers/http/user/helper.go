@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	servicereset "github.com/zazhedho/authkit/internal/services/reset"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"net/http"
@@ -19,7 +19,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 const (
@@ -61,7 +60,7 @@ func (h *Handler) respondThrottle(ctx *gin.Context, logId uuid.UUID, ttl time.Du
 
 func (h *Handler) registrationConflict(ctx context.Context, email, phone string) (string, string, error) {
 	user, err := h.Service.GetUserByEmail(ctx, email)
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err != nil && !errors.Is(err, domainuser.ErrNotFound) {
 		return "", "Service.GetUserByEmail", err
 	}
 	if user.Id != "" {
@@ -72,7 +71,7 @@ func (h *Handler) registrationConflict(ctx context.Context, email, phone string)
 	}
 
 	user, err = h.Service.GetUserByPhone(ctx, gokit.NormalizePhoneTo62(phone))
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err != nil && !errors.Is(err, domainuser.ErrNotFound) {
 		return "", "Service.GetUserByPhone", err
 	}
 	if user.Id != "" {
@@ -109,7 +108,7 @@ func (h *Handler) rejectBlockedLogin(ctx *gin.Context, logId uuid.UUID, logPrefi
 
 func (h *Handler) handleLoginFailure(ctx *gin.Context, logId uuid.UUID, logPrefix, normalizedIdentifier, loginIdentifier string, err error) {
 	logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.LoginUser; ERROR: %s;", logPrefix, err))
-	if !errors.Is(err, gorm.ErrRecordNotFound) && err.Error() != ErrHashPassword {
+	if !errors.Is(err, domainuser.ErrNotFound) && err.Error() != ErrHashPassword {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionLogin,
 			Resource:     "auth",
@@ -199,13 +198,13 @@ func (h *Handler) forgotPasswordByEmail(ctx *gin.Context, req dtouser.ForgotPass
 				Message: "Failed to request password reset email", ErrorMessage: err.Error(),
 				AfterData: map[string]any{"email": normalizedEmail},
 			})
-			if throttle, ok := errors.AsType[*servicereset.ThrottleError](err); ok {
+			if throttle, ok := errors.AsType[*domainreset.ThrottleError](err); ok {
 				h.respondThrottle(ctx, logId, throttle.RetryAfter, "Password reset request is throttled. Please try again later.")
 				return
 			}
 			statusCode := http.StatusInternalServerError
 			message := "Failed to send password reset email. Please contact support with the log ID."
-			if errors.Is(err, servicereset.ErrResetNotConfigured) || errors.Is(err, servicereset.ErrResetDeliveryFailed) {
+			if errors.Is(err, domainreset.ErrNotConfigured) || errors.Is(err, domainreset.ErrDeliveryFailed) {
 				statusCode = http.StatusServiceUnavailable
 				message = "Password reset email service is temporarily unavailable."
 			}
@@ -243,7 +242,7 @@ func (h *Handler) resetPasswordByEmail(ctx *gin.Context, req dtouser.ResetPasswo
 		})
 		statusCode := http.StatusBadRequest
 		message := "invalid or expired reset token"
-		if errors.Is(err, servicereset.ErrResetNotConfigured) {
+		if errors.Is(err, domainreset.ErrNotConfigured) {
 			statusCode = http.StatusServiceUnavailable
 			message = passwordResetEmailNotConfiguredMessage
 		}
@@ -319,10 +318,10 @@ func (h *Handler) buildAuthTokenResponse(accessToken, refreshToken string) map[s
 }
 
 func userMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiResponse) {
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if errors.Is(err, domainuser.ErrNotFound) {
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, userNotFoundMessage)
 	}
-	if errors.Is(err, gorm.ErrDuplicatedKey) {
+	if errors.Is(err, domainuser.ErrDuplicate) {
 		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logId, "email or phone already exists")
 	}
 
@@ -347,7 +346,7 @@ func userMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiRespo
 }
 
 func impersonationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiResponse) {
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if errors.Is(err, domainuser.ErrNotFound) {
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, userNotFoundMessage)
 	}
 

@@ -5,33 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/zazhedho/authkit/internal/config"
+	domainotp "github.com/zazhedho/authkit/internal/domain/otp"
 	"github.com/zazhedho/authkit/internal/infrastructure/mailer"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"strings"
-	"time"
-
-	"github.com/redis/go-redis/v9"
 )
-
-var (
-	ErrOTPInvalid        = errors.New("otp invalid or expired")
-	ErrOTPTooManyAttempt = errors.New("otp too many attempts")
-	ErrOTPNotConfigured  = errors.New("otp service not configured")
-	ErrOTPDeliveryFailed = errors.New("otp delivery failed")
-)
-
-type ThrottleError struct {
-	Reason     string
-	RetryAfter time.Duration
-}
-
-func (e *ThrottleError) Error() string {
-	if e == nil {
-		return "otp throttled"
-	}
-	return fmt.Sprintf("otp throttled: %s", e.Reason)
-}
 
 type Service struct {
 	Repo   Repository
@@ -51,12 +30,12 @@ func (s *Service) missingSecret() bool {
 
 func (s *Service) SendRegisterOTP(ctx context.Context, email, appName string) error {
 	if s == nil || s.Repo == nil || s.Sender == nil || s.missingSecret() {
-		return ErrOTPNotConfigured
+		return domainotp.ErrNotConfigured
 	}
 
 	normalizedEmail := gokit.SanitizeEmail(email)
 	if normalizedEmail == "" {
-		return ErrOTPInvalid
+		return domainotp.ErrInvalid
 	}
 
 	cooldownTTL, err := s.Repo.GetCooldownTTL(ctx, normalizedEmail)
@@ -64,7 +43,7 @@ func (s *Service) SendRegisterOTP(ctx context.Context, email, appName string) er
 		return fmt.Errorf("check cooldown: %w", err)
 	}
 	if cooldownTTL > 0 {
-		return &ThrottleError{Reason: "cooldown", RetryAfter: cooldownTTL}
+		return &domainotp.ThrottleError{Reason: "cooldown", RetryAfter: cooldownTTL}
 	}
 
 	if s.Config.RateLimit > 0 && s.Config.RateWindow > 0 {
@@ -73,7 +52,7 @@ func (s *Service) SendRegisterOTP(ctx context.Context, email, appName string) er
 			return fmt.Errorf("rate limit: %w", err)
 		}
 		if count > s.Config.RateLimit {
-			return &ThrottleError{Reason: "rate_limit", RetryAfter: retryAfter}
+			return &domainotp.ThrottleError{Reason: "rate_limit", RetryAfter: retryAfter}
 		}
 	}
 
@@ -101,7 +80,7 @@ func (s *Service) SendRegisterOTP(ctx context.Context, email, appName string) er
 		_ = s.Repo.ClearCooldown(ctx, normalizedEmail)
 		_ = s.Repo.ClearSendCount(ctx, normalizedEmail)
 		logus.WriteLog(logus.LogLevelError, "OTP delivery error: ", err)
-		return ErrOTPDeliveryFailed
+		return domainotp.ErrDeliveryFailed
 	}
 
 	return nil
@@ -109,19 +88,19 @@ func (s *Service) SendRegisterOTP(ctx context.Context, email, appName string) er
 
 func (s *Service) VerifyRegisterOTP(ctx context.Context, email, code string) error {
 	if s == nil || s.Repo == nil || s.missingSecret() {
-		return ErrOTPNotConfigured
+		return domainotp.ErrNotConfigured
 	}
 
 	normalizedEmail := gokit.SanitizeEmail(email)
 	cleanCode := strings.TrimSpace(code)
 	if normalizedEmail == "" || cleanCode == "" {
-		return ErrOTPInvalid
+		return domainotp.ErrInvalid
 	}
 
 	hashed, err := s.Repo.GetOTP(ctx, normalizedEmail)
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return ErrOTPInvalid
+		if errors.Is(err, domainotp.ErrNotFound) {
+			return domainotp.ErrInvalid
 		}
 		return fmt.Errorf("get otp: %w", err)
 	}
@@ -134,16 +113,16 @@ func (s *Service) VerifyRegisterOTP(ctx context.Context, email, code string) err
 	if s.Config.MaxAttempts > 0 && attempts > s.Config.MaxAttempts {
 		_ = s.Repo.DeleteOTP(ctx, normalizedEmail)
 		_ = s.Repo.ResetAttempts(ctx, normalizedEmail)
-		return ErrOTPTooManyAttempt
+		return domainotp.ErrTooManyAttempt
 	}
 
 	if !verifyOTP(cleanCode, hashed, s.Config.Secret) {
 		if s.Config.MaxAttempts > 0 && attempts >= s.Config.MaxAttempts {
 			_ = s.Repo.DeleteOTP(ctx, normalizedEmail)
 			_ = s.Repo.ResetAttempts(ctx, normalizedEmail)
-			return ErrOTPTooManyAttempt
+			return domainotp.ErrTooManyAttempt
 		}
-		return ErrOTPInvalid
+		return domainotp.ErrInvalid
 	}
 
 	_ = s.Repo.DeleteOTP(ctx, normalizedEmail)

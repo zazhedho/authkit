@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type roleServiceHandlerTestDouble struct {
@@ -197,7 +196,7 @@ func TestRoleHandlersRejectInvalidJSON(t *testing.T) {
 }
 
 func TestRoleHandlersServiceErrorBranches(t *testing.T) {
-	handler := New(&roleServiceHandlerTestDouble{err: gorm.ErrRecordNotFound}, &auditServiceRoleTestDouble{})
+	handler := New(&roleServiceHandlerTestDouble{err: domainrole.ErrNotFound}, &auditServiceRoleTestDouble{})
 	rec := performRoleRequest(http.MethodGet, "/roles/:id", "/roles/role-1", nil, handler.GetByID)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected get by id 404, got %d: %s", rec.Code, rec.Body.String())
@@ -221,7 +220,7 @@ func TestRoleHandlersServiceErrorBranches(t *testing.T) {
 		t.Fatalf("expected update forbidden, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = New(&roleServiceHandlerTestDouble{deleteErr: gorm.ErrRecordNotFound}, &auditServiceRoleTestDouble{})
+	handler = New(&roleServiceHandlerTestDouble{deleteErr: domainrole.ErrNotFound}, &auditServiceRoleTestDouble{})
 	rec = performRoleRequest(http.MethodDelete, "/roles/:id", "/roles/role-1", nil, handler.Delete)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected delete 404, got %d: %s", rec.Code, rec.Body.String())

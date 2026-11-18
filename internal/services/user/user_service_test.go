@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 func authContext(userID, username, role string, permissions ...string) context.Context {
@@ -637,7 +636,7 @@ func TestLoginWithGoogleCreatesNewViewerUser(t *testing.T) {
 	}
 	defer func() { googleIDTokenVerifier = originalVerifier }()
 
-	userRepo := &userRepoMock{emailErr: gorm.ErrRecordNotFound}
+	userRepo := &userRepoMock{emailErr: domainuser.ErrNotFound}
 	service := &Service{
 		Tokens:        testUserTokens(t),
 		UserRepo:      userRepo,
@@ -679,7 +678,7 @@ func TestLoginWithGoogleRejectsNewUserWhenPublicRegistrationDisabled(t *testing.
 	}
 	defer func() { googleIDTokenVerifier = originalVerifier }()
 
-	userRepo := &userRepoMock{emailErr: gorm.ErrRecordNotFound}
+	userRepo := &userRepoMock{emailErr: domainuser.ErrNotFound}
 	service := &Service{
 		Tokens:        testUserTokens(t),
 		UserRepo:      userRepo,
@@ -696,8 +695,8 @@ func TestLoginWithGoogleRejectsNewUserWhenPublicRegistrationDisabled(t *testing.
 		dtouser.LoginMetadata{IP: "127.0.0.1", UserAgent: "test-agent"},
 		false,
 	)
-	if !errors.Is(err, ErrPublicRegistrationDisabled) {
-		t.Fatalf("expected ErrPublicRegistrationDisabled, got %v", err)
+	if !errors.Is(err, domainuser.ErrPublicRegistrationDisabled) {
+		t.Fatalf("expected domainuser.ErrPublicRegistrationDisabled, got %v", err)
 	}
 	if userRepo.user.Id != "" {
 		t.Fatalf("expected no user to be created, got %+v", userRepo.user)
@@ -705,13 +704,13 @@ func TestLoginWithGoogleRejectsNewUserWhenPublicRegistrationDisabled(t *testing.
 }
 
 func TestGoogleTokenVerifierLocalValidationBranches(t *testing.T) {
-	if _, err := verifyGoogleIDToken(context.Background(), " ", []string{"client-a"}); !errors.Is(err, ErrGoogleTokenInvalid) {
+	if _, err := verifyGoogleIDToken(context.Background(), " ", []string{"client-a"}); !errors.Is(err, domainuser.ErrGoogleTokenInvalid) {
 		t.Fatalf("expected invalid token for empty input, got %v", err)
 	}
-	if _, err := verifyGoogleIDToken(context.Background(), "token", nil); !errors.Is(err, ErrGoogleNotConfigured) {
+	if _, err := verifyGoogleIDToken(context.Background(), "token", nil); !errors.Is(err, domainuser.ErrGoogleNotConfigured) {
 		t.Fatalf("expected not configured without audiences, got %v", err)
 	}
-	if _, err := verifyGoogleIDToken(context.Background(), "token", []string{" ", ""}); !errors.Is(err, ErrGoogleNotConfigured) {
+	if _, err := verifyGoogleIDToken(context.Background(), "token", []string{" ", ""}); !errors.Is(err, domainuser.ErrGoogleNotConfigured) {
 		t.Fatalf("expected not configured with only blank audiences, got %v", err)
 	}
 
@@ -1014,7 +1013,7 @@ func TestUserServiceChangePasswordRejectsSamePassword(t *testing.T) {
 }
 
 func TestUserServiceForgotPasswordMissingUserSucceeds(t *testing.T) {
-	service := newTestUserService(t, &userRepoMock{emailErr: gorm.ErrRecordNotFound}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
+	service := newTestUserService(t, &userRepoMock{emailErr: domainuser.ErrNotFound}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
 	token, err := service.ForgotPassword(context.Background(), dtouser.ForgotPasswordRequest{Email: "missing@example.com"})
 	if err != nil || token != "" {
 		t.Fatalf("expected missing forgot password to return empty success, token=%q err=%v", token, err)
@@ -1047,7 +1046,7 @@ func TestUserServiceResetPasswordErrorBranches(t *testing.T) {
 }
 
 func TestUserServiceResetPasswordByEmailReturnsNotFound(t *testing.T) {
-	service := newTestUserService(t, &userRepoMock{emailErr: gorm.ErrRecordNotFound}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
+	service := newTestUserService(t, &userRepoMock{emailErr: domainuser.ErrNotFound}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
 	if err := service.ResetPasswordByEmail(context.Background(), "missing@example.com", "Password1!"); err == nil || err.Error() != "user not found" {
 		t.Fatalf("expected reset by email missing user, got %v", err)
 	}
@@ -1169,7 +1168,7 @@ func TestLoginWithGooglePassesConfiguredClientIDsAndDefaultRole(t *testing.T) {
 		Tokens:          testUserTokens(t),
 		DefaultRole:     "member",
 		GoogleClientIDs: []string{"client-a", "client-b"},
-		UserRepo:        &userRepoMock{emailErr: gorm.ErrRecordNotFound},
+		UserRepo:        &userRepoMock{emailErr: domainuser.ErrNotFound},
 		RoleRepo: &roleRepoUserMock{roles: map[string]domainrole.Role{
 			"member": {Id: "role-member", Name: "member"},
 		}},

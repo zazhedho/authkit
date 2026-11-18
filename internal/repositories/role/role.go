@@ -3,6 +3,7 @@ package role
 import (
 	"context"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
+	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 
 	"gorm.io/gorm"
@@ -18,8 +19,30 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{Repository: gokit.NewRepository[domainrole.Role](db)}
 }
 
+func translateErr(err error) error {
+	return reposhared.Gorm(err, domainrole.ErrNotFound, domainrole.ErrDuplicate)
+}
+
+func (r *Repository) Store(ctx context.Context, role domainrole.Role) error {
+	return translateErr(r.Repository.Store(ctx, role))
+}
+
+func (r *Repository) GetByID(ctx context.Context, id string) (domainrole.Role, error) {
+	ret, err := r.Repository.GetByID(ctx, id)
+	return ret, translateErr(err)
+}
+
+func (r *Repository) Update(ctx context.Context, role domainrole.Role) error {
+	return translateErr(r.Repository.Update(ctx, role))
+}
+
+func (r *Repository) Delete(ctx context.Context, id string) error {
+	return translateErr(r.Repository.Delete(ctx, id))
+}
+
 func (r *Repository) GetByName(ctx context.Context, name string) (ret domainrole.Role, err error) {
-	return r.GetOneByField(ctx, "name", name)
+	ret, err = r.GetOneByField(ctx, "name", name)
+	return ret, translateErr(err)
 }
 
 func (r *Repository) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domainrole.Role, totalData int64, err error) {

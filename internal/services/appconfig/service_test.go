@@ -8,8 +8,6 @@ import (
 	"github.com/zazhedho/gokit"
 	"testing"
 	"time"
-
-	"gorm.io/gorm"
 )
 
 type appConfigRepoMock struct {
@@ -53,7 +51,7 @@ func (m *appConfigRepoMock) GetByKey(ctx context.Context, configKey string) (dom
 	}
 	config, ok := m.byKey[configKey]
 	if !ok {
-		return domainappconfig.AppConfig{}, gorm.ErrRecordNotFound
+		return domainappconfig.AppConfig{}, domainappconfig.ErrNotFound
 	}
 	return config, nil
 }
@@ -265,8 +263,8 @@ func TestAppConfigServicePassThroughMethodsAndIsEnabled(t *testing.T) {
 }
 
 func TestAppConfigServiceUpdateErrorsAndFallbacks(t *testing.T) {
-	service := NewService(&appConfigRepoMock{getErr: gorm.ErrRecordNotFound})
-	if _, err := service.Update(context.Background(), "cfg-1", dtoappconfig.UpdateAppConfig{Value: "new"}); !errors.Is(err, gorm.ErrRecordNotFound) {
+	service := NewService(&appConfigRepoMock{getErr: domainappconfig.ErrNotFound})
+	if _, err := service.Update(context.Background(), "cfg-1", dtoappconfig.UpdateAppConfig{Value: "new"}); !errors.Is(err, domainappconfig.ErrNotFound) {
 		t.Fatalf("expected get by id error, got %v", err)
 	}
 

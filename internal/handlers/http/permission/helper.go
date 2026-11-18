@@ -2,19 +2,19 @@ package permission
 
 import (
 	"errors"
+	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	"github.com/zazhedho/gokit"
 	"net/http"
 	"strings"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 func permissionMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiResponse) {
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if errors.Is(err, domainpermission.ErrNotFound) {
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, "permission not found")
 	}
-	if errors.Is(err, gorm.ErrDuplicatedKey) {
+	if errors.Is(err, domainpermission.ErrDuplicate) {
 		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logId, "permission with this name already exists")
 	}
 

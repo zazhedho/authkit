@@ -4,10 +4,9 @@ import (
 	"context"
 	"errors"
 	"github.com/zazhedho/authkit/internal/config"
+	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
 	"testing"
 	"time"
-
-	"github.com/redis/go-redis/v9"
 )
 
 type resetRepoTestDouble struct {
@@ -42,7 +41,7 @@ func (m *resetRepoTestDouble) GetEmailByToken(ctx context.Context, hash string) 
 	}
 	email, ok := m.tokens[hash]
 	if !ok {
-		return "", redis.Nil
+		return "", domainreset.ErrNotFound
 	}
 	return email, nil
 }
@@ -135,7 +134,7 @@ func TestRequestResetReturnsThrottleOnRateLimit(t *testing.T) {
 	svc := NewService(repo, &resetSenderTestDouble{}, resetTestConfig())
 
 	err := svc.RequestReset(context.Background(), "jane@example.com", "Starter")
-	throttle, ok := errors.AsType[*ThrottleError](err)
+	throttle, ok := errors.AsType[*domainreset.ThrottleError](err)
 	if !ok {
 		t.Fatalf("expected throttle error, got %v", err)
 	}
@@ -149,7 +148,7 @@ func TestRequestResetCleansUpWhenDeliveryFails(t *testing.T) {
 	svc := NewService(repo, &resetSenderTestDouble{err: errors.New("smtp down")}, resetTestConfig())
 
 	err := svc.RequestReset(context.Background(), "jane@example.com", "Starter")
-	if !errors.Is(err, ErrResetDeliveryFailed) {
+	if !errors.Is(err, domainreset.ErrDeliveryFailed) {
 		t.Fatalf("expected delivery failed error, got %v", err)
 	}
 	if repo.deletedHash == "" || repo.clearedCooldown != "jane@example.com" || repo.clearedSend != "jane@example.com" {
@@ -194,14 +193,14 @@ func TestBuildResetURLVariants(t *testing.T) {
 
 func TestResetServiceNotConfigured(t *testing.T) {
 	err := NewService(nil, nil, resetTestConfig()).RequestReset(context.Background(), "jane@example.com", "Starter")
-	if !errors.Is(err, ErrResetNotConfigured) {
+	if !errors.Is(err, domainreset.ErrNotConfigured) {
 		t.Fatalf("expected not configured error, got %v", err)
 	}
 }
 
 func TestRequestResetRejectsInvalidEmailAndCooldown(t *testing.T) {
 	svc := NewService(newResetRepoTestDouble(), &resetSenderTestDouble{}, resetTestConfig())
-	if err := svc.RequestReset(context.Background(), " ", "Starter"); !errors.Is(err, ErrResetInvalid) {
+	if err := svc.RequestReset(context.Background(), " ", "Starter"); !errors.Is(err, domainreset.ErrInvalid) {
 		t.Fatalf("expected invalid reset error, got %v", err)
 	}
 
@@ -209,7 +208,7 @@ func TestRequestResetRejectsInvalidEmailAndCooldown(t *testing.T) {
 	repo.cooldownTTL = 15 * time.Second
 	svc = NewService(repo, &resetSenderTestDouble{}, resetTestConfig())
 	err := svc.RequestReset(context.Background(), "jane@example.com", "Starter")
-	throttle, ok := errors.AsType[*ThrottleError](err)
+	throttle, ok := errors.AsType[*domainreset.ThrottleError](err)
 	if !ok {
 		t.Fatalf("expected throttle error, got %v", err)
 	}
@@ -242,21 +241,21 @@ func TestRequestResetRepositoryErrors(t *testing.T) {
 func TestVerifyResetErrorBranches(t *testing.T) {
 	t.Run("not configured", func(t *testing.T) {
 		_, err := NewService(nil, nil, resetTestConfig()).VerifyReset(context.Background(), "token")
-		if !errors.Is(err, ErrResetNotConfigured) {
+		if !errors.Is(err, domainreset.ErrNotConfigured) {
 			t.Fatalf("expected not configured, got %v", err)
 		}
 	})
 	t.Run("blank token", func(t *testing.T) {
 		svc := NewService(newResetRepoTestDouble(), nil, resetTestConfig())
 		_, err := svc.VerifyReset(context.Background(), " ")
-		if !errors.Is(err, ErrResetInvalid) {
+		if !errors.Is(err, domainreset.ErrInvalid) {
 			t.Fatalf("expected invalid reset, got %v", err)
 		}
 	})
 	t.Run("missing token", func(t *testing.T) {
 		svc := NewService(newResetRepoTestDouble(), nil, resetTestConfig())
 		_, err := svc.VerifyReset(context.Background(), "missing")
-		if !errors.Is(err, ErrResetInvalid) {
+		if !errors.Is(err, domainreset.ErrInvalid) {
 			t.Fatalf("expected invalid reset, got %v", err)
 		}
 	})
@@ -272,12 +271,12 @@ func TestVerifyResetErrorBranches(t *testing.T) {
 }
 
 func TestThrottleErrorString(t *testing.T) {
-	var nilErr *ThrottleError
+	var nilErr *domainreset.ThrottleError
 	if got := nilErr.Error(); got != "reset throttled" {
 		t.Fatalf("expected nil throttle message, got %q", got)
 	}
 
-	err := &ThrottleError{Reason: "rate_limit"}
+	err := &domainreset.ThrottleError{Reason: "rate_limit"}
 	if got := err.Error(); got != "reset throttled: rate_limit" {
 		t.Fatalf("expected rate limit throttle message, got %q", got)
 	}
@@ -308,7 +307,7 @@ func TestResetServiceRefusesEmptySecretBeforeTouchingRepo(t *testing.T) {
 		err := callWithoutRepoAccess(t, func() error {
 			return svc.RequestReset(context.Background(), "jane@example.com", "Starter")
 		})
-		if !errors.Is(err, ErrResetNotConfigured) {
+		if !errors.Is(err, domainreset.ErrNotConfigured) {
 			t.Fatalf("RequestReset with secret %q: expected not configured, got %v", secret, err)
 		}
 
@@ -316,7 +315,7 @@ func TestResetServiceRefusesEmptySecretBeforeTouchingRepo(t *testing.T) {
 			_, verifyErr := svc.VerifyReset(context.Background(), "some-token")
 			return verifyErr
 		})
-		if !errors.Is(err, ErrResetNotConfigured) {
+		if !errors.Is(err, domainreset.ErrNotConfigured) {
 			t.Fatalf("VerifyReset with secret %q: expected not configured, got %v", secret, err)
 		}
 	}

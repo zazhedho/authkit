@@ -5,31 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/zazhedho/authkit/internal/config"
+	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
 	"github.com/zazhedho/authkit/internal/infrastructure/mailer"
 	"github.com/zazhedho/gokit"
 	"strings"
-	"time"
-
-	"github.com/redis/go-redis/v9"
 )
-
-var (
-	ErrResetInvalid        = errors.New("reset token invalid or expired")
-	ErrResetNotConfigured  = errors.New("password reset service not configured")
-	ErrResetDeliveryFailed = errors.New("password reset delivery failed")
-)
-
-type ThrottleError struct {
-	Reason     string
-	RetryAfter time.Duration
-}
-
-func (e *ThrottleError) Error() string {
-	if e == nil {
-		return "reset throttled"
-	}
-	return fmt.Sprintf("reset throttled: %s", e.Reason)
-}
 
 type Service struct {
 	Repo   Repository
@@ -49,12 +29,12 @@ func (s *Service) missingSecret() bool {
 
 func (s *Service) RequestReset(ctx context.Context, email, appName string) error {
 	if s == nil || s.Repo == nil || s.Sender == nil || s.missingSecret() {
-		return ErrResetNotConfigured
+		return domainreset.ErrNotConfigured
 	}
 
 	normalizedEmail := gokit.SanitizeEmail(email)
 	if normalizedEmail == "" {
-		return ErrResetInvalid
+		return domainreset.ErrInvalid
 	}
 
 	cooldownTTL, err := s.Repo.GetCooldownTTL(ctx, normalizedEmail)
@@ -62,7 +42,7 @@ func (s *Service) RequestReset(ctx context.Context, email, appName string) error
 		return fmt.Errorf("check cooldown: %w", err)
 	}
 	if cooldownTTL > 0 {
-		return &ThrottleError{Reason: "cooldown", RetryAfter: cooldownTTL}
+		return &domainreset.ThrottleError{Reason: "cooldown", RetryAfter: cooldownTTL}
 	}
 
 	if s.Config.RateLimit > 0 && s.Config.RateWindow > 0 {
@@ -71,7 +51,7 @@ func (s *Service) RequestReset(ctx context.Context, email, appName string) error
 			return fmt.Errorf("rate limit: %w", err)
 		}
 		if count > s.Config.RateLimit {
-			return &ThrottleError{Reason: "rate_limit", RetryAfter: retryAfter}
+			return &domainreset.ThrottleError{Reason: "rate_limit", RetryAfter: retryAfter}
 		}
 	}
 
@@ -96,7 +76,7 @@ func (s *Service) RequestReset(ctx context.Context, email, appName string) error
 		_ = s.Repo.DeleteToken(ctx, hash)
 		_ = s.Repo.ClearCooldown(ctx, normalizedEmail)
 		_ = s.Repo.ClearSendCount(ctx, normalizedEmail)
-		return ErrResetDeliveryFailed
+		return domainreset.ErrDeliveryFailed
 	}
 
 	return nil
@@ -104,19 +84,19 @@ func (s *Service) RequestReset(ctx context.Context, email, appName string) error
 
 func (s *Service) VerifyReset(ctx context.Context, token string) (string, error) {
 	if s == nil || s.Repo == nil || s.missingSecret() {
-		return "", ErrResetNotConfigured
+		return "", domainreset.ErrNotConfigured
 	}
 
 	cleanToken := strings.TrimSpace(token)
 	if cleanToken == "" {
-		return "", ErrResetInvalid
+		return "", domainreset.ErrInvalid
 	}
 
 	hash := hashToken(cleanToken, s.Config.Secret)
 	email, err := s.Repo.GetEmailByToken(ctx, hash)
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return "", ErrResetInvalid
+		if errors.Is(err, domainreset.ErrNotFound) {
+			return "", domainreset.ErrInvalid
 		}
 		return "", fmt.Errorf("get token: %w", err)
 	}

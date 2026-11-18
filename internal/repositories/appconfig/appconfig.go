@@ -3,6 +3,7 @@ package appconfig
 import (
 	"context"
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
+	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 
 	"gorm.io/gorm"
@@ -33,6 +34,20 @@ func (r *Repository) GetAll(ctx context.Context, params gokit.BaseParams) (ret [
 	})
 }
 
+func translateErr(err error) error {
+	return reposhared.Gorm(err, domainappconfig.ErrNotFound, nil)
+}
+
+func (r *Repository) GetByID(ctx context.Context, id string) (domainappconfig.AppConfig, error) {
+	ret, err := r.Repository.GetByID(ctx, id)
+	return ret, translateErr(err)
+}
+
+func (r *Repository) Update(ctx context.Context, config domainappconfig.AppConfig) error {
+	return translateErr(r.Repository.Update(ctx, config))
+}
+
 func (r *Repository) GetByKey(ctx context.Context, configKey string) (ret domainappconfig.AppConfig, err error) {
-	return r.GetOneByField(ctx, "config_key", configKey)
+	ret, err = r.GetOneByField(ctx, "config_key", configKey)
+	return ret, translateErr(err)
 }

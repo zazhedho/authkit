@@ -4,6 +4,7 @@ import (
 	"context"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 
 	"gorm.io/gorm"
@@ -17,8 +18,30 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{Repository: gokit.NewRepository[domainpermission.Permission](db)}
 }
 
+func translateErr(err error) error {
+	return reposhared.Gorm(err, domainpermission.ErrNotFound, domainpermission.ErrDuplicate)
+}
+
+func (r *Repository) Store(ctx context.Context, permission domainpermission.Permission) error {
+	return translateErr(r.Repository.Store(ctx, permission))
+}
+
+func (r *Repository) GetByID(ctx context.Context, id string) (domainpermission.Permission, error) {
+	ret, err := r.Repository.GetByID(ctx, id)
+	return ret, translateErr(err)
+}
+
+func (r *Repository) Update(ctx context.Context, permission domainpermission.Permission) error {
+	return translateErr(r.Repository.Update(ctx, permission))
+}
+
+func (r *Repository) Delete(ctx context.Context, id string) error {
+	return translateErr(r.Repository.Delete(ctx, id))
+}
+
 func (r *Repository) GetByName(ctx context.Context, name string) (ret domainpermission.Permission, err error) {
-	return r.GetOneByField(ctx, "name", name)
+	ret, err = r.GetOneByField(ctx, "name", name)
+	return ret, translateErr(err)
 }
 
 func (r *Repository) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domainpermission.Permission, totalData int64, err error) {
@@ -46,7 +69,7 @@ func (r *Repository) GetUserPermissions(ctx context.Context, userId string) (ret
 		Role   string
 	}
 	if err = r.DB.WithContext(ctx).Table("users").Select("role_id, role").Where("id = ?", userId).First(&user).Error; err != nil {
-		return nil, err
+		return nil, reposhared.Gorm(err, domainuser.ErrNotFound, nil)
 	}
 
 	if user.Role == domainuser.RoleSuperAdmin {

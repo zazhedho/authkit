@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/zazhedho/authkit/internal/config"
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 	"github.com/zazhedho/gokit"
 	"net/http"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 type appConfigServiceUserTestDouble struct {
@@ -78,8 +78,8 @@ func TestUserMutationErrorResponseMapping(t *testing.T) {
 		err  error
 		code int
 	}{
-		{gorm.ErrRecordNotFound, http.StatusNotFound},
-		{gorm.ErrDuplicatedKey, http.StatusBadRequest},
+		{domainuser.ErrNotFound, http.StatusNotFound},
+		{domainuser.ErrDuplicate, http.StatusBadRequest},
 		{errors.New("email already exists"), http.StatusBadRequest},
 		{errors.New("access denied: missing permission"), http.StatusForbidden},
 		{errors.New("invalid role: admin"), http.StatusBadRequest},
@@ -100,7 +100,7 @@ func TestImpersonationErrorResponseMapping(t *testing.T) {
 		err  error
 		code int
 	}{
-		{gorm.ErrRecordNotFound, http.StatusNotFound},
+		{domainuser.ErrNotFound, http.StatusNotFound},
 		{errors.New("cannot impersonate superadmin users"), http.StatusForbidden},
 		{errors.New("target user id is required"), http.StatusBadRequest},
 		{errors.New("database down"), http.StatusInternalServerError},

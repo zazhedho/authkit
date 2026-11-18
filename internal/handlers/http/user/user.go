@@ -7,13 +7,13 @@ import (
 	"github.com/zazhedho/authkit/internal/config"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
+	domainotp "github.com/zazhedho/authkit/internal/domain/otp"
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 	"github.com/zazhedho/authkit/internal/infrastructure/ratelimit"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	serviceotp "github.com/zazhedho/authkit/internal/services/otp"
 	serviceuser "github.com/zazhedho/authkit/internal/services/user"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 // defaultCooldown is the OTP / password reset resend cooldown reported when
@@ -153,10 +152,10 @@ func (h *Handler) Register(ctx *gin.Context) {
 			})
 			statusCode := http.StatusBadRequest
 			message := "invalid or expired OTP"
-			if errors.Is(err, serviceotp.ErrOTPTooManyAttempt) {
+			if errors.Is(err, domainotp.ErrTooManyAttempt) {
 				message = "too many OTP attempts"
 			}
-			if errors.Is(err, serviceotp.ErrOTPNotConfigured) {
+			if errors.Is(err, domainotp.ErrNotConfigured) {
 				statusCode = http.StatusServiceUnavailable
 				message = registrationOTPNotConfiguredMessage
 			}
@@ -305,11 +304,11 @@ func (h *Handler) SendRegisterOTP(ctx *gin.Context) {
 				"email": normalizedEmail,
 			},
 		})
-		if throttle, ok := errors.AsType[*serviceotp.ThrottleError](err); ok {
+		if throttle, ok := errors.AsType[*domainotp.ThrottleError](err); ok {
 			h.respondThrottle(ctx, logId, throttle.RetryAfter, "OTP request is throttled. Please try again later.")
 			return
 		}
-		if errors.Is(err, serviceotp.ErrOTPNotConfigured) || errors.Is(err, serviceotp.ErrOTPDeliveryFailed) {
+		if errors.Is(err, domainotp.ErrNotConfigured) || errors.Is(err, domainotp.ErrDeliveryFailed) {
 			statusCode := http.StatusServiceUnavailable
 			res := gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logId, "Registration OTP service is temporarily unavailable.")
 			ctx.JSON(statusCode, res)
@@ -499,23 +498,23 @@ func (h *Handler) GoogleLogin(ctx *gin.Context) {
 
 		statusCode := http.StatusBadRequest
 		switch {
-		case errors.Is(err, serviceuser.ErrGoogleNotConfigured):
+		case errors.Is(err, domainuser.ErrGoogleNotConfigured):
 			statusCode = http.StatusServiceUnavailable
-		case errors.Is(err, serviceuser.ErrGoogleTokenInvalid), errors.Is(err, serviceuser.ErrGoogleEmailMissing):
+		case errors.Is(err, domainuser.ErrGoogleTokenInvalid), errors.Is(err, domainuser.ErrGoogleEmailMissing):
 			statusCode = http.StatusUnauthorized
-		case errors.Is(err, serviceuser.ErrPublicRegistrationDisabled):
+		case errors.Is(err, domainuser.ErrPublicRegistrationDisabled):
 			statusCode = http.StatusForbidden
 		}
 
 		res := gokit.InternalServerError(logId)
 		switch {
-		case errors.Is(err, serviceuser.ErrGoogleNotConfigured):
+		case errors.Is(err, domainuser.ErrGoogleNotConfigured):
 			res = gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logId, "Google login is not configured.")
-		case errors.Is(err, serviceuser.ErrGoogleTokenInvalid):
+		case errors.Is(err, domainuser.ErrGoogleTokenInvalid):
 			res = gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logId, "Invalid Google token.")
-		case errors.Is(err, serviceuser.ErrGoogleEmailMissing):
+		case errors.Is(err, domainuser.ErrGoogleEmailMissing):
 			res = gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logId, "Google account email is not available.")
-		case errors.Is(err, serviceuser.ErrPublicRegistrationDisabled):
+		case errors.Is(err, domainuser.ErrPublicRegistrationDisabled):
 			res = gokit.Forbidden(logId, publicRegistrationDisabledMessage)
 		}
 		ctx.JSON(statusCode, res)
@@ -666,7 +665,7 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 			ErrorMessage: "The token owner user account was not found",
 		})
 		statusCode := http.StatusInternalServerError
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, domainuser.ErrNotFound) {
 			statusCode = http.StatusNotFound
 		}
 		res := gokit.Response(statusCode, gokit.MsgSomethingWrong, logId, nil)
@@ -852,7 +851,7 @@ func (h *Handler) GetUserById(ctx *gin.Context) {
 	data, err := h.Service.GetUserById(reqCtx, id)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetUserByID; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, domainuser.ErrNotFound) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
@@ -884,7 +883,7 @@ func (h *Handler) GetUserByAuth(ctx *gin.Context) {
 	data, err := h.Service.GetUserByAuth(reqCtx, scope.UserID)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetUserByAuth; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, domainuser.ErrNotFound) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
@@ -1063,7 +1062,7 @@ func (h *Handler) Update(ctx *gin.Context) {
 			AfterData:    req,
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Update; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, domainuser.ErrNotFound) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
@@ -1118,7 +1117,7 @@ func (h *Handler) UpdateUserById(ctx *gin.Context) {
 			AfterData:    req,
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Update; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, domainuser.ErrNotFound) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
@@ -1174,7 +1173,7 @@ func (h *Handler) ChangePassword(ctx *gin.Context) {
 			AfterData:    req,
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.ChangePassword; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, domainuser.ErrNotFound) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
@@ -1377,7 +1376,7 @@ func (h *Handler) Delete(ctx *gin.Context) {
 			BeforeData:   before,
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Delete; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, domainuser.ErrNotFound) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
@@ -1424,7 +1423,7 @@ func (h *Handler) DeleteUserById(ctx *gin.Context) {
 			BeforeData:   before,
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Delete; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, domainuser.ErrNotFound) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type appConfigServiceTestDouble struct {
@@ -142,7 +141,7 @@ func TestGetAppConfigByIDRejectsInvalidUUID(t *testing.T) {
 }
 
 func TestGetAppConfigByIDReturnsNotFound(t *testing.T) {
-	handler := New(&appConfigServiceTestDouble{err: gorm.ErrRecordNotFound}, &auditServiceAppConfigTestDouble{})
+	handler := New(&appConfigServiceTestDouble{err: domainappconfig.ErrNotFound}, &auditServiceAppConfigTestDouble{})
 
 	rec := performAppConfigRequest(http.MethodGet, "/configs/:id", "/configs/550e8400-e29b-41d4-a716-446655440000", nil, handler.GetByID)
 	if rec.Code != http.StatusNotFound {
@@ -225,7 +224,7 @@ func TestUpdateAppConfigRejectsBadInputAndNotFound(t *testing.T) {
 		t.Fatalf("expected invalid json 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = New(&appConfigServiceTestDouble{updateErr: gorm.ErrRecordNotFound}, &auditServiceAppConfigTestDouble{})
+	handler = New(&appConfigServiceTestDouble{updateErr: domainappconfig.ErrNotFound}, &auditServiceAppConfigTestDouble{})
 	rec = performAppConfigRequest(http.MethodPut, "/configs/:id", "/configs/550e8400-e29b-41d4-a716-446655440000", dtoappconfig.UpdateAppConfig{Value: "true"}, handler.Update)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected not found 404, got %d: %s", rec.Code, rec.Body.String())

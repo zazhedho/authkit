@@ -8,8 +8,6 @@ import (
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 	"github.com/zazhedho/gokit"
 	"time"
-
-	"gorm.io/gorm"
 )
 
 type Service struct {
@@ -113,7 +111,7 @@ func (s *Service) IsEnabled(ctx context.Context, configKey string, fallback bool
 func (s *Service) getActiveConfigByKey(ctx context.Context, configKey string) (domainappconfig.AppConfig, bool, error) {
 	entry, err := s.Repo.GetByKey(ctx, configKey)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, domainappconfig.ErrNotFound) {
 			return domainappconfig.AppConfig{}, false, nil
 		}
 		return domainappconfig.AppConfig{}, false, err

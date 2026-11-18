@@ -18,7 +18,6 @@ import (
 	"github.com/gin-gonic/gin"
 	redismock "github.com/go-redis/redismock/v9"
 	"github.com/golang-jwt/jwt/v5"
-	"gorm.io/gorm"
 )
 
 type authRepoTestDouble struct {
@@ -407,7 +406,7 @@ func TestPermissionMiddlewareHandlesRepositoryErrors(t *testing.T) {
 		err  error
 		code int
 	}{
-		{name: "record not found", err: gorm.ErrRecordNotFound, code: http.StatusForbidden},
+		{name: "record not found", err: domainuser.ErrNotFound, code: http.StatusForbidden},
 		{name: "unexpected error", err: errors.New("db down"), code: http.StatusInternalServerError},
 	}
 
@@ -552,7 +551,7 @@ func TestLoadPermissionsSuperadmin(t *testing.T) {
 }
 
 func TestLoadPermissionsUserNotFound(t *testing.T) {
-	rec, _ := performLoadPermissions(t, &permissionRepoTestDouble{err: gorm.ErrRecordNotFound}, testToken(t, "access", domainuser.RoleViewer), true)
+	rec, _ := performLoadPermissions(t, &permissionRepoTestDouble{err: domainuser.ErrNotFound}, testToken(t, "access", domainuser.RoleViewer), true)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
 	}
