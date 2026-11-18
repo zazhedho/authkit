@@ -30,9 +30,6 @@ type sessionServiceHandlerTestDouble struct {
 func (m *sessionServiceHandlerTestDouble) CreateSession(ctx context.Context, user *domainuser.Users, accessToken string, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error) {
 	return nil, nil
 }
-func (m *sessionServiceHandlerTestDouble) ValidateSession(ctx context.Context, token string) (*domainsession.Session, error) {
-	return nil, nil
-}
 func (m *sessionServiceHandlerTestDouble) GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.SessionInfo, error) {
 	return m.infos, m.err
 }

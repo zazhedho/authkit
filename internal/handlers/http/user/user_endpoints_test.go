@@ -212,9 +212,6 @@ func (m *sessionServiceUserHandlerTestDouble) CreateSession(ctx context.Context,
 	m.sessionID = "session-1"
 	return &domainsession.Session{SessionID: m.sessionID, UserID: user.Id, AccessToken: accessToken, RefreshToken: refreshToken, ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
-func (m *sessionServiceUserHandlerTestDouble) ValidateSession(ctx context.Context, token string) (*domainsession.Session, error) {
-	return &domainsession.Session{SessionID: "session-1"}, nil
-}
 func (m *sessionServiceUserHandlerTestDouble) GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.SessionInfo, error) {
 	return nil, nil
 }

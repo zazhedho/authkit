@@ -13,7 +13,6 @@ type sessionRepoTestDouble struct {
 	session        *domainsession.Session
 	userSessions   []*domainsession.Session
 	deletedIDs     []string
-	activityID     string
 	rotatedID      string
 	deleteByUserID string
 }
@@ -43,10 +42,6 @@ func (m *sessionRepoTestDouble) GetByRefreshToken(ctx context.Context, refreshTo
 	}
 	return m.session, nil
 }
-func (m *sessionRepoTestDouble) UpdateActivity(ctx context.Context, sessionID string) error {
-	m.activityID = sessionID
-	return nil
-}
 func (m *sessionRepoTestDouble) RotateTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
 	m.rotatedID = sessionID
 	return nil
@@ -60,9 +55,6 @@ func (m *sessionRepoTestDouble) DeleteByUserID(ctx context.Context, userID strin
 	return nil
 }
 func (m *sessionRepoTestDouble) DeleteExpired(ctx context.Context) error { return nil }
-func (m *sessionRepoTestDouble) SetExpiration(ctx context.Context, sessionID string, expiration time.Duration) error {
-	return nil
-}
 
 func TestCreateSessionStoresSessionWithDerivedDeviceInfo(t *testing.T) {
 	repo := &sessionRepoTestDouble{}
@@ -110,38 +102,6 @@ func TestExtractDeviceInfoVariants(t *testing.T) {
 		if got := extractDeviceInfo(userAgent); got != want {
 			t.Fatalf("user agent %q: expected %q, got %q", userAgent, want, got)
 		}
-	}
-}
-
-func TestValidateSessionDeletesExpiredSession(t *testing.T) {
-	repo := &sessionRepoTestDouble{session: &domainsession.Session{
-		SessionID: "session-1",
-		ExpiresAt: time.Now().Add(-time.Minute),
-	}}
-	svc := NewService(repo, time.Hour)
-
-	_, err := svc.ValidateSession(context.Background(), "access")
-	if err == nil || err.Error() != "session expired" {
-		t.Fatalf("expected expired session error, got %v", err)
-	}
-	if len(repo.deletedIDs) != 1 || repo.deletedIDs[0] != "session-1" {
-		t.Fatalf("expected expired session delete, got %+v", repo.deletedIDs)
-	}
-}
-
-func TestValidateSessionUpdatesActivityForValidSession(t *testing.T) {
-	repo := &sessionRepoTestDouble{session: &domainsession.Session{
-		SessionID: "session-1",
-		ExpiresAt: time.Now().Add(time.Hour),
-	}}
-	svc := NewService(repo, time.Hour)
-
-	session, err := svc.ValidateSession(context.Background(), "access")
-	if err != nil {
-		t.Fatalf("expected success, got %v", err)
-	}
-	if session.SessionID != "session-1" || repo.activityID != "session-1" {
-		t.Fatalf("expected activity update, session=%+v activity=%q", session, repo.activityID)
 	}
 }
 

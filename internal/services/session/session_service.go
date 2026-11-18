@@ -58,26 +58,6 @@ func (s *Service) CreateSession(ctx context.Context, user *domainuser.Users, acc
 	return session, nil
 }
 
-func (s *Service) ValidateSession(ctx context.Context, token string) (*domainsession.Session, error) {
-	session, err := s.SessionRepo.GetByToken(ctx, token)
-	if err != nil {
-		return nil, fmt.Errorf("session not found or expired")
-	}
-
-	if time.Now().After(session.ExpiresAt) {
-		if delErr := s.SessionRepo.Delete(ctx, session.SessionID); delErr != nil {
-			fmt.Printf("Failed to delete expired session: %v\n", delErr)
-		}
-		return nil, fmt.Errorf("session expired")
-	}
-
-	if err := s.SessionRepo.UpdateActivity(ctx, session.SessionID); err != nil {
-		fmt.Printf("Failed to update session activity: %v\n", err)
-	}
-
-	return session, nil
-}
-
 func (s *Service) GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.SessionInfo, error) {
 	sessions, err := s.SessionRepo.GetByUserID(ctx, userID)
 	if err != nil {

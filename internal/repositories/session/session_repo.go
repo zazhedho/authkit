@@ -131,33 +131,6 @@ func (r *Repository) GetByRefreshToken(ctx context.Context, refreshToken string)
 	return r.GetBySessionID(ctx, sessionID)
 }
 
-func (r *Repository) UpdateActivity(ctx context.Context, sessionID string) error {
-	session, err := r.GetBySessionID(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	session.LastActivity = time.Now()
-
-	sessionKey := fmt.Sprintf("%s%s", sessionKeyPrefix, sessionID)
-	sessionData, err := json.Marshal(session)
-	if err != nil {
-		return fmt.Errorf("failed to marshal session: %w", err)
-	}
-
-	ttl, err := r.Redis.TTL(ctx, sessionKey).Result()
-	if err != nil {
-		return fmt.Errorf("failed to get session TTL: %w", err)
-	}
-
-	err = r.Redis.Set(ctx, sessionKey, sessionData, ttl).Err()
-	if err != nil {
-		return fmt.Errorf("failed to update session activity: %w", err)
-	}
-
-	return nil
-}
-
 func (r *Repository) Delete(ctx context.Context, sessionID string) error {
 	session, err := r.GetBySessionID(ctx, sessionID)
 	if err != nil {
@@ -245,16 +218,5 @@ func (r *Repository) RotateTokens(ctx context.Context, sessionID string, accessT
 
 func (r *Repository) DeleteExpired(ctx context.Context) error {
 	logus.WriteLog(logus.LogLevelDebug, "Expired sessions are automatically removed by Redis TTL")
-	return nil
-}
-
-func (r *Repository) SetExpiration(ctx context.Context, sessionID string, expiration time.Duration) error {
-	sessionKey := fmt.Sprintf("%s%s", sessionKeyPrefix, sessionID)
-
-	err := r.Redis.Expire(ctx, sessionKey, expiration).Err()
-	if err != nil {
-		return fmt.Errorf("failed to set session expiration: %w", err)
-	}
-
 	return nil
 }

@@ -81,25 +81,11 @@ func TestRoleRepositoryAssignAndRemoveRelations(t *testing.T) {
 	}
 
 	mock.ExpectBegin()
-	mock.ExpectExec(`DELETE FROM "role_permissions"`).WithArgs("role-1", "perm-1", "perm-2").WillReturnResult(sqlmock.NewResult(0, 2))
-	mock.ExpectCommit()
-	if err := repo.RemovePermissions(ctx, "role-1", []string{"perm-1", "perm-2"}); err != nil {
-		t.Fatalf("remove permissions: %v", err)
-	}
-
-	mock.ExpectBegin()
 	mock.ExpectExec(`DELETE FROM "role_menus"`).WithArgs("role-1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO "role_menus"`).WithArgs(sqlmock.AnyArg(), "role-1", "menu-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 	if err := repo.AssignMenus(ctx, "role-1", []string{"menu-1"}); err != nil {
 		t.Fatalf("assign menus: %v", err)
-	}
-
-	mock.ExpectBegin()
-	mock.ExpectExec(`DELETE FROM "role_menus"`).WithArgs("role-1", "menu-1").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
-	if err := repo.RemoveMenus(ctx, "role-1", []string{"menu-1"}); err != nil {
-		t.Fatalf("remove menus: %v", err)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

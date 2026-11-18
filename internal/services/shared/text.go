@@ -112,9 +112,9 @@ func NormalizeUUIDPointer(input string) *string {
 	return &value
 }
 
-// NormalizePayload round-trips input through JSON so structs become maps and
+// normalizePayload round-trips input through JSON so structs become maps and
 // slices; nil becomes an empty map and unencodable input is returned as is.
-func NormalizePayload(input any) any {
+func normalizePayload(input any) any {
 	if input == nil {
 		return map[string]any{}
 	}
@@ -132,8 +132,8 @@ func NormalizePayload(input any) any {
 	return normalized
 }
 
-// IsSensitiveKey reports whether a payload key names a secret.
-func IsSensitiveKey(key string) bool {
+// isSensitiveKey reports whether a payload key names a secret.
+func isSensitiveKey(key string) bool {
 	k := NormalizeKey(key)
 	return strings.Contains(k, "password") ||
 		strings.Contains(k, "token") ||
@@ -144,26 +144,26 @@ func IsSensitiveKey(key string) bool {
 // RedactSensitivePayload normalises input and replaces the values of
 // sensitive keys with "[REDACTED]".
 func RedactSensitivePayload(input any) any {
-	return RedactSensitiveValue(NormalizePayload(input))
+	return redactSensitiveValue(normalizePayload(input))
 }
 
-// RedactSensitiveValue redacts sensitive keys in an already normalised value.
-func RedactSensitiveValue(input any) any {
+// redactSensitiveValue redacts sensitive keys in an already normalised value.
+func redactSensitiveValue(input any) any {
 	switch v := input.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(v))
 		for k, val := range v {
-			if IsSensitiveKey(k) {
+			if isSensitiveKey(k) {
 				out[k] = "[REDACTED]"
 				continue
 			}
-			out[k] = RedactSensitiveValue(val)
+			out[k] = redactSensitiveValue(val)
 		}
 		return out
 	case []any:
 		out := make([]any, 0, len(v))
 		for _, val := range v {
-			out = append(out, RedactSensitiveValue(val))
+			out = append(out, redactSensitiveValue(val))
 		}
 		return out
 	default:

@@ -57,16 +57,10 @@ func (m *roleRepoMock) AssignPermissions(ctx context.Context, roleId string, per
 	m.assignedPermissions = append([]string{}, permissionIds...)
 	return nil
 }
-func (m *roleRepoMock) RemovePermissions(ctx context.Context, roleId string, permissionIds []string) error {
-	return nil
-}
 func (m *roleRepoMock) GetRolePermissions(ctx context.Context, roleId string) ([]string, error) {
 	return m.rolePermissions, nil
 }
 func (m *roleRepoMock) AssignMenus(ctx context.Context, roleId string, menuIds []string) error {
-	return nil
-}
-func (m *roleRepoMock) RemoveMenus(ctx context.Context, roleId string, menuIds []string) error {
 	return nil
 }
 func (m *roleRepoMock) GetRoleMenus(ctx context.Context, roleId string) ([]string, error) {

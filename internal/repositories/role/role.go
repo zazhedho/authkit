@@ -88,10 +88,6 @@ func (r *Repository) AssignPermissions(ctx context.Context, roleId string, permi
 	return tx.Commit().Error
 }
 
-func (r *Repository) RemovePermissions(ctx context.Context, roleId string, permissionIds []string) error {
-	return r.DB.WithContext(ctx).Where("role_id = ? AND permission_id IN ?", roleId, permissionIds).Delete(&domainrole.RolePermission{}).Error
-}
-
 func (r *Repository) GetRolePermissions(ctx context.Context, roleId string) ([]string, error) {
 	var rolePermissions []domainrole.RolePermission
 	if err := r.DB.WithContext(ctx).Where(roleIDFilter, roleId).Find(&rolePermissions).Error; err != nil {
@@ -132,10 +128,6 @@ func (r *Repository) AssignMenus(ctx context.Context, roleId string, menuIds []s
 	}
 
 	return tx.Commit().Error
-}
-
-func (r *Repository) RemoveMenus(ctx context.Context, roleId string, menuIds []string) error {
-	return r.DB.WithContext(ctx).Where("role_id = ? AND menu_item_id IN ?", roleId, menuIds).Delete(&domainrole.RoleMenu{}).Error
 }
 
 func (r *Repository) GetRoleMenus(ctx context.Context, roleId string) ([]string, error) {

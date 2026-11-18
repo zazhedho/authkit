@@ -147,16 +147,10 @@ func (m *roleRepoUserMock) GetByName(ctx context.Context, name string) (domainro
 func (m *roleRepoUserMock) AssignPermissions(ctx context.Context, roleId string, permissionIds []string) error {
 	return nil
 }
-func (m *roleRepoUserMock) RemovePermissions(ctx context.Context, roleId string, permissionIds []string) error {
-	return nil
-}
 func (m *roleRepoUserMock) GetRolePermissions(ctx context.Context, roleId string) ([]string, error) {
 	return nil, nil
 }
 func (m *roleRepoUserMock) AssignMenus(ctx context.Context, roleId string, menuIds []string) error {
-	return nil
-}
-func (m *roleRepoUserMock) RemoveMenus(ctx context.Context, roleId string, menuIds []string) error {
 	return nil
 }
 func (m *roleRepoUserMock) GetRoleMenus(ctx context.Context, roleId string) ([]string, error) {

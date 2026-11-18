@@ -462,7 +462,7 @@ func goSources(t *testing.T) map[string]string {
 func TestNoEnvReadsOutsideAllowedFiles(t *testing.T) {
 	forbidden := []string{"GetEnv(", "DurationFromEnv(", "os.Getenv(", "os.LookupEnv("}
 	allowed := func(path string) bool {
-		return path == "config.go" || path == "internal/infrastructure/mailer/brevo_env.go" || strings.HasPrefix(path, "cmd/")
+		return path == "config.go" || strings.HasPrefix(path, "cmd/")
 	}
 	for path, src := range goSources(t) {
 		if allowed(path) {
@@ -470,7 +470,7 @@ func TestNoEnvReadsOutsideAllowedFiles(t *testing.T) {
 		}
 		for _, needle := range forbidden {
 			if strings.Contains(src, needle) {
-				t.Errorf("%s reads the environment via %q; only config.go, internal/infrastructure/mailer/brevo_env.go and cmd/ may", path, needle)
+				t.Errorf("%s reads the environment via %q; only config.go and cmd/ may", path, needle)
 			}
 		}
 	}

@@ -19,7 +19,7 @@ func TestJSONAndStringHelpers(t *testing.T) {
 	if got := JsonEncode(map[string]string{"name": "Jane"}); !strings.Contains(got, "Jane") {
 		t.Fatalf("unexpected JSON encoding: %q", got)
 	}
-	if NormalizePayload(struct {
+	if normalizePayload(struct {
 		Name string `json:"name"`
 	}{Name: "Jane"}) == nil {
 		t.Fatal("expected normalized payload")
@@ -28,11 +28,11 @@ func TestJSONAndStringHelpers(t *testing.T) {
 		t.Fatalf("expected empty string for unsupported JSON value, got %q", got)
 	}
 	ch := make(chan int)
-	if NormalizePayload(ch) != ch {
+	if normalizePayload(ch) != ch {
 		t.Fatal("expected unsupported payload to be returned unchanged")
 	}
-	if got, ok := NormalizePayload(nil).(map[string]any); !ok || len(got) != 0 {
-		t.Fatalf("expected nil to become an empty map, got %#v", NormalizePayload(nil))
+	if got, ok := normalizePayload(nil).(map[string]any); !ok || len(got) != 0 {
+		t.Fatalf("expected nil to become an empty map, got %#v", normalizePayload(nil))
 	}
 }
 
@@ -181,7 +181,7 @@ func TestRedactSensitivePayload(t *testing.T) {
 }
 
 func TestRedactSensitiveValueWalksSlicesAndKeepsScalars(t *testing.T) {
-	got, ok := RedactSensitiveValue([]any{
+	got, ok := redactSensitiveValue([]any{
 		map[string]any{"Password": "x", "name": "n"},
 		"plain",
 		[]any{map[string]any{"otp": "1"}},
@@ -198,7 +198,7 @@ func TestRedactSensitiveValueWalksSlicesAndKeepsScalars(t *testing.T) {
 	if inner := got[2].([]any)[0].(map[string]any); inner["otp"] != "[REDACTED]" {
 		t.Fatalf("expected nested otp redaction, got %#v", inner)
 	}
-	if !IsSensitiveKey(" Refresh_Token ") || IsSensitiveKey("email") {
+	if !isSensitiveKey(" Refresh_Token ") || isSensitiveKey("email") {
 		t.Fatal("unexpected sensitive key detection")
 	}
 }
