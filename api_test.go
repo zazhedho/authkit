@@ -67,12 +67,124 @@ func apiSnapshot(t *testing.T) string {
 			writeAPIType(&b, o)
 		}
 	}
+	writeReachableTypes(&b, pkg)
 	return b.String()
 }
 
+func isModuleInternal(p *types.Package) bool {
+	return p != nil && strings.HasPrefix(p.Path(), "github.com/zazhedho/authkit/internal/")
+}
+
+// reachableTypes returns the named types of the module's internal packages that
+// a caller can reach from the exported API without naming them: through
+// signatures, struct fields, interface methods and the methods of those types.
+// Types the root package declares or aliases are printed with the root API
+// already, so they are left out. Types of other modules are not followed.
+func reachableTypes(pkg *types.Package) []*types.TypeName {
+	printed := map[*types.TypeName]bool{}
+	scope := pkg.Scope()
+	for _, name := range scope.Names() {
+		if tn, ok := scope.Lookup(name).(*types.TypeName); ok && tn.Exported() {
+			if named, ok := types.Unalias(tn.Type()).(*types.Named); ok {
+				printed[named.Obj()] = true
+			}
+		}
+	}
+
+	seen := map[types.Type]bool{}
+	found := map[*types.TypeName]bool{}
+	var visit func(t types.Type)
+	visitSig := func(sig *types.Signature) {
+		for i := 0; i < sig.Params().Len(); i++ {
+			visit(sig.Params().At(i).Type())
+		}
+		for i := 0; i < sig.Results().Len(); i++ {
+			visit(sig.Results().At(i).Type())
+		}
+	}
+	visit = func(t types.Type) {
+		t = types.Unalias(t)
+		if seen[t] {
+			return
+		}
+		seen[t] = true
+		switch u := t.(type) {
+		case *types.Pointer:
+			visit(u.Elem())
+		case *types.Slice:
+			visit(u.Elem())
+		case *types.Array:
+			visit(u.Elem())
+		case *types.Chan:
+			visit(u.Elem())
+		case *types.Map:
+			visit(u.Key())
+			visit(u.Elem())
+		case *types.Signature:
+			visitSig(u)
+		case *types.Struct:
+			for i := 0; i < u.NumFields(); i++ {
+				if f := u.Field(i); f.Exported() {
+					visit(f.Type())
+				}
+			}
+		case *types.Interface:
+			for i := 0; i < u.NumMethods(); i++ {
+				if m := u.Method(i); m.Exported() {
+					visit(m.Type())
+				}
+			}
+		case *types.Named:
+			if op := u.Obj().Pkg(); op == nil || (!isModuleInternal(op) && op != pkg) {
+				return
+			}
+			if isModuleInternal(u.Obj().Pkg()) && !printed[u.Obj()] {
+				found[u.Obj()] = true
+			}
+			visit(u.Underlying())
+			ms := types.NewMethodSet(types.NewPointer(u))
+			for i := 0; i < ms.Len(); i++ {
+				if m := ms.At(i).Obj(); m.Exported() {
+					visit(m.Type())
+				}
+			}
+		}
+	}
+	for _, name := range scope.Names() {
+		obj := scope.Lookup(name)
+		if obj.Exported() {
+			visit(obj.Type())
+		}
+	}
+
+	out := make([]*types.TypeName, 0, len(found))
+	for tn := range found {
+		out = append(out, tn)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name() != out[j].Name() {
+			return out[i].Name() < out[j].Name()
+		}
+		return out[i].Pkg().Path() < out[j].Pkg().Path()
+	})
+	return out
+}
+
+func writeReachableTypes(b *strings.Builder, pkg *types.Package) {
+	for _, tn := range reachableTypes(pkg) {
+		if tn.Exported() {
+			writeAPITypeAs(b, tn, "reachable type")
+		}
+	}
+}
+
 func writeAPIType(b *strings.Builder, o *types.TypeName) {
+	writeAPITypeAs(b, o, "type")
+}
+
+func writeAPITypeAs(b *strings.Builder, o *types.TypeName, keyword string) {
 	typ := o.Type()
-	header := "type " + o.Name()
+	header := keyword + " " + o.Name()
 	if o.IsAlias() {
 		header += " alias"
 	}
@@ -83,6 +195,11 @@ func writeAPIType(b *strings.Builder, o *types.TypeName) {
 		for i := 0; i < u.NumFields(); i++ {
 			if f := u.Field(i); f.Exported() {
 				b.WriteString("\tfield " + f.Name() + " " + types.TypeString(f.Type(), apiQualifier) + "\n")
+				// A separate line keeps the field lines stable; a JSON-shape
+				// change shows up as a changed tag line.
+				if tag := u.Tag(i); tag != "" {
+					b.WriteString("\ttag " + f.Name() + " " + tag + "\n")
+				}
 			}
 		}
 	case *types.Interface:
