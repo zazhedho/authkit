@@ -17,7 +17,5 @@ type Service interface {
 	Update(ctx context.Context, id string, req dtorole.RoleUpdate) (domainrole.Role, error)
 	Delete(ctx context.Context, id string) error
 	AssignPermissions(ctx context.Context, actor domainauth.Actor, roleId string, req dtorole.AssignPermissions) error
-	AssignMenus(ctx context.Context, roleId string, req dtorole.AssignMenus) error
 	GetRolePermissions(ctx context.Context, roleId string) ([]string, error)
-	GetRoleMenus(ctx context.Context, roleId string) ([]string, error)
 }

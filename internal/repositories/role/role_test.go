@@ -47,9 +47,6 @@ func TestRoleRepositoryDryRun(t *testing.T) {
 	if ids, err := repo.GetRolePermissions(ctx, "role-1"); err != nil || len(ids) != 0 {
 		t.Fatalf("get role permissions: ids=%v err=%v", ids, err)
 	}
-	if ids, err := repo.GetRoleMenus(ctx, "role-1"); err != nil || len(ids) != 0 {
-		t.Fatalf("get role menus: ids=%v err=%v", ids, err)
-	}
 }
 
 func newRoleMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock) {
@@ -78,14 +75,6 @@ func TestRoleRepositoryAssignAndRemoveRelations(t *testing.T) {
 	mock.ExpectCommit()
 	if err := repo.AssignPermissions(ctx, "role-1", []string{"perm-1"}); err != nil {
 		t.Fatalf("assign permissions: %v", err)
-	}
-
-	mock.ExpectBegin()
-	mock.ExpectExec(`DELETE FROM "role_menus"`).WithArgs("role-1").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`INSERT INTO "role_menus"`).WithArgs(sqlmock.AnyArg(), "role-1", "menu-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-	if err := repo.AssignMenus(ctx, "role-1", []string{"menu-1"}); err != nil {
-		t.Fatalf("assign menus: %v", err)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

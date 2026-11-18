@@ -60,12 +60,6 @@ func (m *roleRepoMock) AssignPermissions(ctx context.Context, roleId string, per
 func (m *roleRepoMock) GetRolePermissions(ctx context.Context, roleId string) ([]string, error) {
 	return m.rolePermissions, nil
 }
-func (m *roleRepoMock) AssignMenus(ctx context.Context, roleId string, menuIds []string) error {
-	return nil
-}
-func (m *roleRepoMock) GetRoleMenus(ctx context.Context, roleId string) ([]string, error) {
-	return nil, nil
-}
 
 type permissionRepoMock struct {
 	permissionsByID map[string]domainpermission.Permission
@@ -252,13 +246,9 @@ func TestRoleServiceCRUDAndDetails(t *testing.T) {
 	if err != nil || len(permissionIDs) != 1 || permissionIDs[0] != "perm-1" {
 		t.Fatalf("get role permissions: ids=%+v err=%v", permissionIDs, err)
 	}
-	menuIDs, err := service.GetRoleMenus(context.Background(), "role-1")
-	if err != nil || len(menuIDs) != 2 {
-		t.Fatalf("get role menus: ids=%+v err=%v", menuIDs, err)
-	}
 }
 
-func TestRoleServiceSystemRoleProtectionsAndMenus(t *testing.T) {
+func TestRoleServiceSystemRoleProtections(t *testing.T) {
 	systemRepo := &roleRepoMock{role: domainrole.Role{Id: "role-1", Name: domainuser.RoleAdmin, IsSystem: true}}
 	service := NewService(systemRepo, &permissionRepoMock{}, &menuRepoMock{})
 
@@ -267,9 +257,6 @@ func TestRoleServiceSystemRoleProtectionsAndMenus(t *testing.T) {
 	}
 	if err := service.Delete(context.Background(), "role-1"); err == nil {
 		t.Fatal("expected system role delete to be rejected")
-	}
-	if err := service.AssignMenus(context.Background(), "role-1", dtorole.AssignMenus{MenuIds: []string{"menu-1"}}); err == nil {
-		t.Fatal("expected direct menu assignment to be rejected")
 	}
 }
 

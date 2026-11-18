@@ -213,22 +213,6 @@ func (h *Handler) AssignPermissions(ctx *gin.Context) {
 	})
 }
 
-func (h *Handler) AssignMenus(ctx *gin.Context) {
-	var req dtorole.AssignMenus
-	handleRoleRelationAssignment(h, ctx, &req, roleRelationAssignment[dtorole.AssignMenus]{
-		logPrefix:      "[RoleHandler][AssignMenus]",
-		resource:       "role_menus",
-		beforeDataKey:  "menu_ids",
-		failedMessage:  "Failed to assign menus to role",
-		successMessage: "Assigned menus to role",
-		responseMsg:    "Menus assigned successfully",
-		debugMsg:       "Menus assigned",
-		serviceName:    "AssignMenus",
-		getBefore:      h.Service.GetRoleMenus,
-		assign:         h.Service.AssignMenus,
-	})
-}
-
 type roleRelationAssignment[T any] struct {
 	logPrefix      string
 	resource       string

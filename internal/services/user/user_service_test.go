@@ -150,12 +150,6 @@ func (m *roleRepoUserMock) AssignPermissions(ctx context.Context, roleId string,
 func (m *roleRepoUserMock) GetRolePermissions(ctx context.Context, roleId string) ([]string, error) {
 	return nil, nil
 }
-func (m *roleRepoUserMock) AssignMenus(ctx context.Context, roleId string, menuIds []string) error {
-	return nil
-}
-func (m *roleRepoUserMock) GetRoleMenus(ctx context.Context, roleId string) ([]string, error) {
-	return nil, nil
-}
 
 type permissionRepoUserMock struct {
 	userPermissions []domainpermission.Permission

@@ -197,21 +197,8 @@ func (s *Service) invalidatePermissionCache(ctx context.Context) {
 	}
 }
 
-func (s *Service) AssignMenus(ctx context.Context, roleId string, req dtorole.AssignMenus) error {
-	return errors.New("menu access is derived from permissions; assign permissions instead")
-}
-
 func (s *Service) GetRolePermissions(ctx context.Context, roleId string) ([]string, error) {
 	return s.RoleRepo.GetRolePermissions(ctx, roleId)
-}
-
-func (s *Service) GetRoleMenus(ctx context.Context, roleId string) ([]string, error) {
-	permissionIds, err := s.RoleRepo.GetRolePermissions(ctx, roleId)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.deriveMenuIDsFromPermissions(ctx, permissionIds)
 }
 
 func (s *Service) deriveMenuIDsFromPermissions(ctx context.Context, permissionIds []string) ([]string, error) {

@@ -33,7 +33,6 @@ type roleServiceHandlerTestDouble struct {
 	getAllErr            error
 	deleteErr            error
 	assignPermissionsErr error
-	assignMenusErr       error
 }
 
 func (m *roleServiceHandlerTestDouble) Create(ctx context.Context, req dtorole.RoleCreate) (domainrole.Role, error) {
@@ -71,18 +70,8 @@ func (m *roleServiceHandlerTestDouble) AssignPermissions(ctx context.Context, ac
 	}
 	return m.err
 }
-func (m *roleServiceHandlerTestDouble) AssignMenus(ctx context.Context, roleId string, req dtorole.AssignMenus) error {
-	m.assigned = req.MenuIds
-	if m.assignMenusErr != nil {
-		return m.assignMenusErr
-	}
-	return m.err
-}
 func (m *roleServiceHandlerTestDouble) GetRolePermissions(ctx context.Context, roleId string) ([]string, error) {
 	return []string{"perm-old"}, nil
-}
-func (m *roleServiceHandlerTestDouble) GetRoleMenus(ctx context.Context, roleId string) ([]string, error) {
-	return []string{"menu-old"}, nil
 }
 
 type auditServiceRoleTestDouble struct{}
@@ -166,11 +155,6 @@ func TestRoleMutationErrorsAndAssignments(t *testing.T) {
 	if rec.Code != http.StatusOK || len(service.assigned) != 1 || service.assigned[0] != "perm-1" {
 		t.Fatalf("expected permission assignment, code=%d assigned=%v", rec.Code, service.assigned)
 	}
-
-	rec = performRoleRequest(http.MethodPost, "/roles/:id/menus", "/roles/role-1/menus", dtorole.AssignMenus{MenuIds: []string{"menu-1"}}, handler.AssignMenus)
-	if rec.Code != http.StatusOK || len(service.assigned) != 1 || service.assigned[0] != "menu-1" {
-		t.Fatalf("expected menu assignment, code=%d assigned=%v", rec.Code, service.assigned)
-	}
 }
 
 func TestRoleHandlersRejectInvalidJSON(t *testing.T) {
@@ -186,7 +170,6 @@ func TestRoleHandlersRejectInvalidJSON(t *testing.T) {
 		{name: "create", method: http.MethodPost, routePath: "/roles", path: "/roles", call: handler.Create},
 		{name: "update", method: http.MethodPut, routePath: "/roles/:id", path: "/roles/role-1", call: handler.Update},
 		{name: "assign permissions", method: http.MethodPost, routePath: "/roles/:id/permissions", path: "/roles/role-1/permissions", call: handler.AssignPermissions},
-		{name: "assign menus", method: http.MethodPost, routePath: "/roles/:id/menus", path: "/roles/role-1/menus", call: handler.AssignMenus},
 	}
 
 	for _, tt := range tests {
@@ -235,12 +218,6 @@ func TestRoleHandlersServiceErrorBranches(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected assign permissions 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-
-	handler = New(&roleServiceHandlerTestDouble{assignMenusErr: errors.New("database down")}, &auditServiceRoleTestDouble{})
-	rec = performRoleRequest(http.MethodPost, "/roles/:id/menus", "/roles/role-1/menus", dtorole.AssignMenus{MenuIds: []string{"menu-1"}}, handler.AssignMenus)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected assign menus 500, got %d: %s", rec.Code, rec.Body.String())
-	}
 }
 
 func TestRoleAssignmentsMapDeletedActorToNotFound(t *testing.T) {
@@ -248,11 +225,5 @@ func TestRoleAssignmentsMapDeletedActorToNotFound(t *testing.T) {
 	rec := performRoleRequest(http.MethodPost, "/roles/:id/permissions", "/roles/role-1/permissions", dtorole.AssignPermissions{PermissionIds: []string{"perm-1"}}, handler.AssignPermissions)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected assign permissions 404, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	handler = New(&roleServiceHandlerTestDouble{assignMenusErr: domainuser.ErrNotFound}, &auditServiceRoleTestDouble{})
-	rec = performRoleRequest(http.MethodPost, "/roles/:id/menus", "/roles/role-1/menus", dtorole.AssignMenus{MenuIds: []string{"menu-1"}}, handler.AssignMenus)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("expected assign menus 404, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
