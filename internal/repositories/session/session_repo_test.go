@@ -1,4 +1,4 @@
-package repositorysession
+package session
 
 import (
 	"context"

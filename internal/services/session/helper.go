@@ -1,4 +1,4 @@
-package servicesession
+package session
 
 import "strings"
 

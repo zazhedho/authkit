@@ -1,4 +1,4 @@
-package interfacemenu
+package menu
 
 import (
 	"context"

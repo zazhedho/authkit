@@ -1,4 +1,4 @@
-package domainpermission
+package permission
 
 import (
 	"time"

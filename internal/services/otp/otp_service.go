@@ -1,12 +1,12 @@
-package serviceotp
+package otp
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/zazhedho/authkit/internal/config"
+	"github.com/zazhedho/authkit/internal/infrastructure/mailer"
 	interfaceotp "github.com/zazhedho/authkit/internal/interfaces/otp"
-	"github.com/zazhedho/authkit/internal/mailer"
-	"github.com/zazhedho/authkit/internal/settings"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"strings"
@@ -37,10 +37,10 @@ func (e *ThrottleError) Error() string {
 type ServiceOTP struct {
 	Repo   interfaceotp.RepoOTPInterface
 	Sender mailer.Sender
-	Config settings.OTPConfig
+	Config config.OTPConfig
 }
 
-func NewOTPService(repo interfaceotp.RepoOTPInterface, sender mailer.Sender, cfg settings.OTPConfig) *ServiceOTP {
+func NewOTPService(repo interfaceotp.RepoOTPInterface, sender mailer.Sender, cfg config.OTPConfig) *ServiceOTP {
 	return &ServiceOTP{Repo: repo, Sender: sender, Config: cfg}
 }
 

@@ -1,9 +1,9 @@
-package serviceshared
+package shared
 
 import (
 	"context"
 	"errors"
-	"github.com/zazhedho/authkit/internal/authscope"
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	"github.com/zazhedho/gokit"
@@ -77,13 +77,13 @@ func (m *permissionRepoSharedTestDouble) GetUserPermissions(ctx context.Context,
 }
 
 func TestHasPermissionUsesScopeAndRepositoryFallback(t *testing.T) {
-	ctx := authscope.WithContext(context.Background(), authscope.New("user-1", "Jane", "staff", []string{"users:list"}))
+	ctx := domainauth.WithContext(context.Background(), domainauth.New("user-1", "Jane", "staff", []string{"users:list"}))
 	ok, err := HasPermission(ctx, &permissionRepoSharedTestDouble{}, "users", "list")
 	if err != nil || !ok {
 		t.Fatalf("expected scope permission to allow, ok=%v err=%v", ok, err)
 	}
 
-	ctx = authscope.WithContext(context.Background(), authscope.New("user-1", "Jane", "staff", nil))
+	ctx = domainauth.WithContext(context.Background(), domainauth.New("user-1", "Jane", "staff", nil))
 	ok, err = HasPermission(ctx, &permissionRepoSharedTestDouble{
 		permissions: []domainpermission.Permission{{Resource: "users", Action: "delete"}},
 	}, "users", "delete")

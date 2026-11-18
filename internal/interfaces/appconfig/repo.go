@@ -1,4 +1,4 @@
-package interfaceappconfig
+package appconfig
 
 import (
 	"context"

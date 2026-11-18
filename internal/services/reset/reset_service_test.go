@@ -1,10 +1,10 @@
-package servicereset
+package reset
 
 import (
 	"context"
 	"errors"
+	"github.com/zazhedho/authkit/internal/config"
 	interfacereset "github.com/zazhedho/authkit/internal/interfaces/reset"
-	"github.com/zazhedho/authkit/internal/settings"
 	"testing"
 	"time"
 
@@ -98,8 +98,8 @@ func (m *resetSenderTestDouble) SendPasswordReset(to, token, appName, resetURL s
 	return m.err
 }
 
-func resetTestConfig() settings.PasswordResetConfig {
-	return settings.PasswordResetConfig{
+func resetTestConfig() config.PasswordResetConfig {
+	return config.PasswordResetConfig{
 		TTL:         15 * time.Minute,
 		Cooldown:    time.Minute,
 		RateWindow:  time.Minute,

@@ -1,4 +1,4 @@
-package repositoryauth
+package auth
 
 import (
 	"context"

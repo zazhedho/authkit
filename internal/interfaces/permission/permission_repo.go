@@ -1,4 +1,4 @@
-package interfacepermission
+package permission
 
 import (
 	"context"

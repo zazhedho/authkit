@@ -1,9 +1,9 @@
-package interfaceappconfig
+package appconfig
 
 import (
 	"context"
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
-	"github.com/zazhedho/authkit/internal/dto"
+	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 	"github.com/zazhedho/gokit"
 	"time"
 )
@@ -12,7 +12,7 @@ type ServiceAppConfigInterface interface {
 	GetAll(ctx context.Context, params gokit.BaseParams) ([]domainappconfig.AppConfig, int64, error)
 	GetByID(ctx context.Context, id string) (domainappconfig.AppConfig, error)
 	GetByKey(ctx context.Context, configKey string) (domainappconfig.AppConfig, error)
-	Update(ctx context.Context, id string, req dto.UpdateAppConfig) (domainappconfig.AppConfig, error)
+	Update(ctx context.Context, id string, req dtoappconfig.UpdateAppConfig) (domainappconfig.AppConfig, error)
 	GetString(ctx context.Context, configKey string, fallback string) (string, error)
 	GetBool(ctx context.Context, configKey string, fallback bool) (bool, error)
 	GetInt(ctx context.Context, configKey string, fallback int) (int, error)

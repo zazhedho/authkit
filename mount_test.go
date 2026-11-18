@@ -9,7 +9,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
-	"github.com/zazhedho/authkit/internal/testsupport"
+	"github.com/zazhedho/authkit/internal/testutil"
 )
 
 var baseRoutes = []string{ // "METHOD path", relative to the "/api" group
@@ -220,7 +220,7 @@ func TestMountAppliesPermissionPerRoute(t *testing.T) {
 			if rp.resource == "" {
 				// Authentication only: a user with no permissions at all passes the gate.
 				id := "u-none-" + strings.ReplaceAll(name, " ", "_")
-				drv.AddUser(testsupport.User{ID: id, Role: "viewer"})
+				drv.AddUser(testutil.User{ID: id, Role: "viewer"})
 				code := do(engine, rp.method, rp.path, tokenFor(t, kit, id, "viewer")).Code
 				if code == http.StatusUnauthorized || code == http.StatusForbidden {
 					t.Fatalf("auth-only route rejected a valid token: %d", code)
@@ -238,13 +238,13 @@ func TestMountAppliesPermissionPerRoute(t *testing.T) {
 			sort.Strings(others)
 
 			deniedID := "u-denied-" + strings.ReplaceAll(name, " ", "_")
-			drv.AddUser(testsupport.User{ID: deniedID, Role: "viewer", Permissions: others})
+			drv.AddUser(testutil.User{ID: deniedID, Role: "viewer", Permissions: others})
 			if code := do(engine, rp.method, rp.path, tokenFor(t, kit, deniedID, "viewer")).Code; code != http.StatusForbidden {
 				t.Fatalf("user with every other permission: got %d, want 403", code)
 			}
 
 			allowedID := "u-allowed-" + strings.ReplaceAll(name, " ", "_")
-			drv.AddUser(testsupport.User{ID: allowedID, Role: "viewer", Permissions: []string{want}})
+			drv.AddUser(testutil.User{ID: allowedID, Role: "viewer", Permissions: []string{want}})
 			code := do(engine, rp.method, rp.path, tokenFor(t, kit, allowedID, "viewer")).Code
 			if code == http.StatusUnauthorized || code == http.StatusForbidden {
 				t.Fatalf("user with exactly %s: got %d", want, code)

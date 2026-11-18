@@ -1,4 +1,4 @@
-package repositoryreset
+package reset
 
 import (
 	"context"

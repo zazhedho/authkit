@@ -1,10 +1,10 @@
-package serviceappconfig
+package appconfig
 
 import (
 	"context"
 	"errors"
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
-	"github.com/zazhedho/authkit/internal/dto"
+	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 	"github.com/zazhedho/gokit"
 	"testing"
 	"time"
@@ -223,7 +223,7 @@ func TestUpdateStillWorks(t *testing.T) {
 	repo := &appConfigRepoMock{byID: nowConfig}
 	service := NewAppConfigService(repo)
 
-	updated, err := service.Update(context.Background(), "cfg-1", dto.UpdateAppConfig{Value: "new"})
+	updated, err := service.Update(context.Background(), "cfg-1", dtoappconfig.UpdateAppConfig{Value: "new"})
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -255,7 +255,7 @@ func TestAppConfigServicePassThroughMethodsAndIsEnabled(t *testing.T) {
 		t.Fatalf("is enabled: enabled=%v err=%v", enabled, err)
 	}
 
-	updated, err := service.Update(context.Background(), "cfg-1", dto.UpdateAppConfig{Value: "false", IsActive: new(false)})
+	updated, err := service.Update(context.Background(), "cfg-1", dtoappconfig.UpdateAppConfig{Value: "false", IsActive: new(false)})
 	if err != nil {
 		t.Fatalf("update inactive: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestAppConfigServicePassThroughMethodsAndIsEnabled(t *testing.T) {
 
 func TestAppConfigServiceUpdateErrorsAndFallbacks(t *testing.T) {
 	service := NewAppConfigService(&appConfigRepoMock{getErr: gorm.ErrRecordNotFound})
-	if _, err := service.Update(context.Background(), "cfg-1", dto.UpdateAppConfig{Value: "new"}); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err := service.Update(context.Background(), "cfg-1", dtoappconfig.UpdateAppConfig{Value: "new"}); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("expected get by id error, got %v", err)
 	}
 
@@ -274,7 +274,7 @@ func TestAppConfigServiceUpdateErrorsAndFallbacks(t *testing.T) {
 		byID:      domainappconfig.AppConfig{Id: "cfg-1", Value: "old", IsActive: true},
 		updateErr: errors.New("database down"),
 	})
-	if _, err := service.Update(context.Background(), "cfg-1", dto.UpdateAppConfig{Value: "new"}); err == nil {
+	if _, err := service.Update(context.Background(), "cfg-1", dtoappconfig.UpdateAppConfig{Value: "new"}); err == nil {
 		t.Fatal("expected update error")
 	}
 

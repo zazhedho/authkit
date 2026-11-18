@@ -1,9 +1,9 @@
-package repositorymenu
+package menu
 
 import (
 	"context"
-	"github.com/zazhedho/authkit/internal/authutil"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	interfacemenu "github.com/zazhedho/authkit/internal/interfaces/menu"
 	"github.com/zazhedho/gokit"
 	"sort"
@@ -54,7 +54,7 @@ func (r *repo) GetUserMenus(ctx context.Context, userId string) (ret []domainmen
 		return nil, err
 	}
 
-	if user.Role == authutil.RoleSuperAdmin {
+	if user.Role == domainuser.RoleSuperAdmin {
 		return r.GetActiveMenus(ctx)
 	}
 

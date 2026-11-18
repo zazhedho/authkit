@@ -1,10 +1,10 @@
-package servicepermission
+package permission
 
 import (
 	"context"
 	"errors"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
-	"github.com/zazhedho/authkit/internal/dto"
+	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
 	"github.com/zazhedho/gokit"
 	"testing"
 )
@@ -63,7 +63,7 @@ func TestCreateRejectsDuplicatePermissionName(t *testing.T) {
 		},
 	})
 
-	_, err := svc.Create(context.Background(), dto.PermissionCreate{Name: "list_users"})
+	_, err := svc.Create(context.Background(), dtopermission.PermissionCreate{Name: "list_users"})
 	if err == nil || err.Error() != "permission with this name already exists" {
 		t.Fatalf("expected duplicate error, got %v", err)
 	}
@@ -73,7 +73,7 @@ func TestCreateStoresPermission(t *testing.T) {
 	repo := &permissionRepoTestDouble{}
 	svc := NewPermissionService(repo)
 
-	got, err := svc.Create(context.Background(), dto.PermissionCreate{
+	got, err := svc.Create(context.Background(), dtopermission.PermissionCreate{
 		Name:        "list_users",
 		DisplayName: "List Users",
 		Description: "Can list users",
@@ -103,7 +103,7 @@ func TestUpdatePreservesEmptyFieldsAndSetsUpdatedAt(t *testing.T) {
 	}}
 	svc := NewPermissionService(repo)
 
-	got, err := svc.Update(context.Background(), "perm-1", dto.PermissionUpdate{
+	got, err := svc.Update(context.Background(), "perm-1", dtopermission.PermissionUpdate{
 		Description: "new",
 		Action:      "view",
 	})

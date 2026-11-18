@@ -1,10 +1,10 @@
-package serviceaudit
+package audit
 
 import (
 	"context"
 	"errors"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
-	"github.com/zazhedho/authkit/internal/dto"
+	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	interfaceaudit "github.com/zazhedho/authkit/internal/interfaces/audit"
 	"github.com/zazhedho/gokit"
 	"strings"
@@ -64,7 +64,7 @@ func (s *AuditService) Store(ctx context.Context, req domainaudit.AuditEvent) er
 	return s.AuditRepo.Store(ctx, data)
 }
 
-func (s *AuditService) GetAll(ctx context.Context, params gokit.BaseParams) ([]dto.AuditTrailResponse, int64, error) {
+func (s *AuditService) GetAll(ctx context.Context, params gokit.BaseParams) ([]dtoaudit.AuditTrailResponse, int64, error) {
 	items, total, err := s.AuditRepo.GetAll(ctx, params)
 	if err != nil {
 		return nil, 0, err
@@ -73,10 +73,10 @@ func (s *AuditService) GetAll(ctx context.Context, params gokit.BaseParams) ([]d
 	return toAuditResponses(items), total, nil
 }
 
-func (s *AuditService) GetByID(ctx context.Context, id string) (dto.AuditTrailResponse, error) {
+func (s *AuditService) GetByID(ctx context.Context, id string) (dtoaudit.AuditTrailResponse, error) {
 	item, err := s.AuditRepo.GetByID(ctx, id)
 	if err != nil {
-		return dto.AuditTrailResponse{}, err
+		return dtoaudit.AuditTrailResponse{}, err
 	}
 
 	return toAuditResponse(item), nil

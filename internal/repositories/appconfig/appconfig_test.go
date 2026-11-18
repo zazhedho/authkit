@@ -1,4 +1,4 @@
-package repositoryappconfig
+package appconfig
 
 import (
 	"context"

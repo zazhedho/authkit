@@ -1,9 +1,9 @@
-package repositorypermission
+package permission
 
 import (
 	"context"
-	"github.com/zazhedho/authkit/internal/authutil"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
 	"github.com/zazhedho/gokit"
 
@@ -50,7 +50,7 @@ func (r *repo) GetUserPermissions(ctx context.Context, userId string) (ret []dom
 		return nil, err
 	}
 
-	if user.Role == authutil.RoleSuperAdmin {
+	if user.Role == domainuser.RoleSuperAdmin {
 		if err = r.DB.WithContext(ctx).Where("deleted_at IS NULL").Order("resource, action").Find(&ret).Error; err != nil {
 			return nil, err
 		}

@@ -14,12 +14,12 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
-	"github.com/zazhedho/authkit/internal/authutil"
-	permissioncache "github.com/zazhedho/authkit/internal/cache/permission"
+	"github.com/zazhedho/authkit/internal/config"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
+	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	serviceuser "github.com/zazhedho/authkit/internal/services/user"
-	"github.com/zazhedho/authkit/internal/settings"
-	"github.com/zazhedho/authkit/internal/testsupport"
+	"github.com/zazhedho/authkit/internal/testutil"
 	"gorm.io/gorm"
 )
 
@@ -29,9 +29,9 @@ func testConfig(db *gorm.DB) Config {
 	return Config{DB: db, AppName: "testapp", JWTKey: testJWTKey}
 }
 
-func newTestKit(t *testing.T, mutate func(*Config)) (*Kit, *testsupport.Driver) {
+func newTestKit(t *testing.T, mutate func(*Config)) (*Kit, *testutil.Driver) {
 	t.Helper()
-	db, drv := testsupport.NewDB(t)
+	db, drv := testutil.NewDB(t)
 	cfg := testConfig(db)
 	if mutate != nil {
 		mutate(&cfg)
@@ -63,7 +63,7 @@ func do(engine http.Handler, method, path, token string) *httptest.ResponseRecor
 }
 
 func TestNewRejectsInvalidConfig(t *testing.T) {
-	db, _ := testsupport.NewDB(t)
+	db, _ := testutil.NewDB(t)
 
 	if _, err := New(Config{AppName: "testapp", JWTKey: testJWTKey}); err == nil {
 		t.Fatal("expected error for nil DB")
@@ -100,9 +100,9 @@ func TestNewDoesNotTouchDatabase(t *testing.T) {
 
 func TestCanAllowsAndDenies(t *testing.T) {
 	kit, drv := newTestKit(t, nil)
-	drv.AddUser(testsupport.User{ID: "u-allowed", Role: "viewer", Permissions: []string{"trips:create"}})
-	drv.AddUser(testsupport.User{ID: "u-denied", Role: "viewer", Permissions: []string{"trips:view"}})
-	drv.AddUser(testsupport.User{ID: "u-super", Role: "superadmin"})
+	drv.AddUser(testutil.User{ID: "u-allowed", Role: "viewer", Permissions: []string{"trips:create"}})
+	drv.AddUser(testutil.User{ID: "u-denied", Role: "viewer", Permissions: []string{"trips:view"}})
+	drv.AddUser(testutil.User{ID: "u-super", Role: "superadmin"})
 
 	engine := gin.New()
 	group := engine.Group("/x")
@@ -307,11 +307,11 @@ func wiringConfig(mailer Mailer) func(*Config) {
 		c.GoogleClientIDs = []string{"client-1.example.test", "client-2.example.test"}
 		c.EmailAppName = "Wiring Mail"
 		c.PermissionCacheTTL = 777 * time.Second
-		c.Login = settings.LoginLimit{Limit: 2, Window: 33 * time.Second, BlockDuration: 444 * time.Second}
-		c.Register = settings.RateLimit{Limit: 2, Window: 55 * time.Second}
-		c.OTP = settings.OTPConfig{TTL: 111 * time.Second, Cooldown: 22 * time.Second, RateLimit: 2, RateWindow: 999 * time.Second, MaxAttempts: 2, Secret: "otp-secret-fake"} //nolint:gosec // fake test secret
-		c.Reset = settings.PasswordResetConfig{TTL: 333 * time.Second, Cooldown: 44 * time.Second, RateLimit: 3, RateWindow: 888 * time.Second, Secret: "reset-secret-fake", URLTemplate: "https://app.example.test/reset?token={token}"}
-		c.Flags = settings.FlagKeys{PublicRegistration: "wiring.registration", RegisterOTP: "wiring.otp", PasswordResetEmail: "wiring.reset"}
+		c.Login = config.LoginLimit{Limit: 2, Window: 33 * time.Second, BlockDuration: 444 * time.Second}
+		c.Register = config.RateLimit{Limit: 2, Window: 55 * time.Second}
+		c.OTP = config.OTPConfig{TTL: 111 * time.Second, Cooldown: 22 * time.Second, RateLimit: 2, RateWindow: 999 * time.Second, MaxAttempts: 2, Secret: "otp-secret-fake"} //nolint:gosec // fake test secret
+		c.Reset = config.PasswordResetConfig{TTL: 333 * time.Second, Cooldown: 44 * time.Second, RateLimit: 3, RateWindow: 888 * time.Second, Secret: "reset-secret-fake", URLTemplate: "https://app.example.test/reset?token={token}"}
+		c.Flags = config.FlagKeys{PublicRegistration: "wiring.registration", RegisterOTP: "wiring.otp", PasswordResetEmail: "wiring.reset"}
 	}
 }
 
@@ -328,7 +328,7 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 	// not, so a response that reflects them proves the custom keys were used.
 	drv.SetConfig("wiring.otp", "true")
 	drv.SetConfig("wiring.reset", "true")
-	drv.AddUser(testsupport.User{ID: "u-login", Email: "login@example.test", Role: "viewer", PasswordHash: testsupport.MustHash(t, "Passw0rd!x")})
+	drv.AddUser(testutil.User{ID: "u-login", Email: "login@example.test", Role: "viewer", PasswordHash: testutil.MustHash(t, "Passw0rd!x")})
 
 	t.Run("Tokens carry TTLs and AppName", func(t *testing.T) {
 		if got := kit.tokens.AccessTTL(); got != 7*time.Hour {
@@ -358,7 +358,7 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 				t.Errorf("%s token expires in %v, want about %v", name, d, tc.want)
 			}
 		}
-		foreign, err := authutil.NewTokens(authutil.TokenConfig{Key: testJWTKey, AppName: "other-app"})
+		foreign, err := token.NewTokens(token.TokenConfig{Key: testJWTKey, AppName: "other-app"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -440,11 +440,11 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 	})
 
 	t.Run("permission cache TTL", func(t *testing.T) {
-		drv.AddUser(testsupport.User{ID: "u-audit", Role: "viewer", Permissions: []string{"audits:list"}})
+		drv.AddUser(testutil.User{ID: "u-audit", Role: "viewer", Permissions: []string{"audits:list"}})
 		if code := do(engine, http.MethodGet, "/api/audits", tokenFor(t, kit, "u-audit", "viewer")).Code; code == http.StatusForbidden || code == http.StatusUnauthorized {
 			t.Fatalf("audits: %d", code)
 		}
-		if ttl := mr.TTL(permissioncache.Key("u-audit")); ttl != 777*time.Second {
+		if ttl := mr.TTL(cachepermission.Key("u-audit")); ttl != 777*time.Second {
 			t.Errorf("permission cache TTL = %v, want 777s", ttl)
 		}
 	})
@@ -649,7 +649,7 @@ func TestNewWithRedisButNoMailerKeepsOTPAndResetInert(t *testing.T) {
 	engine := mountedEngine(t, kit)
 	drv.SetConfig("auth.register_otp_enabled", "true")
 	drv.SetConfig("auth.password_reset_email_enabled", "true")
-	drv.AddUser(testsupport.User{ID: "u1", Email: "u1@example.test", Role: "viewer"})
+	drv.AddUser(testutil.User{ID: "u1", Email: "u1@example.test", Role: "viewer"})
 
 	rec, _ := doJSON(engine, http.MethodPost, "/api/user/register/otp/send", "", `{"email":"a@example.test"}`)
 	if rec.Code != http.StatusServiceUnavailable {

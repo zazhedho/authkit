@@ -1,10 +1,10 @@
-package serviceuser
+package user
 
 import (
 	"context"
 	"errors"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	"github.com/zazhedho/authkit/internal/dto"
+	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	interfacerole "github.com/zazhedho/authkit/internal/interfaces/role"
 	"github.com/zazhedho/gokit"
 	"net/mail"
@@ -79,7 +79,7 @@ func findRoleIDByName(ctx context.Context, roleRepo interfacerole.RepoRoleInterf
 	return &roleEntity.Id, true
 }
 
-func ResolveLoginIdentifier(req dto.Login) (string, error) {
+func ResolveLoginIdentifier(req dtouser.Login) (string, error) {
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" {
 		identifier = strings.TrimSpace(req.Email)

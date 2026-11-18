@@ -1,4 +1,4 @@
-package repositorypermission
+package permission
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/zazhedho/authkit/internal/authutil"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	"github.com/zazhedho/gokit"
 )
 
@@ -82,7 +82,7 @@ func TestPermissionRepositoryGetUserPermissionsSuperadmin(t *testing.T) {
 	db, mock := newPermissionMockDB(t)
 	repo := NewPermissionRepo(db)
 	now := time.Now()
-	expectPermissionUserRole(mock, nil, authutil.RoleSuperAdmin)
+	expectPermissionUserRole(mock, nil, domainuser.RoleSuperAdmin)
 	mock.ExpectQuery(`SELECT \* FROM "permissions" WHERE deleted_at IS NULL AND "permissions"\."deleted_at" IS NULL ORDER BY resource, action`).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "display_name", "description", "resource", "action", "created_at", "updated_at", "deleted_at",
@@ -100,7 +100,7 @@ func TestPermissionRepositoryGetUserPermissionsSuperadmin(t *testing.T) {
 func TestPermissionRepositoryGetUserPermissionsEmptyRole(t *testing.T) {
 	db, mock := newPermissionMockDB(t)
 	repo := NewPermissionRepo(db)
-	expectPermissionUserRole(mock, nil, authutil.RoleViewer)
+	expectPermissionUserRole(mock, nil, domainuser.RoleViewer)
 
 	permissions, err := repo.GetUserPermissions(context.Background(), "user-1")
 	if err != nil || len(permissions) != 0 {
@@ -116,7 +116,7 @@ func TestPermissionRepositoryGetUserPermissionsByRole(t *testing.T) {
 	repo := NewPermissionRepo(db)
 	roleID := "role-1"
 	now := time.Now()
-	expectPermissionUserRole(mock, roleID, authutil.RoleViewer)
+	expectPermissionUserRole(mock, roleID, domainuser.RoleViewer)
 	mock.ExpectQuery(`SELECT DISTINCT p\.\*[\s\S]+FROM permissions p[\s\S]+INNER JOIN role_permissions rp[\s\S]+WHERE rp\.role_id = \$1 AND p\.deleted_at IS NULL[\s\S]+ORDER BY p\.resource, p\.action`).
 		WithArgs(roleID).
 		WillReturnRows(sqlmock.NewRows([]string{

@@ -1,9 +1,9 @@
-package servicemenu
+package menu
 
 import (
 	"context"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
-	"github.com/zazhedho/authkit/internal/dto"
+	dtomenu "github.com/zazhedho/authkit/internal/dto/menu"
 	interfacemenu "github.com/zazhedho/authkit/internal/interfaces/menu"
 	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
@@ -57,7 +57,7 @@ func (s *MenuService) GetUserMenus(ctx context.Context, userId string) ([]domain
 	return serviceshared.ResolveAccessibleMenus(activeMenus, resources), nil
 }
 
-func (s *MenuService) Update(ctx context.Context, id string, req dto.MenuUpdate) (domainmenu.MenuItem, error) {
+func (s *MenuService) Update(ctx context.Context, id string, req dtomenu.MenuUpdate) (domainmenu.MenuItem, error) {
 	menu, err := s.MenuRepo.GetByID(ctx, id)
 	if err != nil {
 		return domainmenu.MenuItem{}, err

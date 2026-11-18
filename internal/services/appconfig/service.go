@@ -1,11 +1,11 @@
-package serviceappconfig
+package appconfig
 
 import (
 	"context"
 	"errors"
-	"github.com/zazhedho/authkit/internal/configvalue"
+	"github.com/zazhedho/authkit/internal/config"
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
-	"github.com/zazhedho/authkit/internal/dto"
+	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 	interfaceappconfig "github.com/zazhedho/authkit/internal/interfaces/appconfig"
 	"github.com/zazhedho/gokit"
 	"time"
@@ -33,7 +33,7 @@ func (s *AppConfigService) GetByKey(ctx context.Context, configKey string) (doma
 	return s.Repo.GetByKey(ctx, configKey)
 }
 
-func (s *AppConfigService) Update(ctx context.Context, id string, req dto.UpdateAppConfig) (domainappconfig.AppConfig, error) {
+func (s *AppConfigService) Update(ctx context.Context, id string, req dtoappconfig.UpdateAppConfig) (domainappconfig.AppConfig, error) {
 	config, err := s.Repo.GetByID(ctx, id)
 	if err != nil {
 		return domainappconfig.AppConfig{}, err
@@ -53,58 +53,58 @@ func (s *AppConfigService) Update(ctx context.Context, id string, req dto.Update
 }
 
 func (s *AppConfigService) GetString(ctx context.Context, configKey string, fallback string) (string, error) {
-	config, found, err := s.getActiveConfigByKey(ctx, configKey)
+	entry, found, err := s.getActiveConfigByKey(ctx, configKey)
 	if err != nil {
 		return fallback, err
 	}
 	if !found {
 		return fallback, nil
 	}
-	return configvalue.String(config.Value, fallback), nil
+	return config.String(entry.Value, fallback), nil
 }
 
 func (s *AppConfigService) GetBool(ctx context.Context, configKey string, fallback bool) (bool, error) {
-	config, found, err := s.getActiveConfigByKey(ctx, configKey)
+	entry, found, err := s.getActiveConfigByKey(ctx, configKey)
 	if err != nil {
 		return fallback, err
 	}
 	if !found {
 		return fallback, nil
 	}
-	return configvalue.Bool(config.Value, fallback)
+	return config.Bool(entry.Value, fallback)
 }
 
 func (s *AppConfigService) GetInt(ctx context.Context, configKey string, fallback int) (int, error) {
-	config, found, err := s.getActiveConfigByKey(ctx, configKey)
+	entry, found, err := s.getActiveConfigByKey(ctx, configKey)
 	if err != nil {
 		return fallback, err
 	}
 	if !found {
 		return fallback, nil
 	}
-	return configvalue.Int(config.Value, fallback)
+	return config.Int(entry.Value, fallback)
 }
 
 func (s *AppConfigService) GetDuration(ctx context.Context, configKey string, fallback time.Duration) (time.Duration, error) {
-	config, found, err := s.getActiveConfigByKey(ctx, configKey)
+	entry, found, err := s.getActiveConfigByKey(ctx, configKey)
 	if err != nil {
 		return fallback, err
 	}
 	if !found {
 		return fallback, nil
 	}
-	return configvalue.Duration(config.Value, fallback)
+	return config.Duration(entry.Value, fallback)
 }
 
 func (s *AppConfigService) DecodeJSON(ctx context.Context, configKey string, target any) error {
-	config, found, err := s.getActiveConfigByKey(ctx, configKey)
+	entry, found, err := s.getActiveConfigByKey(ctx, configKey)
 	if err != nil {
 		return err
 	}
 	if !found {
 		return nil
 	}
-	return configvalue.JSON(config.Value, target)
+	return config.JSON(entry.Value, target)
 }
 
 func (s *AppConfigService) IsEnabled(ctx context.Context, configKey string, fallback bool) (bool, error) {
@@ -112,17 +112,17 @@ func (s *AppConfigService) IsEnabled(ctx context.Context, configKey string, fall
 }
 
 func (s *AppConfigService) getActiveConfigByKey(ctx context.Context, configKey string) (domainappconfig.AppConfig, bool, error) {
-	config, err := s.Repo.GetByKey(ctx, configKey)
+	entry, err := s.Repo.GetByKey(ctx, configKey)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return domainappconfig.AppConfig{}, false, nil
 		}
 		return domainappconfig.AppConfig{}, false, err
 	}
-	if !config.IsActive {
+	if !entry.IsActive {
 		return domainappconfig.AppConfig{}, false, nil
 	}
-	return config, true, nil
+	return entry, true, nil
 }
 
 var _ interfaceappconfig.ServiceAppConfigInterface = (*AppConfigService)(nil)

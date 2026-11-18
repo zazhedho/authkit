@@ -1,11 +1,11 @@
-package servicemenu
+package menu
 
 import (
 	"context"
 	"errors"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
-	"github.com/zazhedho/authkit/internal/dto"
+	dtomenu "github.com/zazhedho/authkit/internal/dto/menu"
 	"github.com/zazhedho/gokit"
 	"testing"
 )
@@ -118,7 +118,7 @@ func TestUpdateOnlyAppliesProvidedMenuFields(t *testing.T) {
 	}}
 	svc := NewMenuService(repo, &permissionRepoMenuTestDouble{})
 
-	got, err := svc.Update(context.Background(), "menu-1", dto.MenuUpdate{
+	got, err := svc.Update(context.Background(), "menu-1", dtomenu.MenuUpdate{
 		DisplayName: "User Management",
 		ParentId:    &parentID,
 		OrderIndex:  &orderIndex,

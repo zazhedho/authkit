@@ -4,29 +4,29 @@ import (
 	"context"
 
 	"github.com/gin-gonic/gin"
-	"github.com/zazhedho/authkit/internal/authscope"
-	"github.com/zazhedho/authkit/internal/authutil"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
-	"github.com/zazhedho/authkit/internal/handlers/auditwriter"
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	"github.com/zazhedho/authkit/internal/handlers/http/middleware"
+	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
+	"github.com/zazhedho/authkit/internal/infrastructure/mailer"
 	interfaceappconfig "github.com/zazhedho/authkit/internal/interfaces/appconfig"
 	interfaceaudit "github.com/zazhedho/authkit/internal/interfaces/audit"
-	"github.com/zazhedho/authkit/internal/mailer"
-	"github.com/zazhedho/authkit/internal/middlewares"
 )
 
 // Scope is the authenticated identity of a request: user, role and the
 // permission set loaded by Can. Read it with ScopeFrom.
-type Scope = authscope.Scope
+type Scope = domainauth.Scope
 
 // NewScope builds a Scope for userID, username and role holding permissions,
 // each written as "resource:action". It is meant for tests and tooling.
 func NewScope(userID, username, role string, permissions []string) Scope {
-	return authscope.New(userID, username, role, permissions)
+	return domainauth.New(userID, username, role, permissions)
 }
 
 // WithScope returns a copy of ctx that carries scope, so ScopeFrom returns it.
 func WithScope(ctx context.Context, scope Scope) context.Context {
-	return authscope.WithContext(ctx, scope)
+	return domainauth.WithContext(ctx, scope)
 }
 
 // AuditEvent describes one audit trail entry written through an AuditService
@@ -64,30 +64,30 @@ type AuditService = interfaceaudit.ServiceAuditInterface
 
 // AuditWriter writes audit events from gin handlers, filling the actor from
 // the request scope. Build one with NewAuditWriter.
-type AuditWriter = auditwriter.AuditWriter
+type AuditWriter = httpshared.AuditWriter
 
 // NewAuditWriter returns an AuditWriter that stores events through service and
 // tags failures it logs with scope (a short name for the calling component).
 func NewAuditWriter(service AuditService, scope string) AuditWriter {
-	return auditwriter.NewAuditWriter(service, scope)
+	return httpshared.NewAuditWriter(service, scope)
 }
 
 // RequestLogger returns a gin middleware that logs every request with its
 // request ID, status and latency.
-func RequestLogger() gin.HandlerFunc { return middlewares.RequestLogger() }
+func RequestLogger() gin.HandlerFunc { return middleware.RequestLogger() }
 
 // Built-in role names.
 const (
 	// RoleSuperAdmin bypasses every permission and role check.
-	RoleSuperAdmin = authutil.RoleSuperAdmin
+	RoleSuperAdmin = domainuser.RoleSuperAdmin
 	// RoleAdmin is the administrator role.
-	RoleAdmin = authutil.RoleAdmin
+	RoleAdmin = domainuser.RoleAdmin
 	// RoleStaff is the staff role.
-	RoleStaff = authutil.RoleStaff
+	RoleStaff = domainuser.RoleStaff
 	// RoleMember is the member role.
-	RoleMember = authutil.RoleMember
+	RoleMember = domainuser.RoleMember
 	// RoleViewer is the default role of public registrations.
-	RoleViewer = authutil.RoleViewer
+	RoleViewer = domainuser.RoleViewer
 )
 
 // Mailer sends both registration OTP and password reset emails.

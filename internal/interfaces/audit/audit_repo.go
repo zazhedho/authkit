@@ -1,4 +1,4 @@
-package interfaceaudit
+package audit
 
 import (
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"

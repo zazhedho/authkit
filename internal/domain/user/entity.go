@@ -1,4 +1,4 @@
-package domainuser
+package user
 
 import (
 	"time"

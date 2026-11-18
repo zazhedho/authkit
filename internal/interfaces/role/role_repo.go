@@ -1,4 +1,4 @@
-package interfacerole
+package role
 
 import (
 	"context"

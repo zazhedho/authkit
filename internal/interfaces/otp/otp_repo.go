@@ -1,4 +1,4 @@
-package interfaceotp
+package otp
 
 import (
 	"context"

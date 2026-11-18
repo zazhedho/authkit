@@ -1,4 +1,4 @@
-package interfaceuser
+package user
 
 import (
 	"context"

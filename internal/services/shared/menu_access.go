@@ -1,8 +1,8 @@
-package serviceshared
+package shared
 
 import (
 	"context"
-	"github.com/zazhedho/authkit/internal/authscope"
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
@@ -64,7 +64,7 @@ func ResolveAccessibleMenuIDs(activeMenus []domainmenu.MenuItem, resources []str
 }
 
 func HasPermission(ctx context.Context, permissionRepo interfacepermission.RepoPermissionInterface, resource, action string) (bool, error) {
-	scope := authscope.FromContext(ctx)
+	scope := domainauth.FromContext(ctx)
 	if scope.Has(resource, action) {
 		return true, nil
 	}
@@ -82,13 +82,13 @@ func HasPermission(ctx context.Context, permissionRepo interfacepermission.RepoP
 }
 
 func permissionListHasAccess(permissions []domainpermission.Permission, resource, action string) bool {
-	targetKey := authscope.PermissionKey(resource, action)
+	targetKey := domainauth.PermissionKey(resource, action)
 	if targetKey == "" {
 		return false
 	}
 
 	for _, permission := range permissions {
-		if authscope.PermissionKey(permission.Resource, permission.Action) == targetKey {
+		if domainauth.PermissionKey(permission.Resource, permission.Action) == targetKey {
 			return true
 		}
 	}

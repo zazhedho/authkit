@@ -1,4 +1,4 @@
-package interfacereset
+package reset
 
 import "context"
 

@@ -1,4 +1,4 @@
-package repositoryotp
+package otp
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-package interfacesession
+package session
 
 import (
 	"context"

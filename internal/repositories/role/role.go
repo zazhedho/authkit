@@ -1,4 +1,4 @@
-package repositoryrole
+package role
 
 import (
 	"context"

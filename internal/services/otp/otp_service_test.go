@@ -1,10 +1,10 @@
-package serviceotp
+package otp
 
 import (
 	"context"
 	"errors"
+	"github.com/zazhedho/authkit/internal/config"
 	interfaceotp "github.com/zazhedho/authkit/internal/interfaces/otp"
-	"github.com/zazhedho/authkit/internal/settings"
 	"testing"
 	"time"
 
@@ -111,8 +111,8 @@ func (m *otpSenderTestDouble) SendOTP(to, code, appName string, ttl time.Duratio
 	return m.err
 }
 
-func otpTestConfig() settings.OTPConfig {
-	return settings.OTPConfig{
+func otpTestConfig() config.OTPConfig {
+	return config.OTPConfig{
 		TTL:         5 * time.Minute,
 		MaxAttempts: 2,
 		RateLimit:   2,

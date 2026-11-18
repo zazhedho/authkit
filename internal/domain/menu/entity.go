@@ -1,4 +1,4 @@
-package domainmenu
+package menu
 
 import (
 	"time"

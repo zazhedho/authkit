@@ -1,13 +1,13 @@
-package servicerole
+package role
 
 import (
 	"context"
 	"errors"
-	"github.com/zazhedho/authkit/internal/authscope"
-	"github.com/zazhedho/authkit/internal/authutil"
-	permissioncache "github.com/zazhedho/authkit/internal/cache/permission"
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
-	"github.com/zazhedho/authkit/internal/dto"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	dtorole "github.com/zazhedho/authkit/internal/dto/role"
+	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
 	interfacemenu "github.com/zazhedho/authkit/internal/interfaces/menu"
 	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
 	interfacerole "github.com/zazhedho/authkit/internal/interfaces/role"
@@ -20,14 +20,14 @@ type RoleService struct {
 	RoleRepo        interfacerole.RepoRoleInterface
 	PermissionRepo  interfacepermission.RepoPermissionInterface
 	MenuRepo        interfacemenu.RepoMenuInterface
-	PermissionCache permissioncache.Invalidator
+	PermissionCache cachepermission.Invalidator
 }
 
 func NewRoleService(
 	roleRepo interfacerole.RepoRoleInterface,
 	permissionRepo interfacepermission.RepoPermissionInterface,
 	menuRepo interfacemenu.RepoMenuInterface,
-	invalidators ...permissioncache.Invalidator,
+	invalidators ...cachepermission.Invalidator,
 ) *RoleService {
 	service := &RoleService{
 		RoleRepo:       roleRepo,
@@ -40,7 +40,7 @@ func NewRoleService(
 	return service
 }
 
-func (s *RoleService) Create(ctx context.Context, req dto.RoleCreate) (domainrole.Role, error) {
+func (s *RoleService) Create(ctx context.Context, req dtorole.RoleCreate) (domainrole.Role, error) {
 	existing, _ := s.RoleRepo.GetByName(ctx, req.Name)
 	if existing.Id != "" {
 		return domainrole.Role{}, errors.New("role with this name already exists")
@@ -66,20 +66,20 @@ func (s *RoleService) GetByID(ctx context.Context, id string) (domainrole.Role, 
 	return s.RoleRepo.GetByID(ctx, id)
 }
 
-func (s *RoleService) GetByIDWithDetails(ctx context.Context, id string) (dto.RoleWithDetails, error) {
+func (s *RoleService) GetByIDWithDetails(ctx context.Context, id string) (dtorole.RoleWithDetails, error) {
 	role, err := s.RoleRepo.GetByID(ctx, id)
 	if err != nil {
-		return dto.RoleWithDetails{}, err
+		return dtorole.RoleWithDetails{}, err
 	}
 
 	permissionIds, err := s.RoleRepo.GetRolePermissions(ctx, id)
 	if err != nil {
-		return dto.RoleWithDetails{}, err
+		return dtorole.RoleWithDetails{}, err
 	}
 
 	menuIds, err := s.deriveMenuIDsFromPermissions(ctx, permissionIds)
 	if err != nil {
-		return dto.RoleWithDetails{}, err
+		return dtorole.RoleWithDetails{}, err
 	}
 
 	updatedAt := ""
@@ -87,7 +87,7 @@ func (s *RoleService) GetByIDWithDetails(ctx context.Context, id string) (dto.Ro
 		updatedAt = role.UpdatedAt.Format(time.RFC3339)
 	}
 
-	return dto.RoleWithDetails{
+	return dtorole.RoleWithDetails{
 		Id:            role.Id,
 		Name:          role.Name,
 		DisplayName:   role.DisplayName,
@@ -101,16 +101,16 @@ func (s *RoleService) GetByIDWithDetails(ctx context.Context, id string) (dto.Ro
 }
 
 func (s *RoleService) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainrole.Role, int64, error) {
-	scope := authscope.FromContext(ctx)
+	scope := domainauth.FromContext(ctx)
 	roles, total, err := s.RoleRepo.GetAll(ctx, params)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	if scope.Role != authutil.RoleSuperAdmin {
+	if scope.Role != domainuser.RoleSuperAdmin {
 		filteredRoles := make([]domainrole.Role, 0)
 		for _, role := range roles {
-			if role.Name != authutil.RoleSuperAdmin {
+			if role.Name != domainuser.RoleSuperAdmin {
 				filteredRoles = append(filteredRoles, role)
 			}
 		}
@@ -121,7 +121,7 @@ func (s *RoleService) GetAll(ctx context.Context, params gokit.BaseParams) ([]do
 	return roles, total, nil
 }
 
-func (s *RoleService) Update(ctx context.Context, id string, req dto.RoleUpdate) (domainrole.Role, error) {
+func (s *RoleService) Update(ctx context.Context, id string, req dtorole.RoleUpdate) (domainrole.Role, error) {
 	role, err := s.RoleRepo.GetByID(ctx, id)
 	if err != nil {
 		return domainrole.Role{}, err
@@ -161,8 +161,8 @@ func (s *RoleService) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *RoleService) AssignPermissions(ctx context.Context, roleId string, req dto.AssignPermissions) error {
-	scope := authscope.FromContext(ctx)
+func (s *RoleService) AssignPermissions(ctx context.Context, roleId string, req dtorole.AssignPermissions) error {
+	scope := domainauth.FromContext(ctx)
 	role, err := s.RoleRepo.GetByID(ctx, roleId)
 	if err != nil {
 		return err
@@ -176,7 +176,7 @@ func (s *RoleService) AssignPermissions(ctx context.Context, roleId string, req 
 		if !canManageSystem {
 			return errors.New("access denied: missing permission roles:manage_system")
 		}
-		if role.Name == authutil.RoleSuperAdmin && scope.Role != authutil.RoleSuperAdmin {
+		if role.Name == domainuser.RoleSuperAdmin && scope.Role != domainuser.RoleSuperAdmin {
 			return errors.New("access denied: cannot modify superadmin role")
 		}
 	}
@@ -200,7 +200,7 @@ func (s *RoleService) invalidatePermissionCache(ctx context.Context) {
 	}
 }
 
-func (s *RoleService) AssignMenus(ctx context.Context, roleId string, req dto.AssignMenus) error {
+func (s *RoleService) AssignMenus(ctx context.Context, roleId string, req dtorole.AssignMenus) error {
 	return errors.New("menu access is derived from permissions; assign permissions instead")
 }
 

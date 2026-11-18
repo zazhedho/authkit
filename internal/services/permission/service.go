@@ -1,11 +1,11 @@
-package servicepermission
+package permission
 
 import (
 	"context"
 	"errors"
-	permissioncache "github.com/zazhedho/authkit/internal/cache/permission"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
-	"github.com/zazhedho/authkit/internal/dto"
+	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
+	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
 	interfacepermission "github.com/zazhedho/authkit/internal/interfaces/permission"
 	"github.com/zazhedho/gokit"
 	"time"
@@ -13,10 +13,10 @@ import (
 
 type PermissionService struct {
 	PermissionRepo  interfacepermission.RepoPermissionInterface
-	PermissionCache permissioncache.Invalidator
+	PermissionCache cachepermission.Invalidator
 }
 
-func NewPermissionService(permissionRepo interfacepermission.RepoPermissionInterface, invalidators ...permissioncache.Invalidator) *PermissionService {
+func NewPermissionService(permissionRepo interfacepermission.RepoPermissionInterface, invalidators ...cachepermission.Invalidator) *PermissionService {
 	service := &PermissionService{
 		PermissionRepo: permissionRepo,
 	}
@@ -26,7 +26,7 @@ func NewPermissionService(permissionRepo interfacepermission.RepoPermissionInter
 	return service
 }
 
-func (s *PermissionService) Create(ctx context.Context, req dto.PermissionCreate) (domainpermission.Permission, error) {
+func (s *PermissionService) Create(ctx context.Context, req dtopermission.PermissionCreate) (domainpermission.Permission, error) {
 	existing, _ := s.PermissionRepo.GetByName(ctx, req.Name)
 	if existing.Id != "" {
 		return domainpermission.Permission{}, errors.New("permission with this name already exists")
@@ -66,7 +66,7 @@ func (s *PermissionService) GetUserPermissions(ctx context.Context, userId strin
 	return s.PermissionRepo.GetUserPermissions(ctx, userId)
 }
 
-func (s *PermissionService) Update(ctx context.Context, id string, req dto.PermissionUpdate) (domainpermission.Permission, error) {
+func (s *PermissionService) Update(ctx context.Context, id string, req dtopermission.PermissionUpdate) (domainpermission.Permission, error) {
 	permission, err := s.PermissionRepo.GetByID(ctx, id)
 	if err != nil {
 		return domainpermission.Permission{}, err

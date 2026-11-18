@@ -1,4 +1,4 @@
-package serviceuser
+package user
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	"github.com/zazhedho/authkit/internal/dto"
+	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	"github.com/zazhedho/gokit"
 	"net/http"
 	"net/url"
@@ -28,7 +28,7 @@ type googleTokenInfo struct {
 
 var googleIDTokenVerifier = verifyGoogleIDToken
 
-func (s *ServiceUser) LoginWithGoogle(ctx context.Context, req dto.GoogleLogin, metadata dto.LoginMetadata, allowRegistration bool) (domainuser.Users, bool, error) {
+func (s *ServiceUser) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, metadata dtouser.LoginMetadata, allowRegistration bool) (domainuser.Users, bool, error) {
 	identity, err := googleIDTokenVerifier(ctx, req.IDToken, s.GoogleClientIDs)
 	if err != nil {
 		return domainuser.Users{}, false, err

@@ -9,32 +9,32 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/zazhedho/authkit/internal/authscope"
-	"github.com/zazhedho/authkit/internal/authutil"
-	permissioncache "github.com/zazhedho/authkit/internal/cache/permission"
-	"github.com/zazhedho/authkit/internal/devenv"
+	"github.com/zazhedho/authkit/internal/config"
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	handlerappconfig "github.com/zazhedho/authkit/internal/handlers/appconfig"
-	handleraudit "github.com/zazhedho/authkit/internal/handlers/audit"
-	handlermenu "github.com/zazhedho/authkit/internal/handlers/menu"
-	handlerpermission "github.com/zazhedho/authkit/internal/handlers/permission"
-	handlerrole "github.com/zazhedho/authkit/internal/handlers/role"
-	handlersession "github.com/zazhedho/authkit/internal/handlers/session"
-	handleruser "github.com/zazhedho/authkit/internal/handlers/user"
+	httpappconfig "github.com/zazhedho/authkit/internal/handlers/http/appconfig"
+	httpaudit "github.com/zazhedho/authkit/internal/handlers/http/audit"
+	httpmenu "github.com/zazhedho/authkit/internal/handlers/http/menu"
+	"github.com/zazhedho/authkit/internal/handlers/http/middleware"
+	httppermission "github.com/zazhedho/authkit/internal/handlers/http/permission"
+	httprole "github.com/zazhedho/authkit/internal/handlers/http/role"
+	httpsession "github.com/zazhedho/authkit/internal/handlers/http/session"
+	httpuser "github.com/zazhedho/authkit/internal/handlers/http/user"
+	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
+	"github.com/zazhedho/authkit/internal/infrastructure/ratelimit"
+	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	interfacesession "github.com/zazhedho/authkit/internal/interfaces/session"
 	interfaceuser "github.com/zazhedho/authkit/internal/interfaces/user"
-	"github.com/zazhedho/authkit/internal/middlewares"
-	repoappconfig "github.com/zazhedho/authkit/internal/repositories/appconfig"
-	repoaudit "github.com/zazhedho/authkit/internal/repositories/audit"
-	repoauth "github.com/zazhedho/authkit/internal/repositories/auth"
-	repomenu "github.com/zazhedho/authkit/internal/repositories/menu"
-	repootp "github.com/zazhedho/authkit/internal/repositories/otp"
-	repopermission "github.com/zazhedho/authkit/internal/repositories/permission"
-	reporeset "github.com/zazhedho/authkit/internal/repositories/reset"
-	reporole "github.com/zazhedho/authkit/internal/repositories/role"
-	reposession "github.com/zazhedho/authkit/internal/repositories/session"
-	repouser "github.com/zazhedho/authkit/internal/repositories/user"
-	"github.com/zazhedho/authkit/internal/security"
+	repositoryappconfig "github.com/zazhedho/authkit/internal/repositories/appconfig"
+	repositoryaudit "github.com/zazhedho/authkit/internal/repositories/audit"
+	repositoryauth "github.com/zazhedho/authkit/internal/repositories/auth"
+	repositorymenu "github.com/zazhedho/authkit/internal/repositories/menu"
+	repositoryotp "github.com/zazhedho/authkit/internal/repositories/otp"
+	repositorypermission "github.com/zazhedho/authkit/internal/repositories/permission"
+	repositoryreset "github.com/zazhedho/authkit/internal/repositories/reset"
+	repositoryrole "github.com/zazhedho/authkit/internal/repositories/role"
+	repositorysession "github.com/zazhedho/authkit/internal/repositories/session"
+	repositoryuser "github.com/zazhedho/authkit/internal/repositories/user"
 	serviceappconfig "github.com/zazhedho/authkit/internal/services/appconfig"
 	serviceaudit "github.com/zazhedho/authkit/internal/services/audit"
 	servicemenu "github.com/zazhedho/authkit/internal/services/menu"
@@ -44,7 +44,6 @@ import (
 	servicerole "github.com/zazhedho/authkit/internal/services/role"
 	servicesession "github.com/zazhedho/authkit/internal/services/session"
 	serviceuser "github.com/zazhedho/authkit/internal/services/user"
-	"github.com/zazhedho/authkit/internal/settings"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 )
@@ -54,20 +53,20 @@ import (
 type Kit struct {
 	cfg Config
 
-	tokens     *authutil.Tokens
-	middleware *middlewares.Middleware
+	tokens     *token.Tokens
+	middleware *middleware.Middleware
 
 	users     interfaceuser.ServiceUserInterface // kept for white-box wiring tests
 	audit     AuditService
 	appConfig AppConfigService
 
-	userHandler       *handleruser.HandlerUser
-	roleHandler       *handlerrole.RoleHandler
-	permissionHandler *handlerpermission.PermissionHandler
-	menuHandler       *handlermenu.MenuHandler
-	appConfigHandler  *handlerappconfig.AppConfigHandler
-	auditHandler      *handleraudit.AuditHandler
-	sessionHandler    *handlersession.HandlerSession // nil without Redis
+	userHandler       *httpuser.HandlerUser
+	roleHandler       *httprole.RoleHandler
+	permissionHandler *httppermission.PermissionHandler
+	menuHandler       *httpmenu.MenuHandler
+	appConfigHandler  *httpappconfig.AppConfigHandler
+	auditHandler      *httpaudit.AuditHandler
+	sessionHandler    *httpsession.HandlerSession // nil without Redis
 
 	registerLimiter gin.HandlerFunc
 }
@@ -76,8 +75,8 @@ type Kit struct {
 // never contain configuration values other than the fixed AppEnv names.
 func startupWarnings(appEnv string, redisNil bool) []string {
 	var out []string
-	if devenv.IsDev(appEnv) {
-		out = append(out, "authkit: AppEnv is a development value ("+strings.Join(devenv.Values, ", ")+"): "+
+	if config.IsDev(appEnv) {
+		out = append(out, "authkit: AppEnv is a development value ("+strings.Join(config.Values, ", ")+"): "+
 			"when the email password reset flag is disabled, POST /user/forgot-password returns a password reset token "+
 			"directly in the API response for any registered email; never enable this mode on a reachable server")
 	}
@@ -100,7 +99,7 @@ func New(cfg Config) (*Kit, error) {
 		logus.WriteLog(logus.LogLevelWarn, w)
 	}
 
-	tokens, err := authutil.NewTokens(authutil.TokenConfig{
+	tokens, err := token.NewTokens(token.TokenConfig{
 		Key:        cfg.JWTKey,
 		AppName:    cfg.AppName,
 		AccessTTL:  cfg.AccessTokenTTL,
@@ -112,16 +111,16 @@ func New(cfg Config) (*Kit, error) {
 	}
 
 	db := cfg.DB
-	blacklistRepo := repoauth.NewBlacklistRepo(db)
-	userRepo := repouser.NewUserRepo(db)
-	roleRepo := reporole.NewRoleRepo(db)
-	permissionRepo := repopermission.NewPermissionRepo(db)
-	menuRepo := repomenu.NewMenuRepo(db)
+	blacklistRepo := repositoryauth.NewBlacklistRepo(db)
+	userRepo := repositoryuser.NewUserRepo(db)
+	roleRepo := repositoryrole.NewRoleRepo(db)
+	permissionRepo := repositorypermission.NewPermissionRepo(db)
+	menuRepo := repositorymenu.NewMenuRepo(db)
 
-	invalidator := permissioncache.NewInvalidator(cfg.Redis)
+	invalidator := cachepermission.NewInvalidator(cfg.Redis)
 
-	auditSvc := serviceaudit.NewAuditService(repoaudit.NewAuditRepo(db))
-	appConfigSvc := serviceappconfig.NewAppConfigService(repoappconfig.NewAppConfigRepo(db))
+	auditSvc := serviceaudit.NewAuditService(repositoryaudit.NewAuditRepo(db))
+	appConfigSvc := serviceappconfig.NewAppConfigService(repositoryappconfig.NewAppConfigRepo(db))
 	userSvc := serviceuser.NewUserService(userRepo, blacklistRepo, roleRepo, permissionRepo, serviceuser.UserServiceOptions{
 		Tokens:          tokens,
 		DefaultRole:     cfg.DefaultRole,
@@ -132,35 +131,35 @@ func New(cfg Config) (*Kit, error) {
 	// // Without Redis: no login limiter or sessions, and OTP/reset get nil deps.
 	// // With Redis but no Mailer only the limiter and sessions are active.
 	var (
-		loginLimiter security.LoginLimiter
+		loginLimiter ratelimit.LoginLimiter
 		sessionSvc   interfacesession.ServiceSessionInterface
-		sessionHdlr  *handlersession.HandlerSession
+		sessionHdlr  *httpsession.HandlerSession
 		otpSvc       = serviceotp.NewOTPService(nil, nil, cfg.OTP)
 		resetSvc     = servicereset.NewPasswordResetService(nil, nil, cfg.Reset)
 	)
 	if cfg.Redis != nil {
-		loginLimiter = security.NewRedisLoginLimiter(cfg.Redis, cfg.Login.Limit, cfg.Login.Window, cfg.Login.BlockDuration)
-		sessionSvc = servicesession.NewSessionService(reposession.NewSessionRepository(cfg.Redis), cfg.RefreshTokenTTL)
-		sessionHdlr = handlersession.NewSessionHandler(sessionSvc, auditSvc)
+		loginLimiter = ratelimit.NewRedisLoginLimiter(cfg.Redis, cfg.Login.Limit, cfg.Login.Window, cfg.Login.BlockDuration)
+		sessionSvc = servicesession.NewSessionService(repositorysession.NewSessionRepository(cfg.Redis), cfg.RefreshTokenTTL)
+		sessionHdlr = httpsession.NewSessionHandler(sessionSvc, auditSvc)
 		if cfg.Mailer != nil {
-			otpSvc = serviceotp.NewOTPService(repootp.NewOTPRepository(cfg.Redis), cfg.Mailer, cfg.OTP)
-			resetSvc = servicereset.NewPasswordResetService(reporeset.NewPasswordResetRepository(cfg.Redis), cfg.Mailer, cfg.Reset)
+			otpSvc = serviceotp.NewOTPService(repositoryotp.NewOTPRepository(cfg.Redis), cfg.Mailer, cfg.OTP)
+			resetSvc = servicereset.NewPasswordResetService(repositoryreset.NewPasswordResetRepository(cfg.Redis), cfg.Mailer, cfg.Reset)
 		}
 	}
 
 	return &Kit{
 		cfg:        cfg,
 		tokens:     tokens,
-		middleware: middlewares.NewMiddleware(blacklistRepo, permissionRepo, cfg.Redis, tokens, cfg.PermissionCacheTTL),
+		middleware: middleware.NewMiddleware(blacklistRepo, permissionRepo, cfg.Redis, tokens, cfg.PermissionCacheTTL),
 		users:      userSvc,
 		audit:      auditSvc,
 		appConfig:  appConfigSvc,
-		userHandler: handleruser.NewUserHandler(userSvc, blacklistRepo, sessionSvc, loginLimiter, auditSvc, handleruser.UserHandlerOptions{
+		userHandler: httpuser.NewUserHandler(userSvc, blacklistRepo, sessionSvc, loginLimiter, auditSvc, httpuser.UserHandlerOptions{
 			AppConfigService: appConfigSvc,
 			OTPService:       otpSvc,
 			ResetService:     resetSvc,
 			Tokens:           tokens,
-			Settings: settings.UserHandler{
+			Settings: config.UserHandler{
 				AppEnv:        cfg.AppEnv,
 				EmailAppName:  cfg.EmailAppName,
 				AccessTTL:     cfg.AccessTokenTTL,
@@ -170,11 +169,11 @@ func New(cfg Config) (*Kit, error) {
 				Flags:         cfg.Flags,
 			},
 		}),
-		roleHandler:       handlerrole.NewRoleHandler(servicerole.NewRoleService(roleRepo, permissionRepo, menuRepo, invalidator), auditSvc),
-		permissionHandler: handlerpermission.NewPermissionHandler(servicepermission.NewPermissionService(permissionRepo, invalidator), auditSvc),
-		menuHandler:       handlermenu.NewMenuHandler(servicemenu.NewMenuService(menuRepo, permissionRepo), auditSvc),
-		appConfigHandler:  handlerappconfig.NewAppConfigHandler(appConfigSvc, auditSvc),
-		auditHandler:      handleraudit.NewAuditHandler(auditSvc),
+		roleHandler:       httprole.NewRoleHandler(servicerole.NewRoleService(roleRepo, permissionRepo, menuRepo, invalidator), auditSvc),
+		permissionHandler: httppermission.NewPermissionHandler(servicepermission.NewPermissionService(permissionRepo, invalidator), auditSvc),
+		menuHandler:       httpmenu.NewMenuHandler(servicemenu.NewMenuService(menuRepo, permissionRepo), auditSvc),
+		appConfigHandler:  httpappconfig.NewAppConfigHandler(appConfigSvc, auditSvc),
+		auditHandler:      httpaudit.NewAuditHandler(auditSvc),
 		sessionHandler:    sessionHdlr,
 		registerLimiter:   gokit.IPRateLimitMiddleware(cfg.Redis, "user_register", cfg.Register.Limit, cfg.Register.Window),
 	}, nil
@@ -219,4 +218,4 @@ func (k *Kit) IssueAccessToken(userID, name, role string) (string, error) {
 
 // // ScopeFrom returns the scope on ctx. After Auth alone the permission set is
 // // empty (Has is false for non-superadmins); Can or LoadPermissions loads it.
-func ScopeFrom(ctx context.Context) Scope { return authscope.FromContext(ctx) }
+func ScopeFrom(ctx context.Context) Scope { return domainauth.FromContext(ctx) }

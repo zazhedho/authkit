@@ -1,11 +1,11 @@
-package servicesession
+package session
 
 import (
 	"context"
 	"fmt"
-	"github.com/zazhedho/authkit/internal/authutil"
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	interfacesession "github.com/zazhedho/authkit/internal/interfaces/session"
 	"time"
 
@@ -18,10 +18,10 @@ type ServiceSession struct {
 }
 
 // NewSessionService builds the session service; refreshTTL is the lifetime of a
-// session and falls back to authutil.DefaultRefreshTTL when not positive.
+// session and falls back to token.DefaultRefreshTTL when not positive.
 func NewSessionService(sessionRepo interfacesession.RepoSessionInterface, refreshTTL time.Duration) *ServiceSession {
 	if refreshTTL <= 0 {
-		refreshTTL = authutil.DefaultRefreshTTL
+		refreshTTL = token.DefaultRefreshTTL
 	}
 	return &ServiceSession{
 		SessionRepo: sessionRepo,

@@ -7,26 +7,27 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/zazhedho/authkit/internal/authutil"
-	"github.com/zazhedho/authkit/internal/settings"
+	"github.com/zazhedho/authkit/internal/config"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	"github.com/zazhedho/gokit"
 	"gorm.io/gorm"
 )
 
 // OTPConfig configures registration OTP generation, limits and lifetime.
-type OTPConfig = settings.OTPConfig
+type OTPConfig = config.OTPConfig
 
 // PasswordResetConfig configures the password reset flow.
-type PasswordResetConfig = settings.PasswordResetConfig
+type PasswordResetConfig = config.PasswordResetConfig
 
 // LoginLimit configures login attempt limiting.
-type LoginLimit = settings.LoginLimit
+type LoginLimit = config.LoginLimit
 
 // RateLimit configures a request rate limit (count per window).
-type RateLimit = settings.RateLimit
+type RateLimit = config.RateLimit
 
 // FlagKeys names the app-config keys that act as feature flags.
-type FlagKeys = settings.FlagKeys
+type FlagKeys = config.FlagKeys
 
 // Config is the explicit configuration. DB, AppName and JWTKey are required;
 // other zero values take defaults. OTP.Secret and Reset.Secret have no default
@@ -78,7 +79,7 @@ const (
 	defaultOTPCooldown        = 60 * time.Second
 	defaultOTPRateLimit       = 5
 	defaultOTPMaxAttempts     = 5
-	defaultResetTTL           = authutil.DefaultResetTTL
+	defaultResetTTL           = token.DefaultResetTTL
 	defaultResetCooldown      = 60 * time.Second
 	defaultResetRateLimit     = 5
 )
@@ -87,13 +88,13 @@ const (
 // by its default. It never invents a secret.
 func (c Config) withDefaults() Config {
 	if c.AccessTokenTTL <= 0 {
-		c.AccessTokenTTL = authutil.DefaultAccessTTL
+		c.AccessTokenTTL = token.DefaultAccessTTL
 	}
 	if c.RefreshTokenTTL <= 0 {
-		c.RefreshTokenTTL = authutil.DefaultRefreshTTL
+		c.RefreshTokenTTL = token.DefaultRefreshTTL
 	}
 	if strings.TrimSpace(c.DefaultRole) == "" {
-		c.DefaultRole = authutil.RoleViewer
+		c.DefaultRole = domainuser.RoleViewer
 	}
 	if strings.TrimSpace(c.EmailAppName) == "" {
 		c.EmailAppName = c.AppName
@@ -147,7 +148,7 @@ func (c Config) withDefaults() Config {
 		c.Reset.RateWindow = c.Reset.TTL
 	}
 
-	defaults := settings.DefaultFlagKeys()
+	defaults := config.DefaultFlagKeys()
 	if strings.TrimSpace(c.Flags.PublicRegistration) == "" {
 		c.Flags.PublicRegistration = defaults.PublicRegistration
 	}
@@ -169,11 +170,11 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.AppName) == "" {
 		return errors.New("authkit: AppName is required")
 	}
-	if _, err := authutil.NewTokens(authutil.TokenConfig{Key: c.JWTKey, AppName: c.AppName}); err != nil {
+	if _, err := token.NewTokens(token.TokenConfig{Key: c.JWTKey, AppName: c.AppName}); err != nil {
 		return fmt.Errorf("authkit: JWTKey: %w", err)
 	}
 	switch role := strings.ToLower(strings.TrimSpace(c.DefaultRole)); role {
-	case authutil.RoleSuperAdmin, authutil.RoleAdmin:
+	case domainuser.RoleSuperAdmin, domainuser.RoleAdmin:
 		return fmt.Errorf("authkit: DefaultRole must not be a privileged role (%q): public registrations would receive it", role)
 	}
 	if c.Redis != nil && c.Mailer != nil {

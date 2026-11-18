@@ -1,4 +1,4 @@
-package domainaudit
+package audit
 
 import "testing"
 

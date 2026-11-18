@@ -1,4 +1,4 @@
-package serviceaudit
+package audit
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-package repositorymenu
+package menu
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/zazhedho/authkit/internal/authutil"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	"github.com/zazhedho/gokit"
 )
 
@@ -82,7 +82,7 @@ func TestMenuRepositoryGetUserMenusSuperadmin(t *testing.T) {
 	db, mock := newMenuMockDB(t)
 	repo := NewMenuRepo(db)
 	now := time.Now()
-	expectMenuUserRole(mock, nil, authutil.RoleSuperAdmin)
+	expectMenuUserRole(mock, nil, domainuser.RoleSuperAdmin)
 	mock.ExpectQuery(`SELECT \* FROM "menu_items" WHERE is_active = \$1 AND "menu_items"\."deleted_at" IS NULL ORDER BY order_index ASC`).
 		WithArgs(true).
 		WillReturnRows(sqlmock.NewRows([]string{
@@ -101,7 +101,7 @@ func TestMenuRepositoryGetUserMenusSuperadmin(t *testing.T) {
 func TestMenuRepositoryGetUserMenusEmptyRole(t *testing.T) {
 	db, mock := newMenuMockDB(t)
 	repo := NewMenuRepo(db)
-	expectMenuUserRole(mock, nil, authutil.RoleViewer)
+	expectMenuUserRole(mock, nil, domainuser.RoleViewer)
 
 	menus, err := repo.GetUserMenus(context.Background(), "user-1")
 	if err != nil || len(menus) != 0 {
@@ -117,7 +117,7 @@ func TestMenuRepositoryGetUserMenusIncludesParentsAndSorts(t *testing.T) {
 	repo := NewMenuRepo(db)
 	roleID, parentID, rootID := "role-1", "parent-1", "root-1"
 	now := time.Now()
-	expectMenuUserRole(mock, roleID, authutil.RoleViewer)
+	expectMenuUserRole(mock, roleID, domainuser.RoleViewer)
 	mock.ExpectQuery(`SELECT DISTINCT m\.\*[\s\S]+FROM menu_items m[\s\S]+INNER JOIN permissions p[\s\S]+INNER JOIN role_permissions rp[\s\S]+WHERE rp\.role_id = \$1[\s\S]+ORDER BY m\.order_index ASC`).
 		WithArgs(roleID).
 		WillReturnRows(sqlmock.NewRows([]string{

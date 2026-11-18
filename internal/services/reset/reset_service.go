@@ -1,12 +1,12 @@
-package servicereset
+package reset
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/zazhedho/authkit/internal/config"
+	"github.com/zazhedho/authkit/internal/infrastructure/mailer"
 	interfacereset "github.com/zazhedho/authkit/internal/interfaces/reset"
-	"github.com/zazhedho/authkit/internal/mailer"
-	"github.com/zazhedho/authkit/internal/settings"
 	"github.com/zazhedho/gokit"
 	"strings"
 	"time"
@@ -35,10 +35,10 @@ func (e *ThrottleError) Error() string {
 type ServiceReset struct {
 	Repo   interfacereset.RepoPasswordResetInterface
 	Sender mailer.PasswordResetSender
-	Config settings.PasswordResetConfig
+	Config config.PasswordResetConfig
 }
 
-func NewPasswordResetService(repo interfacereset.RepoPasswordResetInterface, sender mailer.PasswordResetSender, cfg settings.PasswordResetConfig) *ServiceReset {
+func NewPasswordResetService(repo interfacereset.RepoPasswordResetInterface, sender mailer.PasswordResetSender, cfg config.PasswordResetConfig) *ServiceReset {
 	return &ServiceReset{Repo: repo, Sender: sender, Config: cfg}
 }
 

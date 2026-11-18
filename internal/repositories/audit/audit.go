@@ -1,4 +1,4 @@
-package repositoryaudit
+package audit
 
 import (
 	"context"
