@@ -2,8 +2,8 @@ package role
 
 import (
 	"errors"
-	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
+	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 	"github.com/zazhedho/gokit"
 	"net/http"
 	"strings"
@@ -12,8 +12,8 @@ import (
 )
 
 func roleMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiResponse) {
-	// A dangling permission id surfaces through the role endpoints as a 404 too.
-	if errors.Is(err, domainrole.ErrNotFound) || errors.Is(err, domainpermission.ErrNotFound) {
+	// A dangling permission id or a deleted actor surfaces as a 404 too.
+	if httpshared.IsNotFound(err) {
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, "role not found")
 	}
 	if errors.Is(err, domainrole.ErrDuplicate) {

@@ -9,6 +9,7 @@ import (
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
+	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"net/http"
@@ -59,7 +60,7 @@ func (h *Handler) respondThrottle(ctx *gin.Context, logId uuid.UUID, ttl time.Du
 
 func (h *Handler) registrationConflict(ctx context.Context, email, phone string) (string, string, error) {
 	user, err := h.Service.GetUserByEmail(ctx, email)
-	if err != nil && !errors.Is(err, domainuser.ErrNotFound) {
+	if err != nil && !httpshared.IsNotFound(err) {
 		return "", "Service.GetUserByEmail", err
 	}
 	if user.Id != "" {
@@ -70,7 +71,7 @@ func (h *Handler) registrationConflict(ctx context.Context, email, phone string)
 	}
 
 	user, err = h.Service.GetUserByPhone(ctx, gokit.NormalizePhoneTo62(phone))
-	if err != nil && !errors.Is(err, domainuser.ErrNotFound) {
+	if err != nil && !httpshared.IsNotFound(err) {
 		return "", "Service.GetUserByPhone", err
 	}
 	if user.Id != "" {
@@ -107,7 +108,7 @@ func (h *Handler) rejectBlockedLogin(ctx *gin.Context, logId uuid.UUID, logPrefi
 
 func (h *Handler) handleLoginFailure(ctx *gin.Context, logId uuid.UUID, logPrefix, normalizedIdentifier, loginIdentifier string, err error) {
 	logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.LoginUser; ERROR: %s;", logPrefix, err))
-	if !errors.Is(err, domainuser.ErrNotFound) && err.Error() != ErrHashPassword {
+	if !httpshared.IsNotFound(err) && err.Error() != ErrHashPassword {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionLogin,
 			Resource:     "auth",
@@ -317,7 +318,7 @@ func (h *Handler) buildAuthTokenResponse(accessToken, refreshToken string) map[s
 }
 
 func userMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiResponse) {
-	if errors.Is(err, domainuser.ErrNotFound) {
+	if httpshared.IsNotFound(err) {
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, userNotFoundMessage)
 	}
 	if errors.Is(err, domainuser.ErrDuplicate) {
@@ -345,7 +346,7 @@ func userMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiRespo
 }
 
 func impersonationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiResponse) {
-	if errors.Is(err, domainuser.ErrNotFound) {
+	if httpshared.IsNotFound(err) {
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, userNotFoundMessage)
 	}
 

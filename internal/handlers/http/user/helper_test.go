@@ -3,8 +3,11 @@ package user
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/zazhedho/authkit/internal/config"
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
+	domainrole "github.com/zazhedho/authkit/internal/domain/role"
+	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
@@ -79,6 +82,7 @@ func TestUserMutationErrorResponseMapping(t *testing.T) {
 		code int
 	}{
 		{domainuser.ErrNotFound, http.StatusNotFound},
+		{fmt.Errorf("load role: %w", domainrole.ErrNotFound), http.StatusNotFound},
 		{domainuser.ErrDuplicate, http.StatusBadRequest},
 		{errors.New("email already exists"), http.StatusBadRequest},
 		{errors.New("access denied: missing permission"), http.StatusForbidden},
@@ -101,6 +105,7 @@ func TestImpersonationErrorResponseMapping(t *testing.T) {
 		code int
 	}{
 		{domainuser.ErrNotFound, http.StatusNotFound},
+		{fmt.Errorf("load session: %w", domainsession.ErrNotFound), http.StatusNotFound},
 		{errors.New("cannot impersonate superadmin users"), http.StatusForbidden},
 		{errors.New("target user id is required"), http.StatusBadRequest},
 		{errors.New("database down"), http.StatusInternalServerError},

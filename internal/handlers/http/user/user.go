@@ -687,7 +687,7 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 			ErrorMessage: "The token owner user account was not found",
 		})
 		statusCode := http.StatusInternalServerError
-		if errors.Is(err, domainuser.ErrNotFound) {
+		if httpshared.IsNotFound(err) {
 			statusCode = http.StatusNotFound
 		}
 		res := gokit.Response(statusCode, gokit.MsgSomethingWrong, logId, nil)
@@ -873,7 +873,7 @@ func (h *Handler) GetUserById(ctx *gin.Context) {
 	data, err := h.Service.GetUserById(reqCtx, id)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetUserByID; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, domainuser.ErrNotFound) {
+		if httpshared.IsNotFound(err) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
@@ -905,7 +905,7 @@ func (h *Handler) GetUserByAuth(ctx *gin.Context) {
 	data, err := h.Service.GetUserByAuth(reqCtx, scope.UserID)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetUserByAuth; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, domainuser.ErrNotFound) {
+		if httpshared.IsNotFound(err) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
@@ -1084,7 +1084,7 @@ func (h *Handler) Update(ctx *gin.Context) {
 			AfterData:    req,
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Update; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, domainuser.ErrNotFound) {
+		if httpshared.IsNotFound(err) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
@@ -1139,7 +1139,7 @@ func (h *Handler) UpdateUserById(ctx *gin.Context) {
 			AfterData:    req,
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Update; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, domainuser.ErrNotFound) {
+		if httpshared.IsNotFound(err) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
@@ -1195,7 +1195,7 @@ func (h *Handler) ChangePassword(ctx *gin.Context) {
 			AfterData:    req,
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.ChangePassword; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, domainuser.ErrNotFound) {
+		if httpshared.IsNotFound(err) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
@@ -1398,7 +1398,7 @@ func (h *Handler) Delete(ctx *gin.Context) {
 			BeforeData:   before,
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Delete; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, domainuser.ErrNotFound) {
+		if httpshared.IsNotFound(err) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
@@ -1445,7 +1445,7 @@ func (h *Handler) DeleteUserById(ctx *gin.Context) {
 			BeforeData:   before,
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Delete; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, domainuser.ErrNotFound) {
+		if httpshared.IsNotFound(err) {
 			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)

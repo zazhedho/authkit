@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
 func TestRoleMutationErrorResponseMapsDomainErrors(t *testing.T) {
@@ -19,6 +20,9 @@ func TestRoleMutationErrorResponseMapsDomainErrors(t *testing.T) {
 		{"role not found", domainrole.ErrNotFound, http.StatusNotFound},
 		{"wrapped role not found", fmt.Errorf("load: %w", domainrole.ErrNotFound), http.StatusNotFound},
 		{"dangling permission", domainpermission.ErrNotFound, http.StatusNotFound},
+		{"actor row deleted", domainuser.ErrNotFound, http.StatusNotFound},
+		{"wrapped actor row deleted", fmt.Errorf("check: %w", domainuser.ErrNotFound), http.StatusNotFound},
+		{"unrelated error", fmt.Errorf("boom"), http.StatusInternalServerError},
 		{"duplicate role", domainrole.ErrDuplicate, http.StatusBadRequest},
 	}
 	for _, tt := range tests {

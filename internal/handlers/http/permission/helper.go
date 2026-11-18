@@ -3,6 +3,7 @@ package permission
 import (
 	"errors"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
+	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 	"github.com/zazhedho/gokit"
 	"net/http"
 	"strings"
@@ -11,7 +12,7 @@ import (
 )
 
 func permissionMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiResponse) {
-	if errors.Is(err, domainpermission.ErrNotFound) {
+	if httpshared.IsNotFound(err) {
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, "permission not found")
 	}
 	if errors.Is(err, domainpermission.ErrDuplicate) {

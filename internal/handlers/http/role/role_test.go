@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
 	"github.com/zazhedho/gokit"
@@ -237,5 +239,19 @@ func TestRoleHandlersServiceErrorBranches(t *testing.T) {
 	rec = performRoleRequest(http.MethodPost, "/roles/:id/menus", "/roles/role-1/menus", dtorole.AssignMenus{MenuIds: []string{"menu-1"}}, handler.AssignMenus)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected assign menus 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRoleAssignmentsMapDeletedActorToNotFound(t *testing.T) {
+	handler := New(&roleServiceHandlerTestDouble{assignPermissionsErr: fmt.Errorf("check actor: %w", domainuser.ErrNotFound)}, &auditServiceRoleTestDouble{})
+	rec := performRoleRequest(http.MethodPost, "/roles/:id/permissions", "/roles/role-1/permissions", dtorole.AssignPermissions{PermissionIds: []string{"perm-1"}}, handler.AssignPermissions)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected assign permissions 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	handler = New(&roleServiceHandlerTestDouble{assignMenusErr: domainuser.ErrNotFound}, &auditServiceRoleTestDouble{})
+	rec = performRoleRequest(http.MethodPost, "/roles/:id/menus", "/roles/role-1/menus", dtorole.AssignMenus{MenuIds: []string{"menu-1"}}, handler.AssignMenus)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected assign menus 404, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
