@@ -173,6 +173,9 @@ type rule struct {
 	// externalAllowed, when non-nil, replaces forbidExternal: only the standard
 	// library plus these import paths (and their subpackages) may be imported.
 	externalAllowed []string
+	// testInternalAllowed are internal prefixes only _test.go files of the tree
+	// may import on top of the rule above, for fixtures the tests genuinely need.
+	testInternalAllowed []string
 	// exceptTrees are subtrees of tree the rule does not apply to.
 	exceptTrees []string
 	// testsToo applies the external rules to _test.go files as well.
@@ -210,18 +213,21 @@ var rules = []rule{
 			"golang.org/x/crypto",
 			"golang.org/x/text",
 		},
-		testsToo: true,
+		testsToo:            true,
+		testInternalAllowed: []string{"internal/infrastructure/token"},
 	},
 	{
-		tree:           "internal/handlers",
-		forbidInternal: []string{"internal/services", "internal/repositories", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrations", "internal/testutil"},
-		forbidExternal: []string{gormPkg, redisPkg},
-		testsToo:       true,
+		tree:                "internal/handlers",
+		forbidInternal:      []string{"internal/services", "internal/repositories", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrations", "internal/testutil"},
+		forbidExternal:      []string{gormPkg, redisPkg},
+		testsToo:            true,
+		testInternalAllowed: []string{"internal/infrastructure/token", "internal/infrastructure/cache/permission", "internal/config"},
 	},
 	{
-		tree:           "internal/repositories",
-		forbidInternal: []string{"internal/services", "internal/handlers", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrations"},
-		forbidExternal: []string{ginPkg},
+		tree:                "internal/repositories",
+		forbidInternal:      []string{"internal/services", "internal/handlers", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrations"},
+		forbidExternal:      []string{ginPkg},
+		testInternalAllowed: []string{"internal/testutil"},
 	},
 	{
 		tree:           "internal/infrastructure",
@@ -242,8 +248,9 @@ var rules = []rule{
 		// The middleware is a transport-level leaf, not a business module: it
 		// sees the request context (domain) and the shared helpers, never a
 		// service, a repository or another handler module.
-		tree:            middlewareLeaf,
-		internalAllowed: []string{"internal/domain", "internal/handlers/http/shared"},
+		tree:                middlewareLeaf,
+		internalAllowed:     []string{"internal/domain", "internal/handlers/http/shared"},
+		testInternalAllowed: []string{"internal/infrastructure/token", "internal/infrastructure/cache/permission"},
 	},
 }
 
@@ -383,7 +390,11 @@ func collectViolations(t *testing.T) map[string]bool {
 func violates(r rule, ip string, isTest bool) bool {
 	if internal, ok := strings.CutPrefix(ip, modulePath+"/"); ok {
 		if isTest {
-			return false
+			for _, a := range r.testInternalAllowed {
+				if matchesPrefix(internal, a) {
+					return false
+				}
+			}
 		}
 		if r.internalAllowed != nil {
 			for _, a := range r.internalAllowed {
@@ -524,6 +535,15 @@ func TestRulesDetectViolations(t *testing.T) {
 		{"service imports the root module", services, "github.com/zazhedho/authkit", false, true},
 		{"service test imports gokit", services, "github.com/zazhedho/gokit", true, true},
 		{"service test imports gorm", services, "gorm.io/gorm", true, true},
+		{"service test imports a repository", services, "github.com/zazhedho/authkit/internal/repositories/menu", true, true},
+		{"service test imports infrastructure", services, "github.com/zazhedho/authkit/internal/infrastructure/mailer", true, true},
+		{"service test imports the token fixture", services, "github.com/zazhedho/authkit/internal/infrastructure/token", true, false},
+		{"service non-test imports the token fixture", services, "github.com/zazhedho/authkit/internal/infrastructure/token", false, true},
+		{"service test imports domain", services, "github.com/zazhedho/authkit/internal/domain/menu", true, false},
+		{"handler test imports a service", handlers, "github.com/zazhedho/authkit/internal/services/menu", true, true},
+		{"handler test imports shared", handlers, "github.com/zazhedho/authkit/internal/handlers/http/shared", true, false},
+		{"repository test imports a handler", repos, "github.com/zazhedho/authkit/internal/handlers/http/user", true, true},
+		{"domain test imports a service", domain, "github.com/zazhedho/authkit/internal/services/user", true, true},
 		{"service imports infrastructure", services, "github.com/zazhedho/authkit/internal/infrastructure/token", false, true},
 		{"service imports repositories", services, "github.com/zazhedho/authkit/internal/repositories/user", false, true},
 		{"service imports handlers", services, "github.com/zazhedho/authkit/internal/handlers/http/shared", false, true},

@@ -5,14 +5,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-
 	"github.com/gin-gonic/gin"
 )
 
 func TestClaimsFromRequestReadsAuthorizationHeader(t *testing.T) {
 	tokens := newTestTokens(t)
-	token, err := tokens.Generate("user-1", "Jane", domainuser.RoleViewer, "log-1")
+	token, err := tokens.Generate("user-1", "Jane", roleViewer, "log-1")
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
@@ -27,3 +25,7 @@ func TestClaimsFromRequestReadsAuthorizationHeader(t *testing.T) {
 		t.Fatalf("jwt claims: token=%q claims=%+v err=%v", tokenString, claims, err)
 	}
 }
+
+const roleViewer = "viewer"
+
+type testUser struct{ Id, Name, Role string }

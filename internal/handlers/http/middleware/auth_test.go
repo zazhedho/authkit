@@ -7,7 +7,6 @@ import (
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
@@ -48,28 +47,6 @@ type permissionRepoTestDouble struct {
 	calls       int
 }
 
-func (m *permissionRepoTestDouble) Store(ctx context.Context, data domainpermission.Permission) error {
-	return nil
-}
-func (m *permissionRepoTestDouble) GetByID(ctx context.Context, id string) (domainpermission.Permission, error) {
-	return domainpermission.Permission{}, errors.New("not implemented")
-}
-func (m *permissionRepoTestDouble) GetAll(ctx context.Context, req dtopermission.ListRequest) ([]domainpermission.Permission, int64, error) {
-	return nil, 0, nil
-}
-func (m *permissionRepoTestDouble) Update(ctx context.Context, data domainpermission.Permission) error {
-	return nil
-}
-func (m *permissionRepoTestDouble) Delete(ctx context.Context, id string) error { return nil }
-func (m *permissionRepoTestDouble) SoftDelete(ctx context.Context, id, deletedBy string) error {
-	return nil
-}
-func (m *permissionRepoTestDouble) GetByName(ctx context.Context, name string) (domainpermission.Permission, error) {
-	return domainpermission.Permission{}, errors.New("not implemented")
-}
-func (m *permissionRepoTestDouble) GetByResource(ctx context.Context, resource string) ([]domainpermission.Permission, error) {
-	return nil, nil
-}
 func (m *permissionRepoTestDouble) GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error) {
 	m.calls++
 	if m.err != nil {

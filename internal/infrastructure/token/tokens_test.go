@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -85,7 +83,7 @@ func assertExpiresAround(t *testing.T, expiresAt time.Time, ttl time.Duration) {
 func TestGenerateIncludesAccessClaims(t *testing.T) {
 	tokens := newTestTokens(t)
 
-	token, err := tokens.Generate("user-1", "Jane", domainuser.RoleViewer, "log-1")
+	token, err := tokens.Generate("user-1", "Jane", roleViewer, "log-1")
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -126,7 +124,7 @@ func TestGenerateRefreshIncludesRefreshTokenType(t *testing.T) {
 		t.Fatalf("NewTokens: %v", err)
 	}
 
-	token, err := tokens.GenerateRefresh("user-1", "Jane", domainuser.RoleViewer, "log-1")
+	token, err := tokens.GenerateRefresh("user-1", "Jane", roleViewer, "log-1")
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -204,7 +202,7 @@ func TestGeneratePasswordResetIncludesDedicatedTokenType(t *testing.T) {
 func TestExpiresAt(t *testing.T) {
 	tokens := newTestTokens(t)
 
-	token, err := tokens.Generate("user-1", "Jane", domainuser.RoleViewer, "log-1")
+	token, err := tokens.Generate("user-1", "Jane", roleViewer, "log-1")
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -286,7 +284,7 @@ func TestClaimsFromRequestReadsBearerToken(t *testing.T) {
 
 func TestNilTokensReportKeyNotConfigured(t *testing.T) {
 	var tokens *Tokens
-	user := &domainuser.Users{Id: "user-1"}
+	user := &testUser{Id: "user-1"}
 
 	if _, err := tokens.Generate(user.Id, user.Name, user.Role, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
 		t.Fatalf("expected jwt key error for access token, got %v", err)
@@ -335,7 +333,7 @@ func newTokensForApp(t *testing.T, app string) *Tokens {
 // issueEachTokenType returns one token of every type the issuer can mint.
 func issueEachTokenType(t *testing.T, tokens *Tokens) map[string]string {
 	t.Helper()
-	user := &domainuser.Users{Id: "user-1", Name: "Jane", Role: domainuser.RoleViewer}
+	user := &testUser{Id: "user-1", Name: "Jane", Role: roleViewer}
 	access, err := tokens.Generate(user.Id, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -482,7 +480,7 @@ func TestGenerateImpersonatedRecordsOriginalIdentity(t *testing.T) {
 
 func TestIsPasswordResetClaims(t *testing.T) {
 	tokens := newTestTokens(t)
-	user := &domainuser.Users{Id: "user-1"}
+	user := &testUser{Id: "user-1"}
 
 	reset, _ := tokens.GeneratePasswordReset(user.Id, user.Name, user.Role, "log")
 	access, _ := tokens.Generate(user.Id, user.Name, user.Role, "log")
