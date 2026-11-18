@@ -190,6 +190,8 @@ nothing else in the public API). `DB`, `Redis` and `Mailer` are
 never read from the environment. Zero or negative numbers and durations mean
 "use the default": a limiter can not be disabled by setting its variable to 0.
 When both durations and seconds variables exist, the duration form wins.
+A value that cannot be parsed falls back to its default and is reported by
+`gokit.EnvErrors()`. Call it after `ConfigFromEnv` and refuse to start when it is non-nil.
 
 | Config field | Env variable | Default | Required |
 |---|---|---|---|

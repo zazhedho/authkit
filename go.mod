@@ -11,7 +11,7 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/google/uuid v1.6.0
 	github.com/redis/go-redis/v9 v9.23.0
-	github.com/zazhedho/gokit v0.2.2
+	github.com/zazhedho/gokit v0.3.0
 	github.com/zazhedho/logus v0.2.0
 	golang.org/x/crypto v0.59.0
 	golang.org/x/text v0.44.0
