@@ -12,6 +12,7 @@ import (
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 const (
@@ -36,11 +37,8 @@ func (h *Handler) GetActiveSessions(ctx *gin.Context) {
 	logPrefix := "[SessionHandler][GetActiveSessions]"
 	reqCtx := ctx.Request.Context()
 
-	scope := domainauth.FromContext(reqCtx)
-	if scope.UserID == "" {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; userId not found in context", logPrefix))
-		res := gokit.Unauthorized(logId, sessionAuthenticationRequiredMessage)
-		ctx.JSON(http.StatusUnauthorized, res)
+	userID, ok := requireUserID(ctx, logId, logPrefix)
+	if !ok {
 		return
 	}
 
@@ -51,11 +49,10 @@ func (h *Handler) GetActiveSessions(ctx *gin.Context) {
 		currentSessionID = currentSession.SessionID
 	}
 
-	sessions, err := h.Service.GetUserSessions(reqCtx, scope.UserID, currentSessionID)
+	sessions, err := h.Service.GetUserSessions(reqCtx, userID, currentSessionID)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetUserSessions; Error: %+v", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+		httpshared.RespondInternalError(ctx, logId)
 		return
 	}
 
@@ -86,11 +83,8 @@ func (h *Handler) RevokeSession(ctx *gin.Context) {
 		return
 	}
 
-	scope := domainauth.FromContext(reqCtx)
-	if scope.UserID == "" {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; userId not found in context", logPrefix))
-		res := gokit.Unauthorized(logId, sessionAuthenticationRequiredMessage)
-		ctx.JSON(http.StatusUnauthorized, res)
+	userID, ok := requireUserID(ctx, logId, logPrefix)
+	if !ok {
 		return
 	}
 
@@ -111,7 +105,7 @@ func (h *Handler) RevokeSession(ctx *gin.Context) {
 		return
 	}
 
-	if session.UserID != scope.UserID {
+	if session.UserID != userID {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionDelete,
 			Resource:     "session",
@@ -139,8 +133,7 @@ func (h *Handler) RevokeSession(ctx *gin.Context) {
 			ErrorMessage: err.Error(),
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.DestroySession; Error: %+v", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+		httpshared.RespondInternalError(ctx, logId)
 		return
 	}
 
@@ -161,11 +154,8 @@ func (h *Handler) RevokeAllOtherSessions(ctx *gin.Context) {
 	logPrefix := "[SessionHandler][RevokeAllOtherSessions]"
 	reqCtx := ctx.Request.Context()
 
-	scope := domainauth.FromContext(reqCtx)
-	if scope.UserID == "" {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; userId not found in context", logPrefix))
-		res := gokit.Unauthorized(logId, sessionAuthenticationRequiredMessage)
-		ctx.JSON(http.StatusUnauthorized, res)
+	userID, ok := requireUserID(ctx, logId, logPrefix)
+	if !ok {
 		return
 	}
 
@@ -180,12 +170,11 @@ func (h *Handler) RevokeAllOtherSessions(ctx *gin.Context) {
 			ErrorMessage: "Could not identify the current session",
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetSessionByToken; Error: %+v", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+		httpshared.RespondInternalError(ctx, logId)
 		return
 	}
 
-	if err := h.Service.DestroyOtherSessions(reqCtx, scope.UserID, currentSession.SessionID); err != nil {
+	if err := h.Service.DestroyOtherSessions(reqCtx, userID, currentSession.SessionID); err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionDelete,
 			Resource:     "session",
@@ -195,8 +184,7 @@ func (h *Handler) RevokeAllOtherSessions(ctx *gin.Context) {
 			ErrorMessage: err.Error(),
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.DestroyOtherSessions; Error: %+v", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+		httpshared.RespondInternalError(ctx, logId)
 		return
 	}
 
@@ -210,4 +198,16 @@ func (h *Handler) RevokeAllOtherSessions(ctx *gin.Context) {
 
 	res := gokit.Response(http.StatusOK, "All other sessions revoked successfully", logId, nil)
 	ctx.JSON(http.StatusOK, res)
+}
+
+// requireUserID returns the authenticated user's id. When the request has no
+// user, the 401 response is already written and ok is false.
+func requireUserID(ctx *gin.Context, logId uuid.UUID, logPrefix string) (userID string, ok bool) {
+	userID = domainauth.FromContext(ctx.Request.Context()).UserID
+	if userID == "" {
+		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; userId not found in context", logPrefix))
+		ctx.JSON(http.StatusUnauthorized, gokit.Unauthorized(logId, sessionAuthenticationRequiredMessage))
+		return "", false
+	}
+	return userID, true
 }

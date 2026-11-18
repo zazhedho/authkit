@@ -396,3 +396,172 @@ func (h *Handler) issueRefreshToken(user *domainuser.Users, logID string, imp *i
 	}
 	return h.Tokens.GenerateRefreshImpersonated(user.Id, user.Name, user.Role, logID, imp.userID, imp.username, imp.role)
 }
+
+// configEnabled reads a runtime flag. When the lookup fails it logs, writes the
+// 500 response and returns ok=false.
+func (h *Handler) configEnabled(ctx *gin.Context, logId uuid.UUID, logPrefix, key string, fallback bool) (enabled, ok bool) {
+	enabled, err := h.isRuntimeConfigEnabled(ctx.Request.Context(), key, fallback)
+	if err != nil {
+		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
+		httpshared.RespondInternalError(ctx, logId)
+		return false, false
+	}
+	return enabled, true
+}
+
+// registrationOpen reports whether public registration is enabled. When it is
+// not, the 500 or 403 response is already written.
+func (h *Handler) registrationOpen(ctx *gin.Context, logId uuid.UUID, logPrefix string) bool {
+	enabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.PublicRegistration, true)
+	if !ok {
+		return false
+	}
+	if !enabled {
+		ctx.JSON(http.StatusForbidden, gokit.Forbidden(logId, publicRegistrationDisabledMessage))
+		return false
+	}
+	return true
+}
+
+// respondStepFailed logs a failed step and writes the generic 500 response.
+func respondStepFailed(ctx *gin.Context, logId uuid.UUID, logPrefix, step string, err error) {
+	logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; %s; ERROR: %s;", logPrefix, step, err))
+	httpshared.RespondInternalError(ctx, logId)
+}
+
+func respondUserNotFound(ctx *gin.Context, logId uuid.UUID) {
+	res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
+	res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
+	ctx.JSON(http.StatusNotFound, res)
+}
+
+// respondUserLookupError answers 404 for a missing user and 500 otherwise.
+func respondUserLookupError(ctx *gin.Context, logId uuid.UUID, err error) {
+	if httpshared.IsNotFound(err) {
+		respondUserNotFound(ctx, logId)
+		return
+	}
+	httpshared.RespondInternalError(ctx, logId)
+}
+
+// respondUserMutationError answers 404 for a missing user and the mapped
+// mutation response otherwise.
+func respondUserMutationError(ctx *gin.Context, logId uuid.UUID, err error) {
+	if httpshared.IsNotFound(err) {
+		respondUserNotFound(ctx, logId)
+		return
+	}
+	statusCode, res := userMutationErrorResponse(logId, err)
+	ctx.JSON(statusCode, res)
+}
+
+// userSnapshot is the audit view of a created user.
+func userSnapshot(u domainuser.Users) map[string]any {
+	return map[string]any{
+		"id":    u.Id,
+		"name":  u.Name,
+		"email": u.Email,
+		"phone": u.Phone,
+		"role":  u.Role,
+	}
+}
+
+// auditRefreshFailure records a failed token refresh. The event carries the
+// actor, message and error; the action, resource and status are fixed here.
+func (h *Handler) auditRefreshFailure(ctx *gin.Context, event domainaudit.AuditEvent) {
+	event.Action = domainaudit.ActionRefresh
+	event.Resource = "auth_token"
+	event.Status = domainaudit.StatusFailed
+	h.WriteAudit(ctx, event)
+}
+
+// failRefresh audits a refresh that broke on an internal error, logs the step
+// and answers 500.
+func (h *Handler) failRefresh(ctx *gin.Context, logId uuid.UUID, logPrefix, step string, err error, event domainaudit.AuditEvent) {
+	event.ErrorMessage = err.Error()
+	h.auditRefreshFailure(ctx, event)
+	respondStepFailed(ctx, logId, logPrefix, step, err)
+}
+
+// updateUser updates a user's profile and audits the change. The caller has
+// already resolved the target id.
+func (h *Handler) updateUser(ctx *gin.Context, logId uuid.UUID, logPrefix, id string, req dtouser.UserUpdate, failedMessage, successMessage string) {
+	reqCtx := ctx.Request.Context()
+	before, _ := h.Service.GetUserById(reqCtx, id)
+	data, err := h.Service.Update(reqCtx, httpshared.ActorFrom(reqCtx), id, req)
+	if err != nil {
+		h.WriteAudit(ctx, domainaudit.AuditEvent{
+			Action:       domainaudit.ActionUpdate,
+			Resource:     "user",
+			ResourceID:   id,
+			Status:       domainaudit.StatusFailed,
+			Message:      failedMessage,
+			ErrorMessage: err.Error(),
+			BeforeData:   before,
+			AfterData:    req,
+		})
+		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Update; ERROR: %s;", logPrefix, err))
+		respondUserMutationError(ctx, logId, err)
+		return
+	}
+	h.WriteAudit(ctx, domainaudit.AuditEvent{
+		Action:     domainaudit.ActionUpdate,
+		Resource:   "user",
+		ResourceID: data.Id,
+		Status:     domainaudit.StatusSuccess,
+		Message:    successMessage,
+		BeforeData: before,
+		AfterData:  data,
+	})
+
+	res := gokit.Response(http.StatusOK, "User updated successfully", logId, data)
+	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Response: %+v;", logPrefix, gokit.JsonEncode(data)))
+	ctx.JSON(http.StatusOK, res)
+}
+
+// deleteUser deletes a user and audits the removal. The caller has already
+// resolved the target id.
+func (h *Handler) deleteUser(ctx *gin.Context, logId uuid.UUID, logPrefix, id, failedMessage, successMessage string) {
+	reqCtx := ctx.Request.Context()
+	before, _ := h.Service.GetUserById(reqCtx, id)
+
+	if err := h.Service.Delete(reqCtx, id); err != nil {
+		h.WriteAudit(ctx, domainaudit.AuditEvent{
+			Action:       domainaudit.ActionDelete,
+			Resource:     "user",
+			ResourceID:   id,
+			Status:       domainaudit.StatusFailed,
+			Message:      failedMessage,
+			ErrorMessage: err.Error(),
+			BeforeData:   before,
+		})
+		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Delete; ERROR: %s;", logPrefix, err))
+		respondUserLookupError(ctx, logId, err)
+		return
+	}
+	h.WriteAudit(ctx, domainaudit.AuditEvent{
+		Action:     domainaudit.ActionDelete,
+		Resource:   "user",
+		ResourceID: id,
+		Status:     domainaudit.StatusSuccess,
+		Message:    successMessage,
+		BeforeData: before,
+	})
+
+	res := gokit.Response(http.StatusOK, "User deleted successfully", logId, nil)
+	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Success: User deleted successfully", logPrefix))
+	ctx.JSON(http.StatusOK, res)
+}
+
+// rejectRefresh audits a refresh the caller is not allowed to make and answers
+// 401 with publicError.
+func (h *Handler) rejectRefresh(ctx *gin.Context, logId uuid.UUID, publicError string, event domainaudit.AuditEvent) {
+	h.auditRefreshFailure(ctx, event)
+	respondRefreshUnauthorized(ctx, logId, publicError)
+}
+
+func respondRefreshUnauthorized(ctx *gin.Context, logId uuid.UUID, publicError string) {
+	res := gokit.Response(http.StatusUnauthorized, gokit.MsgSomethingWrong, logId, nil)
+	res.Error = publicError
+	ctx.JSON(http.StatusUnauthorized, res)
+}

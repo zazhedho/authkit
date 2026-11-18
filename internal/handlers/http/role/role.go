@@ -9,7 +9,9 @@ import (
 	"github.com/zazhedho/logus"
 
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 
 	"github.com/gin-gonic/gin"
@@ -27,174 +29,47 @@ func New(s Service, auditService httpshared.AuditService) *Handler {
 	}
 }
 
+var roleResource = httpshared.Resource[domainrole.Role]{
+	Name:          "role",
+	Audit:         "role",
+	ID:            func(r domainrole.Role) string { return r.Id },
+	MutationError: roleMutationErrorResponse,
+}
+
 func (h *Handler) Create(ctx *gin.Context) {
-	var req dtorole.RoleCreate
-	logId := gokit.GenerateLogId(ctx)
-	logPrefix := "[RoleHandler][Create]"
-	reqCtx := ctx.Request.Context()
-
-	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
+	f := httpshared.NewFlow(ctx, "[RoleHandler][Create]")
+	req, ok := httpshared.Bind[dtorole.RoleCreate](f)
+	if !ok {
 		return
 	}
-
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Request: %+v;", logPrefix, gokit.JsonEncode(req)))
-
-	data, err := h.Service.Create(reqCtx, req)
-	if err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			Action:       domainaudit.ActionCreate,
-			Resource:     "role",
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to create role",
-			ErrorMessage: err.Error(),
-			AfterData:    req,
-		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Create; Error: %+v", logPrefix, err))
-		statusCode, res := roleMutationErrorResponse(logId, err)
-		ctx.JSON(statusCode, res)
-		return
-	}
-	h.WriteAudit(ctx, domainaudit.AuditEvent{
-		Action:     domainaudit.ActionCreate,
-		Resource:   "role",
-		ResourceID: data.Id,
-		Status:     domainaudit.StatusSuccess,
-		Message:    "Created role",
-		AfterData:  data,
-	})
-
-	res := gokit.Response(http.StatusCreated, "Role created successfully", logId, data)
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Response: %+v;", logPrefix, gokit.JsonEncode(data)))
-	ctx.JSON(http.StatusCreated, res)
+	httpshared.Create(f, h.AuditWriter, roleResource, req, h.Service.Create)
 }
 
 func (h *Handler) GetByID(ctx *gin.Context) {
-	id := ctx.Param("id")
-	logId := gokit.GenerateLogId(ctx)
-	logPrefix := "[RoleHandler][GetByID]"
-	reqCtx := ctx.Request.Context()
-
-	data, err := h.Service.GetByIDWithDetails(reqCtx, id)
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetByIDWithDetails; Error: %+v", logPrefix, err))
-		res := gokit.Response(http.StatusNotFound, "Role not found", logId, nil)
-		res.Error = gokit.Errors{Code: http.StatusNotFound, Message: "role not found"}
-		ctx.JSON(http.StatusNotFound, res)
-		return
-	}
-
-	res := gokit.Response(http.StatusOK, "Get role successfully", logId, data)
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Response: %+v;", logPrefix, gokit.JsonEncode(data)))
-	ctx.JSON(http.StatusOK, res)
+	f := httpshared.NewFlow(ctx, "[RoleHandler][GetByID]")
+	httpshared.GetByID(f, "role", "Service.GetByIDWithDetails", f.ID(), h.Service.GetByIDWithDetails)
 }
 
 func (h *Handler) GetAll(ctx *gin.Context) {
-	logId := gokit.GenerateLogId(ctx)
-	logPrefix := "[RoleHandler][GetAll]"
-	reqCtx := ctx.Request.Context()
-
-	params, err := gokit.GetBaseParams(ctx.Request.URL.Query(), "name", "asc", 10)
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GetBaseParams; Error: %+v", logPrefix, err))
-		res := gokit.Response(http.StatusBadRequest, gokit.MsgInvalidRequest, logId, nil)
-		res.Error = gokit.Errors{Code: http.StatusBadRequest, Message: "invalid query parameters"}
-		ctx.JSON(http.StatusBadRequest, res)
-		return
-	}
-
-	data, total, err := h.Service.GetAll(reqCtx, httpshared.ActorFrom(reqCtx), httpshared.ListRequest(params))
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetAll; Error: %+v", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
-		return
-	}
-
-	res := gokit.PaginationResponse(http.StatusOK, int(total), params.Page, params.Limit, logId, data)
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Response: %+v;", logPrefix, gokit.JsonEncode(data)))
-	ctx.JSON(http.StatusOK, res)
+	f := httpshared.NewFlow(ctx, "[RoleHandler][GetAll]")
+	httpshared.List(f, httpshared.ListOptions{OrderBy: "name", Direction: "asc", Limit: 10},
+		func(reqCtx context.Context, req dtoshared.ListRequest) ([]domainrole.Role, int64, error) {
+			return h.Service.GetAll(reqCtx, httpshared.ActorFrom(reqCtx), req)
+		})
 }
 
 func (h *Handler) Update(ctx *gin.Context) {
-	id := ctx.Param("id")
-	var req dtorole.RoleUpdate
-	logId := gokit.GenerateLogId(ctx)
-	logPrefix := "[RoleHandler][Update]"
-	reqCtx := ctx.Request.Context()
-
-	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
+	f := httpshared.NewFlow(ctx, "[RoleHandler][Update]")
+	req, ok := httpshared.Bind[dtorole.RoleUpdate](f)
+	if !ok {
 		return
 	}
-
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Request: %+v;", logPrefix, gokit.JsonEncode(req)))
-
-	before, _ := h.Service.GetByID(reqCtx, id)
-	data, err := h.Service.Update(reqCtx, id, req)
-	if err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			Action:       domainaudit.ActionUpdate,
-			Resource:     "role",
-			ResourceID:   id,
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to update role",
-			ErrorMessage: err.Error(),
-			BeforeData:   before,
-			AfterData:    req,
-		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Update; Error: %+v", logPrefix, err))
-		statusCode, res := roleMutationErrorResponse(logId, err)
-		ctx.JSON(statusCode, res)
-		return
-	}
-	h.WriteAudit(ctx, domainaudit.AuditEvent{
-		Action:     domainaudit.ActionUpdate,
-		Resource:   "role",
-		ResourceID: data.Id,
-		Status:     domainaudit.StatusSuccess,
-		Message:    "Updated role",
-		BeforeData: before,
-		AfterData:  data,
-	})
-
-	res := gokit.Response(http.StatusOK, "Role updated successfully", logId, data)
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Response: %+v;", logPrefix, gokit.JsonEncode(data)))
-	ctx.JSON(http.StatusOK, res)
+	httpshared.Update(f, h.AuditWriter, roleResource, f.ID(), req, h.Service.GetByID, h.Service.Update)
 }
 
 func (h *Handler) Delete(ctx *gin.Context) {
-	id := ctx.Param("id")
-	logId := gokit.GenerateLogId(ctx)
-	logPrefix := "[RoleHandler][Delete]"
-	reqCtx := ctx.Request.Context()
-	before, _ := h.Service.GetByID(reqCtx, id)
-
-	if err := h.Service.Delete(reqCtx, id); err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			Action:       domainaudit.ActionDelete,
-			Resource:     "role",
-			ResourceID:   id,
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to delete role",
-			ErrorMessage: err.Error(),
-			BeforeData:   before,
-		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Delete; Error: %+v", logPrefix, err))
-		statusCode, res := roleMutationErrorResponse(logId, err)
-		ctx.JSON(statusCode, res)
-		return
-	}
-	h.WriteAudit(ctx, domainaudit.AuditEvent{
-		Action:     domainaudit.ActionDelete,
-		Resource:   "role",
-		ResourceID: id,
-		Status:     domainaudit.StatusSuccess,
-		Message:    "Deleted role",
-		BeforeData: before,
-	})
-
-	res := gokit.Response(http.StatusOK, "Role deleted successfully", logId, nil)
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Response: Role deleted", logPrefix))
-	ctx.JSON(http.StatusOK, res)
+	f := httpshared.NewFlow(ctx, "[RoleHandler][Delete]")
+	httpshared.Delete(f, h.AuditWriter, roleResource, f.ID(), h.Service.GetByID, h.Service.Delete)
 }
 
 func (h *Handler) AssignPermissions(ctx *gin.Context) {

@@ -88,16 +88,7 @@ func (h *Handler) Register(ctx *gin.Context) {
 	logPrefix := "[UserHandler][Register]"
 	reqCtx := ctx.Request.Context()
 
-	registerEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.PublicRegistration, true)
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
-		return
-	}
-	if !registerEnabled {
-		res := gokit.Forbidden(logId, publicRegistrationDisabledMessage)
-		ctx.JSON(http.StatusForbidden, res)
+	if !h.registrationOpen(ctx, logId, logPrefix) {
 		return
 	}
 	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
@@ -105,11 +96,8 @@ func (h *Handler) Register(ctx *gin.Context) {
 	}
 	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Request: %+v;", logPrefix, gokit.JsonEncode(gokit.RedactSensitivePayload(req))))
 
-	otpEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.RegisterOTP, false)
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+	otpEnabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.RegisterOTP, false)
+	if !ok {
 		return
 	}
 	if otpEnabled {
@@ -180,13 +168,7 @@ func (h *Handler) Register(ctx *gin.Context) {
 		ResourceID:  data.Id,
 		Status:      domainaudit.StatusSuccess,
 		Message:     "Registered user",
-		AfterData: map[string]any{
-			"id":    data.Id,
-			"name":  data.Name,
-			"email": data.Email,
-			"phone": data.Phone,
-			"role":  data.Role,
-		},
+		AfterData:   userSnapshot(data),
 	})
 
 	res := gokit.Response(http.StatusCreated, "User registered successfully", logId, data)
@@ -197,20 +179,13 @@ func (h *Handler) Register(ctx *gin.Context) {
 func (h *Handler) GetRegisterStatus(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][GetRegisterStatus]"
-	reqCtx := ctx.Request.Context()
 
-	registerEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.PublicRegistration, true)
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+	registerEnabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.PublicRegistration, true)
+	if !ok {
 		return
 	}
-	otpEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.RegisterOTP, false)
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+	otpEnabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.RegisterOTP, false)
+	if !ok {
 		return
 	}
 
@@ -228,27 +203,15 @@ func (h *Handler) SendRegisterOTP(ctx *gin.Context) {
 	logPrefix := "[UserHandler][SendRegisterOTP]"
 	reqCtx := ctx.Request.Context()
 
-	registerEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.PublicRegistration, true)
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
-		return
-	}
-	if !registerEnabled {
-		res := gokit.Forbidden(logId, publicRegistrationDisabledMessage)
-		ctx.JSON(http.StatusForbidden, res)
+	if !h.registrationOpen(ctx, logId, logPrefix) {
 		return
 	}
 	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
 		return
 	}
 
-	otpEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.RegisterOTP, false)
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+	otpEnabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.RegisterOTP, false)
+	if !ok {
 		return
 	}
 	if !otpEnabled {
@@ -268,8 +231,7 @@ func (h *Handler) SendRegisterOTP(ctx *gin.Context) {
 	conflict, lookup, err := h.registrationConflict(reqCtx, normalizedEmail, req.Phone)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; %s; Error: %+v", logPrefix, lookup, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+		httpshared.RespondInternalError(ctx, logId)
 		return
 	}
 	if conflict != "" {
@@ -301,8 +263,7 @@ func (h *Handler) SendRegisterOTP(ctx *gin.Context) {
 			return
 		}
 
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+		httpshared.RespondInternalError(ctx, logId)
 		return
 	}
 
@@ -356,13 +317,7 @@ func (h *Handler) AdminCreateUser(ctx *gin.Context) {
 		ResourceID: data.Id,
 		Status:     domainaudit.StatusSuccess,
 		Message:    "Created user by admin",
-		AfterData: map[string]any{
-			"id":    data.Id,
-			"name":  data.Name,
-			"email": data.Email,
-			"phone": data.Phone,
-			"role":  data.Role,
-		},
+		AfterData:  userSnapshot(data),
 	})
 
 	res := gokit.Response(http.StatusCreated, "User created successfully", logId, data)
@@ -420,9 +375,7 @@ func (h *Handler) Login(ctx *gin.Context) {
 	if userErr == nil {
 		refreshToken, err = h.Tokens.GenerateRefresh(loggedInUser.Id, loggedInUser.Name, loggedInUser.Role, logId.String())
 		if err != nil {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GenerateRefreshJwt; ERROR: %s;", logPrefix, err))
-			res := gokit.InternalServerError(logId)
-			ctx.JSON(http.StatusInternalServerError, res)
+			respondStepFailed(ctx, logId, logPrefix, "GenerateRefreshJwt", err)
 			return
 		}
 	}
@@ -458,11 +411,8 @@ func (h *Handler) GoogleLogin(ctx *gin.Context) {
 		return
 	}
 
-	registerEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.PublicRegistration, true)
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+	registerEnabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.PublicRegistration, true)
+	if !ok {
 		return
 	}
 
@@ -509,17 +459,13 @@ func (h *Handler) GoogleLogin(ctx *gin.Context) {
 
 	accessToken, err := h.Tokens.Generate(user.Id, user.Name, user.Role, logId.String())
 	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GenerateJwt; ERROR: %s;", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+		respondStepFailed(ctx, logId, logPrefix, "GenerateJwt", err)
 		return
 	}
 
 	refreshToken, err := h.Tokens.GenerateRefresh(user.Id, user.Name, user.Role, logId.String())
 	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GenerateRefreshJwt; ERROR: %s;", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+		respondStepFailed(ctx, logId, logPrefix, "GenerateRefreshJwt", err)
 		return
 	}
 
@@ -575,78 +521,51 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 
 	tokenClaims, err := h.Tokens.Claims(req.RefreshToken)
 	if err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			Action:       domainaudit.ActionRefresh,
-			Resource:     "auth_token",
-			Status:       domainaudit.StatusFailed,
+		h.rejectRefresh(ctx, logId, "invalid or expired refresh token", domainaudit.AuditEvent{
 			Message:      failedRenewLoginSessionMessage,
 			ErrorMessage: "The refresh token is invalid or expired",
 		})
-		res := gokit.Response(http.StatusUnauthorized, gokit.MsgSomethingWrong, logId, nil)
-		res.Error = "invalid or expired refresh token"
-		ctx.JSON(http.StatusUnauthorized, res)
 		return
 	}
 
+	claimUserID := gokit.InterfaceString(tokenClaims["user_id"])
+	claimRole := gokit.InterfaceString(tokenClaims["role"])
 	if !strings.EqualFold(gokit.InterfaceString(tokenClaims["token_type"]), "refresh") {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			ActorUserID:  gokit.InterfaceString(tokenClaims["user_id"]),
-			ActorRole:    gokit.InterfaceString(tokenClaims["role"]),
-			Action:       domainaudit.ActionRefresh,
-			Resource:     "auth_token",
-			Status:       domainaudit.StatusFailed,
+		h.rejectRefresh(ctx, logId, "invalid token type", domainaudit.AuditEvent{
+			ActorUserID:  claimUserID,
+			ActorRole:    claimRole,
 			Message:      failedRenewLoginSessionMessage,
 			ErrorMessage: "The provided token is not a refresh token",
 		})
-		res := gokit.Response(http.StatusUnauthorized, gokit.MsgSomethingWrong, logId, nil)
-		res.Error = "invalid token type"
-		ctx.JSON(http.StatusUnauthorized, res)
 		return
 	}
 
 	isBlacklisted, err := h.Service.IsTokenRevoked(ctx.Request.Context(), req.RefreshToken)
 	if err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			ActorUserID:  gokit.InterfaceString(tokenClaims["user_id"]),
-			ActorRole:    gokit.InterfaceString(tokenClaims["role"]),
-			Action:       domainaudit.ActionRefresh,
-			Resource:     "auth_token",
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to validate login session renewal",
-			ErrorMessage: err.Error(),
+		h.failRefresh(ctx, logId, logPrefix, "BlacklistRepo.ExistsByToken", err, domainaudit.AuditEvent{
+			ActorUserID: claimUserID,
+			ActorRole:   claimRole,
+			Message:     "Failed to validate login session renewal",
 		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; BlacklistRepo.ExistsByToken; ERROR: %s;", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
 		return
 	}
 	if isBlacklisted {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			ActorUserID:  gokit.InterfaceString(tokenClaims["user_id"]),
-			ActorRole:    gokit.InterfaceString(tokenClaims["role"]),
-			Action:       domainaudit.ActionRefresh,
-			Resource:     "auth_token",
-			Status:       domainaudit.StatusFailed,
+		h.rejectRefresh(ctx, logId, "refresh token has been revoked", domainaudit.AuditEvent{
+			ActorUserID:  claimUserID,
+			ActorRole:    claimRole,
 			Message:      failedRenewLoginSessionMessage,
 			ErrorMessage: "The refresh token has already been revoked",
 		})
-		res := gokit.Response(http.StatusUnauthorized, gokit.MsgSomethingWrong, logId, nil)
-		res.Error = "refresh token has been revoked"
-		ctx.JSON(http.StatusUnauthorized, res)
 		return
 	}
 
-	userID := gokit.InterfaceString(tokenClaims["user_id"])
-	userRole := gokit.InterfaceString(tokenClaims["role"])
+	userID := claimUserID
 	user, err := h.Service.GetUserById(reqCtx, userID)
 	if err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
+		h.auditRefreshFailure(ctx, domainaudit.AuditEvent{
 			ActorUserID:  userID,
-			ActorRole:    userRole,
-			Action:       domainaudit.ActionRefresh,
-			Resource:     "auth_token",
+			ActorRole:    claimRole,
 			ResourceID:   userID,
-			Status:       domainaudit.StatusFailed,
 			Message:      failedRenewLoginSessionMessage,
 			ErrorMessage: "The token owner user account was not found",
 		})
@@ -663,96 +582,63 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 	imp := impersonationFromClaims(tokenClaims)
 	accessToken, err := h.issueAccessToken(&user, logId.String(), imp)
 	if err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			ActorUserID:  userID,
-			ActorRole:    user.Role,
-			Action:       domainaudit.ActionRefresh,
-			Resource:     "auth_token",
-			ResourceID:   userID,
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to issue a new access token",
-			ErrorMessage: err.Error(),
+		h.failRefresh(ctx, logId, logPrefix, "GenerateJwtWithClaims", err, domainaudit.AuditEvent{
+			ActorUserID: userID,
+			ActorRole:   user.Role,
+			ResourceID:  userID,
+			Message:     "Failed to issue a new access token",
 		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GenerateJwtWithClaims; ERROR: %s;", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
 		return
 	}
 
 	refreshToken, err := h.issueRefreshToken(&user, logId.String(), imp)
 	if err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			ActorUserID:  userID,
-			ActorRole:    user.Role,
-			Action:       domainaudit.ActionRefresh,
-			Resource:     "auth_token",
-			ResourceID:   userID,
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to issue a new refresh token",
-			ErrorMessage: err.Error(),
+		h.failRefresh(ctx, logId, logPrefix, "GenerateRefreshJwt", err, domainaudit.AuditEvent{
+			ActorUserID: userID,
+			ActorRole:   user.Role,
+			ResourceID:  userID,
+			Message:     "Failed to issue a new refresh token",
 		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GenerateRefreshJwt; ERROR: %s;", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
 		return
 	}
 
 	if h.SessionSvc != nil {
 		session, sessionErr := h.SessionSvc.GetSessionByRefreshToken(reqCtx, req.RefreshToken)
 		if sessionErr != nil {
-			h.WriteAudit(ctx, domainaudit.AuditEvent{
+			h.auditRefreshFailure(ctx, domainaudit.AuditEvent{
 				ActorUserID:  userID,
 				ActorRole:    user.Role,
-				Action:       domainaudit.ActionRefresh,
-				Resource:     "auth_token",
 				ResourceID:   userID,
-				Status:       domainaudit.StatusFailed,
 				Message:      failedRenewLoginSessionMessage,
 				ErrorMessage: "No active session was found for the refresh token",
 			})
 			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; SessionSvc.GetSessionByRefreshToken; ERROR: %s;", logPrefix, sessionErr))
-			res := gokit.Response(http.StatusUnauthorized, gokit.MsgSomethingWrong, logId, nil)
-			res.Error = "session not found for refresh token"
-			ctx.JSON(http.StatusUnauthorized, res)
+			respondRefreshUnauthorized(ctx, logId, "session not found for refresh token")
 			return
 		}
 
 		refreshExpAt := time.Now().Add(h.Settings.RefreshTTL)
 		if sessionErr = h.SessionSvc.RotateSessionTokens(reqCtx, session.SessionID, accessToken, refreshToken, refreshExpAt); sessionErr != nil {
-			h.WriteAudit(ctx, domainaudit.AuditEvent{
-				ActorUserID:  userID,
-				ActorRole:    user.Role,
-				Action:       domainaudit.ActionRefresh,
-				Resource:     "auth_token",
-				ResourceID:   userID,
-				Status:       domainaudit.StatusFailed,
-				Message:      "Failed to rotate login session tokens",
-				ErrorMessage: sessionErr.Error(),
+			h.failRefresh(ctx, logId, logPrefix, "SessionSvc.RotateSessionTokens", sessionErr, domainaudit.AuditEvent{
+				ActorUserID: userID,
+				ActorRole:   user.Role,
+				ResourceID:  userID,
+				Message:     "Failed to rotate login session tokens",
 				Metadata: map[string]any{
 					"session_id": session.SessionID,
 				},
 			})
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; SessionSvc.RotateSessionTokens; ERROR: %s;", logPrefix, sessionErr))
-			res := gokit.InternalServerError(logId)
-			ctx.JSON(http.StatusInternalServerError, res)
 			return
 		}
 	}
 
 	if err = h.Service.LogoutUser(reqCtx, req.RefreshToken); err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			ActorUserID:  userID,
-			ActorRole:    user.Role,
-			Action:       domainaudit.ActionRefresh,
-			Resource:     "auth_token",
-			ResourceID:   userID,
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to revoke previous login session token",
-			ErrorMessage: err.Error(),
+		h.failRefresh(ctx, logId, logPrefix, "Service.LogoutUser(refresh)", err, domainaudit.AuditEvent{
+			ActorUserID: userID,
+			ActorRole:   user.Role,
+			ResourceID:  userID,
+			Message:     "Failed to revoke previous login session token",
 		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.LogoutUser(refresh); ERROR: %s;", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
 		return
 	}
 
@@ -785,8 +671,7 @@ func (h *Handler) Logout(ctx *gin.Context) {
 			ErrorMessage: "token not found",
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; token not found in context", logPrefix))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+		httpshared.RespondInternalError(ctx, logId)
 		return
 	}
 
@@ -808,8 +693,7 @@ func (h *Handler) Logout(ctx *gin.Context) {
 			ErrorMessage: err.Error(),
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.LogoutUser; Error: %+v", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+		httpshared.RespondInternalError(ctx, logId)
 		return
 	}
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
@@ -837,15 +721,7 @@ func (h *Handler) GetUserById(ctx *gin.Context) {
 	data, err := h.Service.GetUserById(reqCtx, id)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetUserByID; ERROR: %s;", logPrefix, err))
-		if httpshared.IsNotFound(err) {
-			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
-			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
-			ctx.JSON(http.StatusNotFound, res)
-			return
-		}
-
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+		respondUserLookupError(ctx, logId, err)
 		return
 	}
 
@@ -861,23 +737,14 @@ func (h *Handler) GetUserByAuth(ctx *gin.Context) {
 	scope := domainauth.FromContext(reqCtx)
 
 	if scope.UserID == "" {
-		res := gokit.Response(http.StatusUnauthorized, "Unauthorized", logId, nil)
-		ctx.JSON(http.StatusUnauthorized, res)
+		httpshared.RespondUnauthorized(ctx, logId)
 		return
 	}
 
 	data, err := h.Service.GetUserByAuth(reqCtx, scope.UserID)
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetUserByAuth; ERROR: %s;", logPrefix, err))
-		if httpshared.IsNotFound(err) {
-			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
-			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
-			ctx.JSON(http.StatusNotFound, res)
-			return
-		}
-
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+		respondUserLookupError(ctx, logId, err)
 		return
 	}
 
@@ -1008,8 +875,7 @@ func (h *Handler) GetAllUsers(ctx *gin.Context) {
 	users, totalData, err := h.Service.GetAllUsers(reqCtx, httpshared.ActorFrom(reqCtx), httpshared.ListRequest(params))
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GetAllUsers; ERROR: %+v;", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+		httpshared.RespondInternalError(ctx, logId)
 		return
 	}
 
@@ -1026,59 +892,20 @@ func (h *Handler) Update(ctx *gin.Context) {
 	scope := domainauth.FromContext(reqCtx)
 
 	if scope.UserID == "" {
-		res := gokit.Response(http.StatusUnauthorized, "Unauthorized", logId, nil)
-		ctx.JSON(http.StatusUnauthorized, res)
+		httpshared.RespondUnauthorized(ctx, logId)
 		return
 	}
 	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
 		return
 	}
 
-	before, _ := h.Service.GetUserById(reqCtx, scope.UserID)
-	data, err := h.Service.Update(reqCtx, domainauth.ActorOf(scope), scope.UserID, req)
-	if err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			Action:       domainaudit.ActionUpdate,
-			Resource:     "user",
-			ResourceID:   scope.UserID,
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to update user profile",
-			ErrorMessage: err.Error(),
-			BeforeData:   before,
-			AfterData:    req,
-		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Update; ERROR: %s;", logPrefix, err))
-		if httpshared.IsNotFound(err) {
-			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
-			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
-			ctx.JSON(http.StatusNotFound, res)
-			return
-		}
-
-		statusCode, res := userMutationErrorResponse(logId, err)
-		ctx.JSON(statusCode, res)
-		return
-	}
-	h.WriteAudit(ctx, domainaudit.AuditEvent{
-		Action:     domainaudit.ActionUpdate,
-		Resource:   "user",
-		ResourceID: data.Id,
-		Status:     domainaudit.StatusSuccess,
-		Message:    "Updated user profile",
-		BeforeData: before,
-		AfterData:  data,
-	})
-
-	res := gokit.Response(http.StatusOK, "User updated successfully", logId, data)
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Response: %+v;", logPrefix, gokit.JsonEncode(data)))
-	ctx.JSON(http.StatusOK, res)
+	h.updateUser(ctx, logId, logPrefix, scope.UserID, req, "Failed to update user profile", "Updated user profile")
 }
 
 func (h *Handler) UpdateUserById(ctx *gin.Context) {
 	var req dtouser.UserUpdate
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][UpdateUserById]"
-	reqCtx := ctx.Request.Context()
 
 	id, err := gokit.ValidateUUIDParam(ctx, logId)
 	if err != nil {
@@ -1089,44 +916,7 @@ func (h *Handler) UpdateUserById(ctx *gin.Context) {
 	}
 	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Request: %+v;", logPrefix, gokit.JsonEncode(req)))
 
-	before, _ := h.Service.GetUserById(reqCtx, id)
-	data, err := h.Service.Update(reqCtx, httpshared.ActorFrom(reqCtx), id, req)
-	if err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			Action:       domainaudit.ActionUpdate,
-			Resource:     "user",
-			ResourceID:   id,
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to update user by ID",
-			ErrorMessage: err.Error(),
-			BeforeData:   before,
-			AfterData:    req,
-		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Update; ERROR: %s;", logPrefix, err))
-		if httpshared.IsNotFound(err) {
-			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
-			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
-			ctx.JSON(http.StatusNotFound, res)
-			return
-		}
-
-		statusCode, res := userMutationErrorResponse(logId, err)
-		ctx.JSON(statusCode, res)
-		return
-	}
-	h.WriteAudit(ctx, domainaudit.AuditEvent{
-		Action:     domainaudit.ActionUpdate,
-		Resource:   "user",
-		ResourceID: data.Id,
-		Status:     domainaudit.StatusSuccess,
-		Message:    "Updated user by ID",
-		BeforeData: before,
-		AfterData:  data,
-	})
-
-	res := gokit.Response(http.StatusOK, "User updated successfully", logId, data)
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Response: %+v;", logPrefix, gokit.JsonEncode(data)))
-	ctx.JSON(http.StatusOK, res)
+	h.updateUser(ctx, logId, logPrefix, id, req, "Failed to update user by ID", "Updated user by ID")
 }
 
 func (h *Handler) ChangePassword(ctx *gin.Context) {
@@ -1137,8 +927,7 @@ func (h *Handler) ChangePassword(ctx *gin.Context) {
 	scope := domainauth.FromContext(reqCtx)
 
 	if scope.UserID == "" {
-		res := gokit.Response(http.StatusUnauthorized, "Unauthorized", logId, nil)
-		ctx.JSON(http.StatusUnauthorized, res)
+		httpshared.RespondUnauthorized(ctx, logId)
 		return
 	}
 	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
@@ -1159,22 +948,13 @@ func (h *Handler) ChangePassword(ctx *gin.Context) {
 			AfterData:    req,
 		})
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.ChangePassword; ERROR: %s;", logPrefix, err))
-		if httpshared.IsNotFound(err) {
-			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
-			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
-			ctx.JSON(http.StatusNotFound, res)
-			return
-		}
-
-		if err.Error() == ErrHashPassword {
+		if !httpshared.IsNotFound(err) && err.Error() == ErrHashPassword {
 			res := gokit.Response(http.StatusBadRequest, gokit.MsgSomethingWrong, logId, nil)
 			res.Error = gokit.Errors{Code: http.StatusBadRequest, Message: "current password is incorrect"}
 			ctx.JSON(http.StatusBadRequest, res)
 			return
 		}
-
-		statusCode, res := userMutationErrorResponse(logId, err)
-		ctx.JSON(statusCode, res)
+		respondUserMutationError(ctx, logId, err)
 		return
 	}
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
@@ -1203,11 +983,8 @@ func (h *Handler) ForgotPassword(ctx *gin.Context) {
 		return
 	}
 
-	emailResetEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.PasswordResetEmail, false)
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+	emailResetEnabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.PasswordResetEmail, false)
+	if !ok {
 		return
 	}
 	if emailResetEnabled {
@@ -1236,9 +1013,7 @@ func (h *Handler) ForgotPassword(ctx *gin.Context) {
 				"email": req.Email,
 			},
 		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.ForgotPassword; ERROR: %s;", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+		respondStepFailed(ctx, logId, logPrefix, "Service.ForgotPassword", err)
 		return
 	}
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
@@ -1266,11 +1041,8 @@ func (h *Handler) ResetPassword(ctx *gin.Context) {
 		return
 	}
 
-	emailResetEnabled, err := h.isRuntimeConfigEnabled(reqCtx, h.Settings.Flags.PasswordResetEmail, false)
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
+	emailResetEnabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.PasswordResetEmail, false)
+	if !ok {
 		return
 	}
 	if emailResetEnabled {
@@ -1295,9 +1067,7 @@ func (h *Handler) ResetPassword(ctx *gin.Context) {
 	if h.SessionSvc != nil {
 		claims, err := h.Tokens.Claims(req.Token)
 		if err != nil {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; JwtClaim after reset; ERROR: %s;", logPrefix, err))
-			res := gokit.InternalServerError(logId)
-			ctx.JSON(http.StatusInternalServerError, res)
+			respondStepFailed(ctx, logId, logPrefix, "JwtClaim after reset", err)
 			return
 		}
 		if err := h.revokePasswordResetSessions(reqCtx, gokit.InterfaceString(claims["user_id"])); err != nil {
@@ -1309,9 +1079,7 @@ func (h *Handler) ResetPassword(ctx *gin.Context) {
 				ErrorMessage: err.Error(),
 				AfterData:    req,
 			})
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; SessionSvc.DestroyAllUserSessions; ERROR: %s;", logPrefix, err))
-			res := gokit.InternalServerError(logId)
-			ctx.JSON(http.StatusInternalServerError, res)
+			respondStepFailed(ctx, logId, logPrefix, "SessionSvc.DestroyAllUserSessions", err)
 			return
 		}
 	}
@@ -1344,92 +1112,20 @@ func (h *Handler) Delete(ctx *gin.Context) {
 	scope := domainauth.FromContext(reqCtx)
 
 	if scope.UserID == "" {
-		res := gokit.Response(http.StatusUnauthorized, "Unauthorized", logId, nil)
-		ctx.JSON(http.StatusUnauthorized, res)
+		httpshared.RespondUnauthorized(ctx, logId)
 		return
 	}
 
-	before, _ := h.Service.GetUserById(reqCtx, scope.UserID)
-
-	if err := h.Service.Delete(reqCtx, scope.UserID); err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			Action:       domainaudit.ActionDelete,
-			Resource:     "user",
-			ResourceID:   scope.UserID,
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to delete own user",
-			ErrorMessage: err.Error(),
-			BeforeData:   before,
-		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Delete; ERROR: %s;", logPrefix, err))
-		if httpshared.IsNotFound(err) {
-			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
-			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
-			ctx.JSON(http.StatusNotFound, res)
-			return
-		}
-
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
-		return
-	}
-	h.WriteAudit(ctx, domainaudit.AuditEvent{
-		Action:     domainaudit.ActionDelete,
-		Resource:   "user",
-		ResourceID: scope.UserID,
-		Status:     domainaudit.StatusSuccess,
-		Message:    "Deleted own user",
-		BeforeData: before,
-	})
-
-	res := gokit.Response(http.StatusOK, "User deleted successfully", logId, nil)
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Success: User deleted successfully", logPrefix))
-	ctx.JSON(http.StatusOK, res)
+	h.deleteUser(ctx, logId, logPrefix, scope.UserID, "Failed to delete own user", "Deleted own user")
 }
 
 func (h *Handler) DeleteUserById(ctx *gin.Context) {
 	logId := gokit.GenerateLogId(ctx)
 	logPrefix := "[UserHandler][DeleteUserById]"
-	reqCtx := ctx.Request.Context()
 
 	id, err := gokit.ValidateUUIDParam(ctx, logId)
 	if err != nil {
 		return
 	}
-	before, _ := h.Service.GetUserById(reqCtx, id)
-
-	if err := h.Service.Delete(reqCtx, id); err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			Action:       domainaudit.ActionDelete,
-			Resource:     "user",
-			ResourceID:   id,
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to delete user by ID",
-			ErrorMessage: err.Error(),
-			BeforeData:   before,
-		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Delete; ERROR: %s;", logPrefix, err))
-		if httpshared.IsNotFound(err) {
-			res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
-			res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
-			ctx.JSON(http.StatusNotFound, res)
-			return
-		}
-
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
-		return
-	}
-	h.WriteAudit(ctx, domainaudit.AuditEvent{
-		Action:     domainaudit.ActionDelete,
-		Resource:   "user",
-		ResourceID: id,
-		Status:     domainaudit.StatusSuccess,
-		Message:    "Deleted user by ID",
-		BeforeData: before,
-	})
-
-	res := gokit.Response(http.StatusOK, "User deleted successfully", logId, nil)
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Success: User deleted successfully", logPrefix))
-	ctx.JSON(http.StatusOK, res)
+	h.deleteUser(ctx, logId, logPrefix, id, "Failed to delete user by ID", "Deleted user by ID")
 }

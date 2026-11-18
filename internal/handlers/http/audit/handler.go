@@ -1,12 +1,6 @@
 package audit
 
 import (
-	"fmt"
-	"net/http"
-
-	"github.com/zazhedho/gokit"
-	"github.com/zazhedho/logus"
-
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 
 	"github.com/gin-gonic/gin"
@@ -21,51 +15,18 @@ func New(s Service) *Handler {
 }
 
 func (h *Handler) GetAll(ctx *gin.Context) {
-	logId := gokit.GenerateLogId(ctx)
-	logPrefix := "[AuditHandler][GetAll]"
-	reqCtx := ctx.Request.Context()
-
-	params, err := gokit.GetBaseParams(ctx.Request.URL.Query(), "occurred_at", "desc", 20)
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GetBaseParams; Error: %+v", logPrefix, err))
-		res := gokit.Response(http.StatusBadRequest, gokit.MsgInvalidRequest, logId, nil)
-		res.Error = gokit.Errors{Code: http.StatusBadRequest, Message: "invalid query parameters"}
-		ctx.JSON(http.StatusBadRequest, res)
-		return
-	}
-	params.Filters = gokit.WhitelistStringFilter(params.Filters, []string{"actor_user_id", "actor_role", "action", "resource", "status", "request_id"})
-
-	data, total, err := h.Service.GetAll(reqCtx, httpshared.ListRequest(params))
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetAll; Error: %+v", logPrefix, err))
-		res := gokit.InternalServerError(logId)
-		ctx.JSON(http.StatusInternalServerError, res)
-		return
-	}
-
-	res := gokit.PaginationResponse(http.StatusOK, int(total), params.Page, params.Limit, logId, data)
-	ctx.JSON(http.StatusOK, res)
+	f := httpshared.NewQuietFlow(ctx, "[AuditHandler][GetAll]")
+	httpshared.List(f, httpshared.ListOptions{
+		OrderBy: "occurred_at", Direction: "desc", Limit: 20,
+		FilterKeys: []string{"actor_user_id", "actor_role", "action", "resource", "status", "request_id"},
+	}, h.Service.GetAll)
 }
 
 func (h *Handler) GetByID(ctx *gin.Context) {
-	logId := gokit.GenerateLogId(ctx)
-	logPrefix := "[AuditHandler][GetByID]"
-	reqCtx := ctx.Request.Context()
-
-	id, err := gokit.ValidateUUIDParam(ctx, logId)
-	if err != nil {
+	f := httpshared.NewQuietFlow(ctx, "[AuditHandler][GetByID]")
+	id, ok := f.UUIDParam()
+	if !ok {
 		return
 	}
-
-	data, err := h.Service.GetByID(reqCtx, id)
-	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetByID; Error: %+v", logPrefix, err))
-		res := gokit.Response(http.StatusNotFound, "Audit trail not found", logId, nil)
-		res.Error = gokit.Errors{Code: http.StatusNotFound, Message: "audit trail not found"}
-		ctx.JSON(http.StatusNotFound, res)
-		return
-	}
-
-	res := gokit.Response(http.StatusOK, "Get audit trail successfully", logId, data)
-	ctx.JSON(http.StatusOK, res)
+	httpshared.GetByID(f, "audit trail", "Service.GetByID", id, h.Service.GetByID)
 }
