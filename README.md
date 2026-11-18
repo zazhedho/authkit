@@ -430,6 +430,57 @@ without `AUTHKIT_TEST_DATABASE_URL`, for example
 `postgres://postgres:test@127.0.0.1:55432/postgres?sslmode=disable`. Each test
 creates and drops its own schema.
 
+## Internal layout
+
+For contributors. Callers use only the root package; the code below it is
+organised by layer, and tests enforce the layering.
+
+```text
+internal/
+  architecture/                 guard tests
+  config/                       plain settings values
+  domain/<module>/              entities, domain errors
+  dto/<module>/                 request and response shapes
+  services/<module>/            business logic, ports.go
+  services/shared/              helpers shared by services
+  repositories/<module>/        database access
+  handlers/http/<module>/       gin handlers, ports.go
+  handlers/http/middleware/     Auth, Can, LoadPermissions, Role, RequestLogger
+  handlers/http/shared/         audit writer and request helpers
+  infrastructure/               cache/permission, mailer, ratelimit, token
+  migrations/  moduleseed/      embedded SQL, `cmd/module-seed` logic
+  testutil/                     test helpers
+```
+
+**Dependency rule.** Everything depends inward on `domain` and `dto`; the
+middle layers never import each other. A consumer declares the interface it
+needs (`ports.go`) and the root package wires the concrete types. Services use
+only the standard library, `domain`, `dto`, `services/shared`, logus, uuid,
+`golang.org/x/crypto` and `golang.org/x/text`. Handlers and the middleware do
+not import services, repositories, infrastructure or `config`.
+Infrastructure imports no `domain`, except `infrastructure/cache/<module>`.
+Modules do not import each other, apart from the shared `domain` and `dto`
+model.
+
+**What `internal/architecture` enforces.** The import rule per layer, the list
+of known layers, the reserved `shared` directories, no module-to-module
+imports, the import alias convention (`domainuser`, `servicerole`,
+`repositoryshared`, `httpshared`, ...), package name equal to directory name,
+constructors returning concrete types, interfaces declared by their consumer
+without an `Interface` suffix, no `log.Fatal` or `os.Exit` outside `cmd/`, no
+package-level database or Redis clients, no `internal/` import of the root
+package, and `cmd/` importing only `internal/moduleseed`. Each guard has a
+test that proves it fires.
+
+**Public API snapshot.** `TestPublicAPI` compares the exported root API with
+`testdata/public_api.golden`. After an intended addition, regenerate it with
+
+```
+go test -run TestPublicAPI -update .
+```
+
+A change to the golden file is a change to the public API: review it as one.
+
 ## Upgrading from v0.1.x
 
 v0.2.0 is a breaking release: every sub-package became `internal/`, and the
