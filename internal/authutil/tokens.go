@@ -18,11 +18,8 @@ const (
 	DefaultResetTTL   = 900 * time.Second
 )
 
-// TokenConfig is the explicit configuration for Tokens. Key is required and
-// must be at least 32 characters. AppName is required: it is written to the iss
-// and aud claims of every token and must match on verification, so a token
-// issued by one application is rejected by another even when they share a key.
-// Zero TTLs fall back to the defaults.
+// TokenConfig configures Tokens. Key needs 32+ characters. AppName is written
+// to iss and aud and must match on verification; zero TTLs take defaults.
 type TokenConfig struct {
 	Key        string
 	AppName    string
@@ -186,9 +183,8 @@ func (t *Tokens) Claims(tokenString string) (map[string]any, error) {
 		return nil, ErrJWTKeyNotConfigured
 	}
 
-	// Claims is the only place a JWT is parsed. Issuer and audience are required
-	// and compared exactly, so tokens from another application (including tokens
-	// without these claims) are rejected on every verification path.
+	// // Claims is the only JWT parse; issuer and audience must match exactly, so
+	// // tokens from other applications (or without them) are rejected.
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return "", fmt.Errorf("unexpected signing method: %v", token.Header["alg"])

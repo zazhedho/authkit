@@ -35,9 +35,8 @@ func GetUserPermissionKeys(ctx context.Context, client *redis.Client, userID str
 	return permissionKeys, true
 }
 
-// SetUserPermissionKeys caches the keys for ttl. A non-positive ttl means no
-// caching: redis would otherwise treat 0 as "never expires" and serve stale
-// permissions indefinitely.
+// // SetUserPermissionKeys caches keys for ttl; ttl <= 0 means no caching, since
+// // redis treats 0 as never expiring and would serve stale permissions.
 func SetUserPermissionKeys(ctx context.Context, client *redis.Client, userID string, permissionKeys []string, ttl time.Duration) {
 	if client == nil || ttl <= 0 {
 		return

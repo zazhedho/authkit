@@ -28,10 +28,9 @@ type RateLimit = settings.RateLimit
 // FlagKeys names the app-config keys that act as feature flags.
 type FlagKeys = settings.FlagKeys
 
-// Config is the full explicit configuration. DB, AppName and JWTKey are
-// required. Zero values of everything else fall back to the defaults applied
-// by withDefaults. OTP.Secret and Reset.Secret have no default: they are
-// required whenever both Redis and Mailer are set.
+// Config is the explicit configuration. DB, AppName and JWTKey are required;
+// other zero values take defaults. OTP.Secret and Reset.Secret have no default
+// and are required when both Redis and Mailer are set.
 type Config struct {
 	DB     *gorm.DB      // required
 	Redis  *redis.Client // optional
@@ -51,9 +50,8 @@ type Config struct {
 	Flags                           FlagKeys
 }
 
-// String implements fmt.Stringer. It reports whether each secret is set but
-// never prints one, and leaves out DB, Redis and Mailer internals, so a config
-// that is logged or printed with %v or %+v cannot leak credentials.
+// // String reports whether each secret is set but never prints one, so logging a
+// // Config with %v cannot leak credentials.
 func (c Config) String() string {
 	set := func(v string) string {
 		if strings.TrimSpace(v) == "" {
@@ -162,12 +160,8 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
-// Validate expects defaults to be applied already, as New does before calling
-// it. It checks that DB and AppName are set, that JWTKey is a valid signing key
-// (at least 32 characters), that DefaultRole is not a privileged role, and that
-// OTP.Secret and Reset.Secret are set when both Redis and Mailer are. Those
-// secrets are only required then, because the OTP and password reset services
-// are inert (never sign or verify anything) otherwise.
+// // Validate expects defaults applied (as New does). OTP.Secret and Reset.Secret
+// // are required only when both Redis and Mailer are set; otherwise those services are inert.
 func (c Config) Validate() error {
 	if c.DB == nil {
 		return errors.New("authkit: DB is required")
@@ -193,15 +187,9 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// ConfigFromEnv builds a Config from environment variables: APP_NAME, APP_ENV,
-// JWT_KEY, JWT_EXP (hours), REFRESH_TOKEN_EXP_HOURS, GOOGLE_CLIENT_IDS and
-// GOOGLE_CLIENT_ID, AUTH_EMAIL_APP_NAME, PERMISSION_CACHE_TTL, and the LOGIN_*,
-// REGISTER_*, OTP_*, RESET_* and CONFIG_* families. Unset or non-positive
-// values take the same defaults as a zero Config passed to New. DB, Redis and
-// Mailer are left unset, and the OTP and reset secrets stay empty unless
-// OTP_SECRET and RESET_SECRET are set: there are no built-in secrets.
-//
-// Call it once at startup.
+// ConfigFromEnv builds a Config from environment variables; names and defaults:
+// see README, Configuration. DB, Redis and Mailer stay unset and there are no
+// built-in secrets. Call it once at startup.
 func ConfigFromEnv() Config {
 	// Duration-style variables (OTP_TTL, ...) win over their _SECONDS forms;
 	// rate windows default to the TTL.

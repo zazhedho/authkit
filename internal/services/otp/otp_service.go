@@ -44,9 +44,8 @@ func NewOTPService(repo interfaceotp.RepoOTPInterface, sender mailer.Sender, cfg
 	return &ServiceOTP{Repo: repo, Sender: sender, Config: cfg}
 }
 
-// missingSecret reports an unusable (empty or blank) signing secret. The
-// service must never hash or verify with an empty key, so every entry point
-// treats it as "not configured".
+// // missingSecret reports an empty or blank secret; every entry point then treats
+// // the service as unconfigured rather than sign with an empty key.
 func (s *ServiceOTP) missingSecret() bool {
 	return strings.TrimSpace(s.Config.Secret) == ""
 }

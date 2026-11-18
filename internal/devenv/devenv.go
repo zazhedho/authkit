@@ -1,6 +1,5 @@
-// Package devenv holds the one definition of which AppEnv values count as a
-// development environment, shared by the password-reset fallback in the user
-// handler and the startup warning in authkit.New, so the two cannot drift.
+// // Package devenv defines which AppEnv values count as development, shared by the
+// // reset fallback and the New warning so they cannot drift.
 package devenv
 
 import "github.com/zazhedho/gokit"

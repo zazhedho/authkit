@@ -9,9 +9,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// LoginLimiter throttles login attempts per key. IsBlocked and
-// RegisterFailure report whether the key is blocked and for how long; Reset
-// clears its failure state.
+// // LoginLimiter throttles login attempts per key; IsBlocked and RegisterFailure
+// // report whether and for how long it is blocked, Reset clears it.
 type LoginLimiter interface {
 	IsBlocked(ctx context.Context, key string) (bool, time.Duration, error)
 	RegisterFailure(ctx context.Context, key string) (bool, time.Duration, error)

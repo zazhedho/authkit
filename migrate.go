@@ -23,21 +23,16 @@ import (
 // the host project's own golang-migrate table (schema_migrations by default).
 const MigrationsTable = "authkit_schema_migrations"
 
-// BaselineVersion is the version of the migrations that create the users, auth
-// and RBAC tables. A legacy database that already holds them is recorded as
-// being at this version.
+// // BaselineVersion is the version of the baseline migrations; a legacy database
+// // already holding those tables is recorded at it.
 const BaselineVersion = 4
 
-// ErrLegacySchemaIncomplete is returned by Migrate when the database already
-// has the users table but no authkit version record, and its schema lacks
-// tables or columns the baseline creates. Nothing is changed in that case.
+// // ErrLegacySchemaIncomplete is returned by Migrate when the users table exists
+// // without a version record and the baseline schema is partial; nothing changes.
 var ErrLegacySchemaIncomplete = errors.New("authkit: existing schema is missing expected tables or columns")
 
-// ErrMigrationsDirty is returned by Migrate when the version table records a
-// failed migration. Migrate never repairs it: fix the database by hand, then
-// set the record to the last fully applied version and clear its dirty flag.
-// Never delete the record: a missing record next to existing tables makes the
-// database look unmigrated to authkit.
+// // ErrMigrationsDirty means the version table records a failed migration. Fix the
+// // database by hand and clear the dirty flag; never delete the record.
 var ErrMigrationsDirty = errors.New("authkit: migrations are in a dirty state")
 
 // migrationsFS holds the embedded *.sql files at its root.
@@ -45,26 +40,9 @@ var migrationsFS fs.FS = migrations.FS
 
 func embeddedSource() (source.Driver, error) { return iofs.New(migrationsFS, ".") }
 
-// Migrate brings the database to the schema authkit needs, using the embedded
-// migrations and the MigrationsTable version table in the connection's current
-// schema. It is safe to call on every start. Instances that start at the same
-// time serialize on an advisory lock and all succeed; run it on a direct
-// database connection, not through a transaction-pooling proxy.
-//
-//   - Empty database: applies all migrations.
-//   - Database that already has the users table but no version record (created
-//     by a project before it adopted authkit): the schema is checked against what the baseline
-//     creates; when complete it is only stamped as BaselineVersion, and the
-//     baseline SQL is never run, because its seed data would undo changes made
-//     to roles, permissions and menus. Any later migration then applies
-//     normally. When incomplete, ErrLegacySchemaIncomplete is returned and
-//     nothing is changed.
-//   - Database with a version record: applies pending migrations. A dirty
-//     record is reported as ErrMigrationsDirty.
-//
-// ctx bounds the schema inspection only; waiting for the advisory lock and a
-// migration that has started are not canceled by it. Run Migrate before the host project's migrations.
-// The caller's database handle stays open.
+// // Migrate applies pending migrations; safe on every start (instances serialize
+// // on an advisory lock). A pre-authkit database is only stamped, never re-seeded,
+// // else ErrLegacySchemaIncomplete. ctx bounds schema inspection only; see README, Migrations.
 func (k *Kit) Migrate(ctx context.Context) error {
 	return migrateUp(ctx, k.cfg.DB, embeddedSource)
 }
@@ -159,17 +137,9 @@ func stampBaseline(drv database.Driver) (err error) {
 
 func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
 
-// detectLegacy reports whether the database was created before authkit: the
-// users table exists in the current schema and no version has been recorded. It
-// returns ErrLegacySchemaIncomplete (and creates nothing) when such a database
-// lacks part of the baseline schema. A version table that holds any row means
-// "not legacy", dirty or not: a dirty row may belong to an instance that is
-// migrating right now, so the dirty verdict is left to the locked Up().
-//
-// The two table lookups are one statement, hence one snapshot: the library
-// creates the version table before the first migration creates users, so a
-// snapshot that shows users but no version table cannot belong to a migration
-// that another instance is running right now.
+// // detectLegacy reports a users table without a version record (or
+// // ErrLegacySchemaIncomplete). Any version row means not legacy: a dirty row may be
+// // mid-migration, so Up() decides. One statement, hence one snapshot.
 func detectLegacy(ctx context.Context, conn *sql.Conn) (bool, error) {
 	var schema sql.NullString
 	if err := conn.QueryRowContext(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
@@ -240,9 +210,8 @@ func currentColumns(ctx context.Context, conn *sql.Conn) (map[string][]string, e
 	return out, nil
 }
 
-// presentTables reports whether the users and version tables exist in the
-// current schema, from a single statement. It reads pg_catalog, which, unlike
-// information_schema, shows every table whatever the role's privileges.
+// // presentTables reports whether the users and version tables exist, in one
+// // statement. It reads pg_catalog, which ignores role privileges.
 func presentTables(ctx context.Context, conn *sql.Conn) (hasUsers, hasVersionTable bool, err error) {
 	rows, err := conn.QueryContext(ctx,
 		`SELECT c.relname FROM pg_catalog.pg_class c
@@ -271,10 +240,8 @@ func presentTables(ctx context.Context, conn *sql.Conn) (hasUsers, hasVersionTab
 	return hasUsers, hasVersionTable, nil
 }
 
-// baselineSchema lists, per table, every column the baseline migrations
-// create. A database that already has the tables but no version table is only
-// adopted when it has all of them. Keep it in step with the SQL; the migrate
-// tests compare the two against a real database.
+// baselineSchema lists the columns the baseline migrations create; keep it in
+// step with the SQL (the migrate tests compare against a real database).
 var baselineSchema = map[string][]string{
 	"users": {
 		"id", "name", "email", "phone", "password", "role", "role_id",
@@ -308,9 +275,8 @@ var baselineSchema = map[string][]string{
 	},
 }
 
-// missingFromSchema returns what expected requires and actual lacks, as "table"
-// for a missing table and "table.column" for a missing column, sorted. Extra
-// tables and columns in actual are ignored.
+// // missingFromSchema returns, sorted, the "table" or "table.column" entries that
+// // expected has and actual lacks; extras in actual are ignored.
 func missingFromSchema(expected, actual map[string][]string) []string {
 	var missing []string
 	for table, cols := range expected {

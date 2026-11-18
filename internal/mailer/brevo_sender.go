@@ -35,9 +35,8 @@ type BrevoConfig struct {
 	AppName      string
 }
 
-// NewBrevoSender validates cfg and applies defaults. The OTP validity shown in
-// emails defaults to five minutes only when SendOTP is given no positive ttl;
-// the OTP service always passes the configured one.
+// // NewBrevoSender validates cfg and applies defaults; the e-mailed OTP validity
+// // defaults to five minutes only when SendOTP gets a non-positive ttl.
 func NewBrevoSender(cfg BrevoConfig) (*BrevoSender, error) {
 	if cfg.Host == "" || cfg.Pass == "" || cfg.From == "" {
 		return nil, fmt.Errorf("smtp credentials not configured")

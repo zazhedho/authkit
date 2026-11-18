@@ -1,9 +1,6 @@
-// Package authkit assembles users, auth sessions, RBAC, an audit trail and app
-// configuration for gin services from explicit configuration. Everything is
-// imported from this one path: build a Config (ConfigFromEnv is optional), call
-// New, run Kit.Migrate, then Kit.Mount the routes and protect your own routes
-// with Kit.Auth, Kit.Can and Kit.Role. Request-time code never reads the
-// environment: ConfigFromEnv is the only place that does.
+// Package authkit provides users, sessions, RBAC, audit and app config for gin
+// services: build a Config, New, Kit.Migrate, Kit.Mount. Only ConfigFromEnv
+// reads the environment.
 package authkit
 
 import (
@@ -91,11 +88,8 @@ func startupWarnings(appEnv string, redisNil bool) []string {
 	return out
 }
 
-// New validates cfg (after applying defaults) and wires every repository,
-// service, handler and middleware once. It never queries or migrates the
-// database, and a nil Redis or nil Mailer is allowed: without Redis there is no
-// login limiter, no session management and no register rate limit; without
-// Redis and a Mailer, registration OTP and password reset e-mail are inert.
+// // New validates cfg (after defaults) and wires everything without touching the
+// // database. Nil Redis or Mailer is allowed; dependent features become inert (see README).
 func New(cfg Config) (*Kit, error) {
 	cfg = cfg.withDefaults()
 	if err := cfg.Validate(); err != nil {
@@ -135,9 +129,8 @@ func New(cfg Config) (*Kit, error) {
 		PermissionCache: invalidator,
 	})
 
-	// Without Redis there is no login limiter and no session service, and the
-	// OTP and password reset services get a nil repository and sender. With
-	// Redis but no Mailer only the limiter and sessions are active.
+	// // Without Redis: no login limiter or sessions, and OTP/reset get nil deps.
+	// // With Redis but no Mailer only the limiter and sessions are active.
 	var (
 		loginLimiter security.LoginLimiter
 		sessionSvc   interfacesession.ServiceSessionInterface
@@ -211,14 +204,12 @@ func (k *Kit) Audit() AuditService { return k.audit }
 // flags the kit consults at request time.
 func (k *Kit) AppConfig() AppConfigService { return k.appConfig }
 
-// IssueAccessToken issues a normal access token for userID, name and role
-// through the Kit's own token service, so it passes Auth like one from login.
-// It does not check that the user exists; it is meant for tests and tooling.
+// // IssueAccessToken issues an access token that passes Auth like a login one.
+// // It does not check the user exists; for tests and tooling.
 func (k *Kit) IssueAccessToken(userID, name, role string) (string, error) {
 	return k.tokens.Generate(&domainuser.Users{Id: userID, Name: name, Role: role}, "authkit-issued")
 }
 
-// ScopeFrom returns the scope stored on ctx. After Auth alone it has the
-// identity and role but an empty permission set, so Has is false for every
-// non-superadmin; Can loads the user's permissions into the scope.
+// // ScopeFrom returns the scope on ctx. After Auth alone the permission set is
+// // empty (Has is false for non-superadmins); Can loads it.
 func ScopeFrom(ctx context.Context) Scope { return authscope.FromContext(ctx) }

@@ -55,9 +55,8 @@ func NewUserService(userRepo interfaceuser.RepoUserInterface, blacklistRepo inte
 	}
 }
 
-// defaultRole is the role given to public registrations. The privileged roles
-// are never accepted here, even if configured: they fall back to viewer so a
-// misconfiguration cannot turn public sign-up into privilege escalation.
+// // defaultRole is the role for public registrations; privileged roles fall back
+// // to viewer so misconfiguration cannot escalate privileges.
 func (s *ServiceUser) defaultRole() string {
 	role := gokit.NormalizeKey(s.DefaultRole)
 	if role == "" || role == authutil.RoleSuperAdmin || role == authutil.RoleAdmin {
