@@ -4,6 +4,7 @@ import (
 	"context"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
 	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 
@@ -44,8 +45,8 @@ func (r *Repository) GetByName(ctx context.Context, name string) (ret domainperm
 	return ret, translateErr(err)
 }
 
-func (r *Repository) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domainpermission.Permission, totalData int64, err error) {
-	return r.Repository.GetAll(ctx, params, gokit.QueryOptions{
+func (r *Repository) GetAll(ctx context.Context, req dtopermission.ListRequest) (ret []domainpermission.Permission, totalData int64, err error) {
+	return r.Repository.GetAll(ctx, reposhared.BaseParams(req), gokit.QueryOptions{
 		Search:         gokit.BuildSearchFunc("name", "display_name", "description", "resource"),
 		AllowedFilters: []string{"id", "name", "display_name", "resource", "action", "created_at", "updated_at"},
 		AllowedOrderColumns: []string{

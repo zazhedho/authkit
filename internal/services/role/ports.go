@@ -2,18 +2,18 @@ package role
 
 import (
 	"context"
+	dtorole "github.com/zazhedho/authkit/internal/dto/role"
 
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
-	"github.com/zazhedho/gokit"
 )
 
 // Repository is the role persistence the service needs.
 type Repository interface {
 	Store(ctx context.Context, data domainrole.Role) error
 	GetByID(ctx context.Context, id string) (domainrole.Role, error)
-	GetAll(ctx context.Context, params gokit.BaseParams) ([]domainrole.Role, int64, error)
+	GetAll(ctx context.Context, req dtorole.ListRequest) ([]domainrole.Role, int64, error)
 	Update(ctx context.Context, data domainrole.Role) error
 	Delete(ctx context.Context, id string) error
 	GetByName(ctx context.Context, name string) (domainrole.Role, error)
@@ -30,4 +30,9 @@ type PermissionRepository interface {
 // MenuRepository lists the menus a role's permissions can reach.
 type MenuRepository interface {
 	GetActiveMenus(ctx context.Context) ([]domainmenu.MenuItem, error)
+}
+
+// PermissionCache drops cached permission sets when grants change.
+type PermissionCache interface {
+	DeleteAll(ctx context.Context)
 }

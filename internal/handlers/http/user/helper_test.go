@@ -7,7 +7,6 @@ import (
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
-	"github.com/zazhedho/gokit"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -23,7 +22,7 @@ type appConfigServiceUserTestDouble struct {
 	keys    []string
 }
 
-func (m *appConfigServiceUserTestDouble) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainappconfig.AppConfig, int64, error) {
+func (m *appConfigServiceUserTestDouble) GetAll(ctx context.Context, req dtoappconfig.ListRequest) ([]domainappconfig.AppConfig, int64, error) {
 	return nil, 0, nil
 }
 func (m *appConfigServiceUserTestDouble) GetByID(ctx context.Context, id string) (domainappconfig.AppConfig, error) {
@@ -59,7 +58,7 @@ func (m *appConfigServiceUserTestDouble) IsEnabled(ctx context.Context, configKe
 }
 
 func TestBuildAuthTokenResponse(t *testing.T) {
-	handler := New(&userServiceTestDouble{}, nil, nil, nil, nil, Options{
+	handler := New(&userServiceTestDouble{}, nil, nil, nil, Options{
 		Settings: config.UserHandler{AccessTTL: 12 * time.Hour, RefreshTTL: 72 * time.Hour},
 	})
 
@@ -160,7 +159,7 @@ func TestRuntimeConfigAndThrottleResponses(t *testing.T) {
 }
 
 func TestNewUserHandlerAppliesDefaultFlagKeysAndTTLs(t *testing.T) {
-	handler := New(&userServiceTestDouble{}, nil, nil, nil, nil, Options{})
+	handler := New(&userServiceTestDouble{}, nil, nil, nil, Options{})
 	want := config.DefaultFlagKeys()
 	if handler.Settings.Flags != want {
 		t.Fatalf("expected default flag keys %+v, got %+v", want, handler.Settings.Flags)
@@ -174,7 +173,7 @@ func TestNewUserHandlerAppliesDefaultFlagKeysAndTTLs(t *testing.T) {
 }
 
 func TestNewUserHandlerKeepsExplicitCooldowns(t *testing.T) {
-	handler := New(&userServiceTestDouble{}, nil, nil, nil, nil, Options{
+	handler := New(&userServiceTestDouble{}, nil, nil, nil, Options{
 		Settings: config.UserHandler{OTPCooldown: 45 * time.Second, ResetCooldown: 2 * time.Minute},
 	})
 	if handler.Settings.OTPCooldown != 45*time.Second || handler.Settings.ResetCooldown != 2*time.Minute {

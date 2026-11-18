@@ -4,11 +4,7 @@ import (
 	"context"
 	"errors"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	dtouser "github.com/zazhedho/authkit/internal/dto/user"
-	"github.com/zazhedho/gokit"
-	"net/mail"
 	"regexp"
-	"strings"
 )
 
 func ValidatePasswordStrength(password string) error {
@@ -69,30 +65,4 @@ func findRoleIDByName(ctx context.Context, roleRepo RoleRepository, roleName str
 	}
 
 	return &roleEntity.Id, true
-}
-
-func ResolveLoginIdentifier(req dtouser.Login) (string, error) {
-	identifier := strings.TrimSpace(req.Identifier)
-	if identifier == "" {
-		identifier = strings.TrimSpace(req.Email)
-	}
-
-	if identifier == "" {
-		return "", errors.New("identifier or email is required")
-	}
-
-	if strings.Contains(identifier, "@") {
-		sanitizedEmail := gokit.SanitizeEmail(identifier)
-		if _, err := mail.ParseAddress(sanitizedEmail); err != nil {
-			return "", errors.New("identifier must be a valid email or phone number")
-		}
-		return sanitizedEmail, nil
-	}
-
-	normalizedPhone := gokit.NormalizePhoneTo62(identifier)
-	if len(normalizedPhone) < 9 || len(normalizedPhone) > 15 {
-		return "", errors.New("identifier must be a valid email or phone number")
-	}
-
-	return normalizedPhone, nil
 }

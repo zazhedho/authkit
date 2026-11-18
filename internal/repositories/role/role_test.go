@@ -2,13 +2,12 @@ package role
 
 import (
 	"context"
+	dtorole "github.com/zazhedho/authkit/internal/dto/role"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-
-	"github.com/zazhedho/gokit"
 )
 
 func newDryRunDB(t *testing.T) *gorm.DB {
@@ -36,7 +35,7 @@ func TestRoleRepositoryDryRun(t *testing.T) {
 	if _, err := repo.GetByName(ctx, "admin"); err != nil {
 		t.Fatalf("get by name: %v", err)
 	}
-	if _, _, err := repo.GetAll(ctx, gokit.BaseParams{
+	if _, _, err := repo.GetAll(ctx, dtorole.ListRequest{
 		Search:         "admin",
 		Filters:        map[string]any{"name": "admin", "is_system": false},
 		OrderBy:        "name",

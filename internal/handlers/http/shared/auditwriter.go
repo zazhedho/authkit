@@ -4,7 +4,6 @@ import (
 	"fmt"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
-	"github.com/zazhedho/authkit/internal/handlers/http/middleware"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 
@@ -35,7 +34,7 @@ func (w AuditWriter) WriteAudit(ctx *gin.Context, event domainaudit.AuditEvent) 
 	event.RequestID = gokit.GetRequestID(ctx)
 	event.IPAddress = ctx.ClientIP()
 	event.UserAgent = ctx.GetHeader("User-Agent")
-	event.Metadata = gokit.MergeMetadata(event.Metadata, middleware.GetImpersonationMetadata(ctx))
+	event.Metadata = gokit.MergeMetadata(event.Metadata, GetImpersonationMetadata(ctx))
 
 	if err := w.Service.Store(ctx.Request.Context(), event); err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelWarn, fmt.Sprintf("[%s][Audit]; failed to store audit trail: %v", w.Scope, err))

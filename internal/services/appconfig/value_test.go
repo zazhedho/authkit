@@ -1,4 +1,4 @@
-package config
+package appconfig
 
 import (
 	"testing"
@@ -18,7 +18,7 @@ func TestBoolSupportsCommonFeatureFlagValues(t *testing.T) {
 	}
 
 	for input, expected := range cases {
-		actual, err := Bool(input, false)
+		actual, err := parseBool(input, false)
 		if err != nil {
 			t.Fatalf("expected success for %q, got %v", input, err)
 		}
@@ -29,28 +29,28 @@ func TestBoolSupportsCommonFeatureFlagValues(t *testing.T) {
 }
 
 func TestStringAndInvalidValues(t *testing.T) {
-	if got := String(" value ", "fallback"); got != "value" {
+	if got := parseString(" value ", "fallback"); got != "value" {
 		t.Fatalf("expected trimmed string, got %q", got)
 	}
-	if got := String("   ", "fallback"); got != "fallback" {
+	if got := parseString("   ", "fallback"); got != "fallback" {
 		t.Fatalf("expected fallback string, got %q", got)
 	}
-	if got, err := Bool("maybe", true); err == nil || !got {
+	if got, err := parseBool("maybe", true); err == nil || !got {
 		t.Fatalf("expected bool fallback with error, got %v err=%v", got, err)
 	}
-	if got, err := Int("abc", 7); err == nil || got != 7 {
+	if got, err := parseInt("abc", 7); err == nil || got != 7 {
 		t.Fatalf("expected int fallback with error, got %v err=%v", got, err)
 	}
-	if got, err := Duration("abc", time.Second); err == nil || got != time.Second {
+	if got, err := parseDuration("abc", time.Second); err == nil || got != time.Second {
 		t.Fatalf("expected duration fallback with error, got %v err=%v", got, err)
 	}
-	if err := JSON("", nil); err != nil {
+	if err := parseJSON("", nil); err != nil {
 		t.Fatalf("expected empty JSON to be ignored, got %v", err)
 	}
 }
 
 func TestIntReturnsFallbackWhenEmpty(t *testing.T) {
-	actual, err := Int("", 42)
+	actual, err := parseInt("", 42)
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -60,7 +60,7 @@ func TestIntReturnsFallbackWhenEmpty(t *testing.T) {
 }
 
 func TestDurationParsesValidValue(t *testing.T) {
-	actual, err := Duration("15m", time.Minute)
+	actual, err := parseDuration("15m", time.Minute)
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -76,7 +76,7 @@ func TestJSONDecodesIntoTarget(t *testing.T) {
 	}
 
 	var actual payload
-	if err := JSON(`{"enabled":true,"limit":5}`, &actual); err != nil {
+	if err := parseJSON(`{"enabled":true,"limit":5}`, &actual); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
 	if !actual.Enabled || actual.Limit != 5 {

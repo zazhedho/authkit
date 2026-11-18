@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 
@@ -51,8 +52,8 @@ func (r *Repository) GetByPhone(ctx context.Context, phone string) (ret domainus
 	return ret, translateErr(err)
 }
 
-func (r *Repository) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domainuser.Users, totalData int64, err error) {
-	return r.Repository.GetAll(ctx, params, gokit.QueryOptions{
+func (r *Repository) GetAll(ctx context.Context, req dtouser.ListRequest) (ret []domainuser.Users, totalData int64, err error) {
+	return r.Repository.GetAll(ctx, reposhared.BaseParams(req), gokit.QueryOptions{
 		Search:         gokit.BuildSearchFunc("name", "email", "phone"),
 		AllowedFilters: []string{"id", "name", "email", "phone", "role", "role_id", "created_at", "updated_at"},
 		AllowedOrderColumns: []string{

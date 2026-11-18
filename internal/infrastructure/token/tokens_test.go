@@ -474,3 +474,37 @@ func TestNewTokensTrimsAppName(t *testing.T) {
 		t.Fatalf("expected iss app-a, got %v", claims["iss"])
 	}
 }
+
+func TestGenerateImpersonatedRecordsOriginalIdentity(t *testing.T) {
+	tokens := newTestTokens(t)
+
+	token, err := tokens.GenerateImpersonated(&domainuser.Users{Id: "target", Name: "Target", Role: "viewer"}, "log-1", "root", "Root", "superadmin")
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	claims, err := tokens.Claims(token)
+	if err != nil {
+		t.Fatalf("expected valid token, got %v", err)
+	}
+	if claims["user_id"] != "target" || claims["is_impersonated"] != true ||
+		claims["original_user_id"] != "root" || claims["original_username"] != "Root" || claims["original_role"] != "superadmin" {
+		t.Fatalf("unexpected impersonation claims: %+v", claims)
+	}
+}
+
+func TestIsPasswordResetClaims(t *testing.T) {
+	tokens := newTestTokens(t)
+	user := &domainuser.Users{Id: "user-1"}
+
+	reset, _ := tokens.GeneratePasswordReset(user, "log")
+	access, _ := tokens.Generate(user, "log")
+	resetClaims, _ := tokens.Claims(reset)
+	accessClaims, _ := tokens.Claims(access)
+
+	if !tokens.IsPasswordResetClaims(resetClaims) {
+		t.Fatalf("expected reset claims to match, got %+v", resetClaims)
+	}
+	if tokens.IsPasswordResetClaims(accessClaims) || tokens.IsPasswordResetClaims(nil) {
+		t.Fatal("access claims and nil claims must not match")
+	}
+}

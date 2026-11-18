@@ -2,6 +2,8 @@ package audit
 
 import (
 	"fmt"
+	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
+	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"net/http"
@@ -32,7 +34,7 @@ func (h *Handler) GetAll(ctx *gin.Context) {
 	}
 	params.Filters = gokit.WhitelistStringFilter(params.Filters, []string{"actor_user_id", "actor_role", "action", "resource", "status", "request_id"})
 
-	data, total, err := h.Service.GetAll(reqCtx, params)
+	data, total, err := h.Service.GetAll(reqCtx, httpshared.ListRequest[dtoaudit.ListRequest](params))
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetAll; Error: %+v", logPrefix, err))
 		res := gokit.InternalServerError(logId)

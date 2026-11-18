@@ -2,6 +2,7 @@ package permission
 
 import (
 	"context"
+	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
 	"testing"
 	"time"
 
@@ -10,7 +11,6 @@ import (
 	"gorm.io/gorm"
 
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	"github.com/zazhedho/gokit"
 )
 
 func newDryRunDB(t *testing.T) *gorm.DB {
@@ -41,7 +41,7 @@ func TestPermissionRepositoryDryRun(t *testing.T) {
 	if _, err := repo.GetByResource(ctx, "users"); err != nil {
 		t.Fatalf("get by resource: %v", err)
 	}
-	if _, _, err := repo.GetAll(ctx, gokit.BaseParams{
+	if _, _, err := repo.GetAll(ctx, dtopermission.ListRequest{
 		Search:         "users",
 		Filters:        map[string]any{"resource": "users", "action": "read"},
 		OrderBy:        "resource",

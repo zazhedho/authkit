@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	reposhared "github.com/zazhedho/authkit/internal/repositories/shared"
 	"github.com/zazhedho/gokit"
 
@@ -17,8 +18,8 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{Repository: gokit.NewRepository[domainaudit.AuditTrail](db)}
 }
 
-func (r *Repository) GetAll(ctx context.Context, params gokit.BaseParams) (ret []domainaudit.AuditTrail, totalData int64, err error) {
-	return r.Repository.GetAll(ctx, params, gokit.QueryOptions{
+func (r *Repository) GetAll(ctx context.Context, req dtoaudit.ListRequest) (ret []domainaudit.AuditTrail, totalData int64, err error) {
+	return r.Repository.GetAll(ctx, reposhared.BaseParams(req), gokit.QueryOptions{
 		Search:         gokit.BuildSearchFunc("action", "resource", "status", "actor_role", "message", "error_message", "request_id", "ip_address"),
 		AllowedFilters: []string{"actor_user_id", "actor_role", "action", "resource", "status", "request_id"},
 		AllowedOrderColumns: []string{

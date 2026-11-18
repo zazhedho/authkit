@@ -106,3 +106,26 @@ func TestSetUserPermissionKeysSkipsCachingWithoutPositiveTTL(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCacheWrapsRedisHelpersAndIsNilSafe(t *testing.T) {
+	client, mock := redismock.NewClientMock()
+	ctx := context.Background()
+	cache := NewCache(client)
+
+	mock.ExpectSet("permission:user:user-1", `["users:list"]`, time.Minute).SetVal("OK")
+	cache.Set(ctx, "user-1", []string{"users:list"}, time.Minute)
+	mock.ExpectGet("permission:user:user-1").SetVal(`["users:list"]`)
+	if got, ok := cache.Get(ctx, "user-1"); !ok || len(got) != 1 || got[0] != "users:list" {
+		t.Fatalf("expected cache hit, got %#v ok=%v", got, ok)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, empty := range []*Cache{nil, NewCache(nil)} {
+		empty.Set(ctx, "user-1", []string{"x"}, time.Minute)
+		if got, ok := empty.Get(ctx, "user-1"); ok {
+			t.Fatalf("expected miss without a client, got %#v", got)
+		}
+	}
+}

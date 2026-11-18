@@ -100,7 +100,7 @@ func (h *Handler) GetAll(ctx *gin.Context) {
 		return
 	}
 
-	data, total, err := h.Service.GetAll(reqCtx, params)
+	data, total, err := h.Service.GetAll(reqCtx, httpshared.ActorFrom(reqCtx), httpshared.ListRequest[dtorole.ListRequest](params))
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetAll; Error: %+v", logPrefix, err))
 		res := gokit.InternalServerError(logId)
@@ -207,7 +207,9 @@ func (h *Handler) AssignPermissions(ctx *gin.Context) {
 		debugMsg:       "Permissions assigned",
 		serviceName:    "AssignPermissions",
 		getBefore:      h.Service.GetRolePermissions,
-		assign:         h.Service.AssignPermissions,
+		assign: func(ctx context.Context, roleID string, req dtorole.AssignPermissions) error {
+			return h.Service.AssignPermissions(ctx, httpshared.ActorFrom(ctx), roleID, req)
+		},
 	})
 }
 

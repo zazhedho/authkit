@@ -79,3 +79,24 @@ func TestActorUserIDAndRolePreferOriginalImpersonator(t *testing.T) {
 		t.Fatalf("expected original actor role, got %q", scope.ActorRole())
 	}
 }
+
+func TestScopeActorCopiesIdentityAndHonoursPermissions(t *testing.T) {
+	scope := New("user-1", "Jane", "staff", []string{"users:list"})
+	scope.IsImpersonated = true
+	scope.OriginalUserID, scope.OriginalUsername, scope.OriginalRole = "root", "Root", "superadmin"
+
+	actor := ActorOf(scope)
+	if actor.UserID != "user-1" || actor.Username != "Jane" || actor.Role != "staff" ||
+		!actor.IsImpersonated || actor.OriginalUserID != "root" || actor.OriginalUsername != "Root" || actor.OriginalRole != "superadmin" {
+		t.Fatalf("unexpected actor: %+v", actor)
+	}
+	if !actor.Has("users", "list") || actor.Has("users", "delete") {
+		t.Fatalf("unexpected permission result for %+v", actor)
+	}
+	if !(Actor{Role: " superadmin "}).Has("anything", "at_all") {
+		t.Fatal("superadmin must pass every check")
+	}
+	if (Actor{}).Has("users", "list") {
+		t.Fatal("zero actor must hold nothing")
+	}
+}

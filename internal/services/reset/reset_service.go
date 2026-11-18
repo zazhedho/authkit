@@ -4,25 +4,35 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/zazhedho/authkit/internal/config"
 	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
-	"github.com/zazhedho/authkit/internal/infrastructure/mailer"
-	"github.com/zazhedho/gokit"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	"strings"
+	"time"
 )
+
+// Config holds the reset timing and limits; Secret keys the stored token
+// hashes and URLTemplate shapes the emailed link.
+type Config struct {
+	TTL         time.Duration
+	Cooldown    time.Duration
+	RateWindow  time.Duration
+	RateLimit   int
+	Secret      string
+	URLTemplate string
+}
 
 type Service struct {
 	Repo   Repository
-	Sender mailer.PasswordResetSender
-	Config config.PasswordResetConfig
+	Sender Mailer
+	Config Config
 }
 
-func NewService(repo Repository, sender mailer.PasswordResetSender, cfg config.PasswordResetConfig) *Service {
+func NewService(repo Repository, sender Mailer, cfg Config) *Service {
 	return &Service{Repo: repo, Sender: sender, Config: cfg}
 }
 
-// // missingSecret reports an empty or blank secret; every entry point then treats
-// // the service as unconfigured rather than hash with an empty key.
+// missingSecret reports an empty or blank secret; every entry point then treats
+// the service as unconfigured rather than hash with an empty key.
 func (s *Service) missingSecret() bool {
 	return strings.TrimSpace(s.Config.Secret) == ""
 }
@@ -32,7 +42,7 @@ func (s *Service) RequestReset(ctx context.Context, email, appName string) error
 		return domainreset.ErrNotConfigured
 	}
 
-	normalizedEmail := gokit.SanitizeEmail(email)
+	normalizedEmail := domainuser.SanitizeEmail(email)
 	if normalizedEmail == "" {
 		return domainreset.ErrInvalid
 	}

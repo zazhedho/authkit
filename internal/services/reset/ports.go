@@ -16,3 +16,8 @@ type Repository interface {
 	IncrementSendCount(ctx context.Context, email string, ttl time.Duration) (int, time.Duration, error)
 	ClearSendCount(ctx context.Context, email string) error
 }
+
+// Mailer delivers the password reset link. ttl is how long the token stays valid.
+type Mailer interface {
+	SendPasswordReset(to, token, appName, resetURL string, ttl time.Duration) error
+}

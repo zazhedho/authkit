@@ -28,7 +28,7 @@ type appConfigServiceTestDouble struct {
 	updateErr  error
 }
 
-func (m *appConfigServiceTestDouble) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainappconfig.AppConfig, int64, error) {
+func (m *appConfigServiceTestDouble) GetAll(ctx context.Context, req dtoappconfig.ListRequest) ([]domainappconfig.AppConfig, int64, error) {
 	if m.err != nil {
 		return nil, 0, m.err
 	}

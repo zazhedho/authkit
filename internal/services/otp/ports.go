@@ -18,3 +18,8 @@ type Repository interface {
 	IncrementSendCount(ctx context.Context, email string, ttl time.Duration) (int, time.Duration, error)
 	ClearSendCount(ctx context.Context, email string) error
 }
+
+// Mailer delivers the registration code. ttl is how long the code stays valid.
+type Mailer interface {
+	SendOTP(to, code, appName string, ttl time.Duration) error
+}

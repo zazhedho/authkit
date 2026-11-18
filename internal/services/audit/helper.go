@@ -5,7 +5,7 @@ import (
 	"fmt"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
-	"github.com/zazhedho/gokit"
+	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"strings"
 )
 
@@ -18,14 +18,14 @@ func toAuditResponses(items []domainaudit.AuditTrail) []dtoaudit.AuditTrailRespo
 }
 
 func toAuditResponse(item domainaudit.AuditTrail) dtoaudit.AuditTrailResponse {
-	actionLabel := gokit.TitleHumanized(item.Action)
-	resourceLabel := gokit.TitleHumanized(item.Resource)
-	statusLabel := gokit.TitleHumanized(item.Status)
+	actionLabel := serviceshared.TitleHumanized(item.Action)
+	resourceLabel := serviceshared.TitleHumanized(item.Resource)
+	statusLabel := serviceshared.TitleHumanized(item.Status)
 
 	return dtoaudit.AuditTrailResponse{
 		ID:            item.ID,
 		OccurredAt:    item.OccurredAt,
-		Actor:         dtoaudit.AuditActor{UserID: item.ActorUserID, Role: gokit.TitleHumanized(item.ActorRole)},
+		Actor:         dtoaudit.AuditActor{UserID: item.ActorUserID, Role: serviceshared.TitleHumanized(item.ActorRole)},
 		Action:        item.Action,
 		ActionLabel:   actionLabel,
 		Resource:      item.Resource,

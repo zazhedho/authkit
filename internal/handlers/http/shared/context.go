@@ -1,6 +1,10 @@
-package middleware
+package shared
 
-import "context"
+import (
+	"context"
+
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
+)
 
 const CtxKeyAuthData = "auth_data"
 
@@ -51,4 +55,10 @@ func contextValue(ctx context.Context, key string) (any, bool) {
 	}
 	value := ctx.Value(key) //nolint:staticcheck // plain string key kept for backward compatibility
 	return value, value != nil
+}
+
+// ActorFrom returns the authenticated caller the services take as an explicit
+// argument, read from the scope the auth middleware put on ctx.
+func ActorFrom(ctx context.Context) domainauth.Actor {
+	return domainauth.ActorOf(domainauth.FromContext(ctx))
 }

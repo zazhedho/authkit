@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
@@ -44,7 +45,7 @@ func (m *roleServiceHandlerTestDouble) GetByID(ctx context.Context, id string) (
 func (m *roleServiceHandlerTestDouble) GetByIDWithDetails(ctx context.Context, id string) (dtorole.RoleWithDetails, error) {
 	return m.details, m.err
 }
-func (m *roleServiceHandlerTestDouble) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainrole.Role, int64, error) {
+func (m *roleServiceHandlerTestDouble) GetAll(ctx context.Context, actor domainauth.Actor, req dtorole.ListRequest) ([]domainrole.Role, int64, error) {
 	if m.getAllErr != nil {
 		return nil, 0, m.getAllErr
 	}
@@ -60,7 +61,7 @@ func (m *roleServiceHandlerTestDouble) Delete(ctx context.Context, id string) er
 	}
 	return m.err
 }
-func (m *roleServiceHandlerTestDouble) AssignPermissions(ctx context.Context, roleId string, req dtorole.AssignPermissions) error {
+func (m *roleServiceHandlerTestDouble) AssignPermissions(ctx context.Context, actor domainauth.Actor, roleId string, req dtorole.AssignPermissions) error {
 	m.assigned = req.PermissionIds
 	if m.assignPermissionsErr != nil {
 		return m.assignPermissionsErr

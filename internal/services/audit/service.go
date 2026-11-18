@@ -5,18 +5,21 @@ import (
 	"errors"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
-	"github.com/zazhedho/gokit"
+	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"strings"
 	"time"
 )
 
 type Service struct {
 	AuditRepo Repository
+	// NewID makes record ids; nil uses a UUID v7.
+	NewID func() string
 }
 
 func NewService(auditRepo Repository) *Service {
 	return &Service{
 		AuditRepo: auditRepo,
+		NewID:     serviceshared.NewID,
 	}
 }
 
@@ -36,35 +39,35 @@ func (s *Service) Store(ctx context.Context, req domainaudit.AuditEvent) error {
 		occurredAt = time.Now()
 	}
 
-	before := gokit.RedactSensitivePayload(req.BeforeData)
-	after := gokit.RedactSensitivePayload(req.AfterData)
-	meta := gokit.RedactSensitivePayload(req.Metadata)
+	before := serviceshared.RedactSensitivePayload(req.BeforeData)
+	after := serviceshared.RedactSensitivePayload(req.AfterData)
+	meta := serviceshared.RedactSensitivePayload(req.Metadata)
 
 	data := domainaudit.AuditTrail{
-		ID:           gokit.CreateUUID(),
+		ID:           s.newID(),
 		OccurredAt:   occurredAt,
-		ActorUserID:  gokit.NormalizeUUIDPointer(req.ActorUserID),
+		ActorUserID:  serviceshared.NormalizeUUIDPointer(req.ActorUserID),
 		ActorRole:    strings.TrimSpace(req.ActorRole),
-		Action:       gokit.HumanizeKey(req.Action),
+		Action:       serviceshared.HumanizeKey(req.Action),
 		Resource:     strings.TrimSpace(req.Resource),
 		ResourceID:   strings.TrimSpace(req.ResourceID),
-		Status:       gokit.HumanizeKey(req.Status),
+		Status:       serviceshared.HumanizeKey(req.Status),
 		Message:      strings.TrimSpace(req.Message),
 		ErrorMessage: strings.TrimSpace(req.ErrorMessage),
 		RequestID:    strings.TrimSpace(req.RequestID),
 		IPAddress:    strings.TrimSpace(req.IPAddress),
 		UserAgent:    strings.TrimSpace(req.UserAgent),
-		BeforeData:   gokit.JsonEncode(before),
-		AfterData:    gokit.JsonEncode(after),
-		Metadata:     gokit.JsonEncode(meta),
+		BeforeData:   serviceshared.JsonEncode(before),
+		AfterData:    serviceshared.JsonEncode(after),
+		Metadata:     serviceshared.JsonEncode(meta),
 		CreatedAt:    time.Now(),
 	}
 
 	return s.AuditRepo.Store(ctx, data)
 }
 
-func (s *Service) GetAll(ctx context.Context, params gokit.BaseParams) ([]dtoaudit.AuditTrailResponse, int64, error) {
-	items, total, err := s.AuditRepo.GetAll(ctx, params)
+func (s *Service) GetAll(ctx context.Context, req dtoaudit.ListRequest) ([]dtoaudit.AuditTrailResponse, int64, error) {
+	items, total, err := s.AuditRepo.GetAll(ctx, req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -79,4 +82,11 @@ func (s *Service) GetByID(ctx context.Context, id string) (dtoaudit.AuditTrailRe
 	}
 
 	return toAuditResponse(item), nil
+}
+
+func (s *Service) newID() string {
+	if s.NewID != nil {
+		return s.NewID()
+	}
+	return serviceshared.NewID()
 }

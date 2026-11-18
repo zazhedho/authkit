@@ -117,8 +117,10 @@ func New(cfg Config) (*Kit, error) {
 
 	invalidator := cachepermission.NewInvalidator(cfg.Redis)
 
-	auditSvc := serviceaudit.NewService(repositoryaudit.NewRepository(db))
-	appConfigSvc := serviceappconfig.NewService(repositoryappconfig.NewRepository(db))
+	auditCore := serviceaudit.NewService(repositoryaudit.NewRepository(db))
+	appConfigCore := serviceappconfig.NewService(repositoryappconfig.NewRepository(db))
+	auditSvc := auditFacade{auditCore}
+	appConfigSvc := appConfigFacade{appConfigCore}
 	userSvc := serviceuser.NewService(userRepo, blacklistRepo, roleRepo, permissionRepo, serviceuser.Options{
 		Tokens:          tokens,
 		DefaultRole:     cfg.DefaultRole,
@@ -132,8 +134,8 @@ func New(cfg Config) (*Kit, error) {
 		loginLimiter ratelimit.LoginLimiter
 		sessionSvc   httpuser.SessionService // stays a nil interface without Redis
 		sessionHdlr  *httpsession.Handler
-		otpSvc       = serviceotp.NewService(nil, nil, cfg.OTP)
-		resetSvc     = servicereset.NewService(nil, nil, cfg.Reset)
+		otpSvc       = serviceotp.NewService(nil, nil, serviceotp.Config(cfg.OTP))
+		resetSvc     = servicereset.NewService(nil, nil, servicereset.Config(cfg.Reset))
 	)
 	if cfg.Redis != nil {
 		loginLimiter = ratelimit.NewRedisLoginLimiter(cfg.Redis, cfg.Login.Limit, cfg.Login.Window, cfg.Login.BlockDuration)
@@ -141,19 +143,19 @@ func New(cfg Config) (*Kit, error) {
 		sessionSvc = sessions
 		sessionHdlr = httpsession.New(sessions, auditSvc)
 		if cfg.Mailer != nil {
-			otpSvc = serviceotp.NewService(repositoryotp.NewRepository(cfg.Redis), cfg.Mailer, cfg.OTP)
-			resetSvc = servicereset.NewService(repositoryreset.NewRepository(cfg.Redis), cfg.Mailer, cfg.Reset)
+			otpSvc = serviceotp.NewService(repositoryotp.NewRepository(cfg.Redis), cfg.Mailer, serviceotp.Config(cfg.OTP))
+			resetSvc = servicereset.NewService(repositoryreset.NewRepository(cfg.Redis), cfg.Mailer, servicereset.Config(cfg.Reset))
 		}
 	}
 
 	return &Kit{
 		cfg:        cfg,
 		tokens:     tokens,
-		middleware: middleware.NewMiddleware(blacklistRepo, permissionRepo, cfg.Redis, tokens, cfg.PermissionCacheTTL),
+		middleware: middleware.NewMiddleware(blacklistRepo, permissionRepo, cachepermission.NewCache(cfg.Redis), tokens, cfg.PermissionCacheTTL),
 		users:      userSvc,
 		audit:      auditSvc,
 		appConfig:  appConfigSvc,
-		userHandler: httpuser.New(userSvc, blacklistRepo, sessionSvc, loginLimiter, auditSvc, httpuser.Options{
+		userHandler: httpuser.New(userSvc, sessionSvc, loginLimiter, auditSvc, httpuser.Options{
 			AppConfigService: appConfigSvc,
 			OTPService:       otpSvc,
 			ResetService:     resetSvc,
@@ -171,8 +173,8 @@ func New(cfg Config) (*Kit, error) {
 		roleHandler:       httprole.New(servicerole.NewService(roleRepo, permissionRepo, menuRepo, invalidator), auditSvc),
 		permissionHandler: httppermission.New(servicepermission.NewService(permissionRepo, invalidator), auditSvc),
 		menuHandler:       httpmenu.New(servicemenu.NewService(menuRepo, permissionRepo), auditSvc),
-		appConfigHandler:  httpappconfig.New(appConfigSvc, auditSvc),
-		auditHandler:      httpaudit.New(auditSvc),
+		appConfigHandler:  httpappconfig.New(appConfigCore, auditSvc),
+		auditHandler:      httpaudit.New(auditCore),
 		sessionHandler:    sessionHdlr,
 		registerLimiter:   gokit.IPRateLimitMiddleware(cfg.Redis, "user_register", cfg.Register.Limit, cfg.Register.Window),
 	}, nil

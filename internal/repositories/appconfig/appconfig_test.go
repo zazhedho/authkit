@@ -2,13 +2,12 @@ package appconfig
 
 import (
 	"context"
+	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-
-	"github.com/zazhedho/gokit"
 )
 
 func newDryRunDB(t *testing.T) *gorm.DB {
@@ -36,7 +35,7 @@ func TestAppConfigRepositoryDryRun(t *testing.T) {
 	if _, err := repo.GetByKey(ctx, "site.name"); err != nil {
 		t.Fatalf("get by key: %v", err)
 	}
-	if _, _, err := repo.GetAll(ctx, gokit.BaseParams{
+	if _, _, err := repo.GetAll(ctx, dtoappconfig.ListRequest{
 		Search:         "site",
 		Filters:        map[string]any{"category": "general", "is_active": true},
 		OrderBy:        "display_name",

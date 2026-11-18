@@ -5,11 +5,13 @@ import (
 	"fmt"
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// defaultRefreshTTL matches the refresh token lifetime default (seven days).
+const defaultRefreshTTL = 168 * time.Hour
 
 type Service struct {
 	SessionRepo Repository
@@ -17,10 +19,10 @@ type Service struct {
 }
 
 // NewService builds the session service; refreshTTL is the lifetime of a
-// session and falls back to token.DefaultRefreshTTL when not positive.
+// session and falls back to defaultRefreshTTL when not positive.
 func NewService(sessionRepo Repository, refreshTTL time.Duration) *Service {
 	if refreshTTL <= 0 {
-		refreshTTL = token.DefaultRefreshTTL
+		refreshTTL = defaultRefreshTTL
 	}
 	return &Service{
 		SessionRepo: sessionRepo,

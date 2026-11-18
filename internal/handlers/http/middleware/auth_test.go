@@ -7,8 +7,10 @@ import (
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
+	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
+	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	"github.com/zazhedho/gokit"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -52,7 +54,7 @@ func (m *permissionRepoTestDouble) Store(ctx context.Context, data domainpermiss
 func (m *permissionRepoTestDouble) GetByID(ctx context.Context, id string) (domainpermission.Permission, error) {
 	return domainpermission.Permission{}, errors.New("not implemented")
 }
-func (m *permissionRepoTestDouble) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainpermission.Permission, int64, error) {
+func (m *permissionRepoTestDouble) GetAll(ctx context.Context, req dtopermission.ListRequest) ([]domainpermission.Permission, int64, error) {
 	return nil, 0, nil
 }
 func (m *permissionRepoTestDouble) Update(ctx context.Context, data domainpermission.Permission) error {
@@ -218,21 +220,21 @@ func TestRoleMiddlewareBranches(t *testing.T) {
 		{
 			name: "invalid auth data",
 			setup: func(ctx *gin.Context) {
-				ctx.Set(CtxKeyAuthData, "bad")
+				ctx.Set(httpshared.CtxKeyAuthData, "bad")
 			},
 			code: http.StatusForbidden,
 		},
 		{
 			name: "empty role",
 			setup: func(ctx *gin.Context) {
-				ctx.Set(CtxKeyAuthData, map[string]any{"role": " "})
+				ctx.Set(httpshared.CtxKeyAuthData, map[string]any{"role": " "})
 			},
 			code: http.StatusForbidden,
 		},
 		{
 			name: "disallowed role",
 			setup: func(ctx *gin.Context) {
-				ctx.Set(CtxKeyAuthData, map[string]any{"role": domainuser.RoleViewer})
+				ctx.Set(httpshared.CtxKeyAuthData, map[string]any{"role": domainuser.RoleViewer})
 			},
 			allowed: []string{domainuser.RoleAdmin},
 			code:    http.StatusForbidden,
@@ -240,7 +242,7 @@ func TestRoleMiddlewareBranches(t *testing.T) {
 		{
 			name: "allowed role",
 			setup: func(ctx *gin.Context) {
-				ctx.Set(CtxKeyAuthData, map[string]any{"role": domainuser.RoleAdmin})
+				ctx.Set(httpshared.CtxKeyAuthData, map[string]any{"role": domainuser.RoleAdmin})
 			},
 			allowed: []string{domainuser.RoleAdmin},
 			code:    http.StatusOK,
@@ -280,7 +282,7 @@ func TestPermissionMiddlewareUsesCachedPermissionsWhenAvailable(t *testing.T) {
 		permissions: []domainpermission.Permission{{Resource: "users", Action: "delete"}},
 	}
 	mdw := NewMiddleware(&authRepoTestDouble{}, repo, nil, testTokens(t), 2*time.Minute)
-	mdw.PermissionCache = client
+	mdw.PermissionCache = cachepermission.NewCache(client)
 	mock.ExpectGet("permission:user:user-1").SetVal(`["users:list"]`)
 
 	rec := performMiddlewareRequest(
@@ -306,7 +308,7 @@ func TestPermissionMiddlewareFallsBackAndCachesPermissionsOnCacheMiss(t *testing
 		permissions: []domainpermission.Permission{{Resource: "users", Action: "list"}},
 	}
 	mdw := NewMiddleware(&authRepoTestDouble{}, repo, nil, testTokens(t), 2*time.Minute)
-	mdw.PermissionCache = client
+	mdw.PermissionCache = cachepermission.NewCache(client)
 	mock.ExpectGet("permission:user:user-1").RedisNil()
 	mock.ExpectSet("permission:user:user-1", `["users:list"]`, 2*time.Minute).SetVal("OK")
 
@@ -369,21 +371,21 @@ func TestPermissionMiddlewareRejectsInvalidAuthData(t *testing.T) {
 		{
 			name: "invalid auth data type",
 			setup: func(ctx *gin.Context) {
-				ctx.Set(CtxKeyAuthData, "bad")
+				ctx.Set(httpshared.CtxKeyAuthData, "bad")
 			},
 			code: http.StatusForbidden,
 		},
 		{
 			name: "missing role",
 			setup: func(ctx *gin.Context) {
-				ctx.Set(CtxKeyAuthData, map[string]any{"user_id": "user-1"})
+				ctx.Set(httpshared.CtxKeyAuthData, map[string]any{"user_id": "user-1"})
 			},
 			code: http.StatusForbidden,
 		},
 		{
 			name: "missing user id",
 			setup: func(ctx *gin.Context) {
-				ctx.Set(CtxKeyAuthData, map[string]any{"role": domainuser.RoleViewer})
+				ctx.Set(httpshared.CtxKeyAuthData, map[string]any{"role": domainuser.RoleViewer})
 			},
 			code: http.StatusUnauthorized,
 		},

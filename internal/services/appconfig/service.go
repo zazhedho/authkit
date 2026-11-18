@@ -3,10 +3,9 @@ package appconfig
 import (
 	"context"
 	"errors"
-	"github.com/zazhedho/authkit/internal/config"
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
-	"github.com/zazhedho/gokit"
+	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"time"
 )
 
@@ -18,8 +17,8 @@ func NewService(repo Repository) *Service {
 	return &Service{Repo: repo}
 }
 
-func (s *Service) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainappconfig.AppConfig, int64, error) {
-	return s.Repo.GetAll(ctx, params)
+func (s *Service) GetAll(ctx context.Context, req dtoappconfig.ListRequest) ([]domainappconfig.AppConfig, int64, error) {
+	return s.Repo.GetAll(ctx, req)
 }
 
 func (s *Service) GetByID(ctx context.Context, id string) (domainappconfig.AppConfig, error) {
@@ -36,7 +35,7 @@ func (s *Service) Update(ctx context.Context, id string, req dtoappconfig.Update
 		return domainappconfig.AppConfig{}, err
 	}
 
-	config.Value = gokit.StripHTML(req.Value)
+	config.Value = serviceshared.StripHTML(req.Value)
 	if req.IsActive != nil {
 		config.IsActive = *req.IsActive
 	}
@@ -57,7 +56,7 @@ func (s *Service) GetString(ctx context.Context, configKey string, fallback stri
 	if !found {
 		return fallback, nil
 	}
-	return config.String(entry.Value, fallback), nil
+	return parseString(entry.Value, fallback), nil
 }
 
 func (s *Service) GetBool(ctx context.Context, configKey string, fallback bool) (bool, error) {
@@ -68,7 +67,7 @@ func (s *Service) GetBool(ctx context.Context, configKey string, fallback bool) 
 	if !found {
 		return fallback, nil
 	}
-	return config.Bool(entry.Value, fallback)
+	return parseBool(entry.Value, fallback)
 }
 
 func (s *Service) GetInt(ctx context.Context, configKey string, fallback int) (int, error) {
@@ -79,7 +78,7 @@ func (s *Service) GetInt(ctx context.Context, configKey string, fallback int) (i
 	if !found {
 		return fallback, nil
 	}
-	return config.Int(entry.Value, fallback)
+	return parseInt(entry.Value, fallback)
 }
 
 func (s *Service) GetDuration(ctx context.Context, configKey string, fallback time.Duration) (time.Duration, error) {
@@ -90,7 +89,7 @@ func (s *Service) GetDuration(ctx context.Context, configKey string, fallback ti
 	if !found {
 		return fallback, nil
 	}
-	return config.Duration(entry.Value, fallback)
+	return parseDuration(entry.Value, fallback)
 }
 
 func (s *Service) DecodeJSON(ctx context.Context, configKey string, target any) error {
@@ -101,7 +100,7 @@ func (s *Service) DecodeJSON(ctx context.Context, configKey string, target any) 
 	if !found {
 		return nil
 	}
-	return config.JSON(entry.Value, target)
+	return parseJSON(entry.Value, target)
 }
 
 func (s *Service) IsEnabled(ctx context.Context, configKey string, fallback bool) (bool, error) {

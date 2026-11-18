@@ -7,10 +7,7 @@ import (
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
-	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
-	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
-	"github.com/zazhedho/gokit"
 	"strings"
 	"time"
 
@@ -19,25 +16,29 @@ import (
 
 type Service struct {
 	UserRepo        Repository
-	BlacklistRepo   BlacklistRepository
+	BlacklistRepo   TokenRevocations
 	RoleRepo        RoleRepository
 	PermissionRepo  PermissionRepository
-	PermissionCache cachepermission.Invalidator
-	Tokens          *token.Tokens
+	PermissionCache PermissionCache
+	Tokens          TokenIssuer
 	// DefaultRole is the role given to public registrations; empty means viewer.
 	DefaultRole     string
 	GoogleClientIDs []string
+	// NewID makes record ids; nil uses a UUID v7.
+	NewID func() string
 }
 
 // Options carries the explicit configuration of Service.
 type Options struct {
-	Tokens          *token.Tokens
+	Tokens          TokenIssuer
 	DefaultRole     string
 	GoogleClientIDs []string
-	PermissionCache cachepermission.Invalidator
+	PermissionCache PermissionCache
+	// NewID makes record ids; nil uses a UUID v7.
+	NewID func() string
 }
 
-func NewService(userRepo Repository, blacklistRepo BlacklistRepository, roleRepo RoleRepository, permissionRepo PermissionRepository, opts Options) *Service {
+func NewService(userRepo Repository, blacklistRepo TokenRevocations, roleRepo RoleRepository, permissionRepo PermissionRepository, opts Options) *Service {
 	return &Service{
 		UserRepo:        userRepo,
 		BlacklistRepo:   blacklistRepo,
@@ -47,13 +48,21 @@ func NewService(userRepo Repository, blacklistRepo BlacklistRepository, roleRepo
 		Tokens:          opts.Tokens,
 		DefaultRole:     opts.DefaultRole,
 		GoogleClientIDs: opts.GoogleClientIDs,
+		NewID:           opts.NewID,
 	}
 }
 
-// // defaultRole is the role for public registrations; privileged roles fall back
-// // to viewer so misconfiguration cannot escalate privileges.
+func (s *Service) newID() string {
+	if s.NewID != nil {
+		return s.NewID()
+	}
+	return serviceshared.NewID()
+}
+
+// defaultRole is the role for public registrations; privileged roles fall back
+// to viewer so misconfiguration cannot escalate privileges.
 func (s *Service) defaultRole() string {
-	role := gokit.NormalizeKey(s.DefaultRole)
+	role := serviceshared.NormalizeKey(s.DefaultRole)
 	if role == "" || role == domainuser.RoleSuperAdmin || role == domainuser.RoleAdmin {
 		return domainuser.RoleViewer
 	}
@@ -61,8 +70,8 @@ func (s *Service) defaultRole() string {
 }
 
 func (s *Service) RegisterUser(ctx context.Context, req dtouser.UserRegister) (domainuser.Users, error) {
-	phone := gokit.NormalizePhoneTo62(req.Phone)
-	email := gokit.SanitizeEmail(req.Email)
+	phone := domainuser.NormalizePhoneTo62(req.Phone)
+	email := domainuser.SanitizeEmail(req.Email)
 
 	data, _ := s.UserRepo.GetByEmail(ctx, email)
 	if data.Id != "" {
@@ -97,8 +106,8 @@ func (s *Service) RegisterUser(ctx context.Context, req dtouser.UserRegister) (d
 	}
 
 	data = domainuser.Users{
-		Id:                gokit.CreateUUID(),
-		Name:              gokit.TitleCase(gokit.StripHTML(req.Name)),
+		Id:                s.newID(),
+		Name:              serviceshared.TitleCase(serviceshared.StripHTML(req.Name)),
 		Phone:             phone,
 		Email:             email,
 		Password:          string(hashedPwd),
@@ -118,10 +127,9 @@ func (s *Service) RegisterUser(ctx context.Context, req dtouser.UserRegister) (d
 	return data, nil
 }
 
-func (s *Service) AdminCreateUser(ctx context.Context, req dtouser.AdminCreateUser) (domainuser.Users, error) {
-	scope := domainauth.FromContext(ctx)
-	phone := gokit.NormalizePhoneTo62(req.Phone)
-	email := gokit.SanitizeEmail(req.Email)
+func (s *Service) AdminCreateUser(ctx context.Context, actor domainauth.Actor, req dtouser.AdminCreateUser) (domainuser.Users, error) {
+	phone := domainuser.NormalizePhoneTo62(req.Phone)
+	email := domainuser.SanitizeEmail(req.Email)
 
 	data, _ := s.UserRepo.GetByEmail(ctx, email)
 	if data.Id != "" {
@@ -144,8 +152,8 @@ func (s *Service) AdminCreateUser(ctx context.Context, req dtouser.AdminCreateUs
 		return domainuser.Users{}, err
 	}
 
-	roleName := gokit.NormalizeKey(req.Role)
-	canAssignRole, err := serviceshared.HasPermission(ctx, s.PermissionRepo, "users", "assign_role")
+	roleName := serviceshared.NormalizeKey(req.Role)
+	canAssignRole, err := serviceshared.HasPermission(ctx, s.PermissionRepo, actor, "users", "assign_role")
 	if err != nil {
 		return domainuser.Users{}, err
 	}
@@ -154,7 +162,7 @@ func (s *Service) AdminCreateUser(ctx context.Context, req dtouser.AdminCreateUs
 		return domainuser.Users{}, errors.New("access denied: missing permission users:assign_role")
 	}
 
-	if roleName == domainuser.RoleSuperAdmin && scope.Role != domainuser.RoleSuperAdmin {
+	if roleName == domainuser.RoleSuperAdmin && actor.Role != domainuser.RoleSuperAdmin {
 		return domainuser.Users{}, errors.New("only superadmin can create superadmin users")
 	}
 
@@ -164,8 +172,8 @@ func (s *Service) AdminCreateUser(ctx context.Context, req dtouser.AdminCreateUs
 	}
 
 	data = domainuser.Users{
-		Id:                gokit.CreateUUID(),
-		Name:              gokit.TitleCase(gokit.StripHTML(req.Name)),
+		Id:                s.newID(),
+		Name:              serviceshared.TitleCase(serviceshared.StripHTML(req.Name)),
 		Phone:             phone,
 		Email:             email,
 		Password:          string(hashedPwd),
@@ -185,7 +193,7 @@ func (s *Service) AdminCreateUser(ctx context.Context, req dtouser.AdminCreateUs
 }
 
 func (s *Service) LoginUser(ctx context.Context, req dtouser.Login, logId string, metadata dtouser.LoginMetadata) (string, error) {
-	identifier, err := ResolveLoginIdentifier(req)
+	identifier, err := domainuser.ResolveLoginIdentifier(req.Identifier, req.Email)
 	if err != nil {
 		return "", err
 	}
@@ -232,7 +240,7 @@ func (s *Service) LogoutUser(ctx context.Context, token string) error {
 	}
 
 	blacklist := domainauth.Blacklist{
-		ID:        gokit.CreateUUID(),
+		ID:        s.newID(),
 		Token:     token,
 		CreatedAt: time.Now(),
 		ExpiresAt: expiresAt,
@@ -246,15 +254,14 @@ func (s *Service) LogoutUser(ctx context.Context, token string) error {
 	return nil
 }
 
-func (s *Service) ImpersonateUser(ctx context.Context, targetUserId string, logId string) (string, error) {
-	scope := domainauth.FromContext(ctx)
-	if scope.IsImpersonated {
+func (s *Service) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserId string, logId string) (string, error) {
+	if actor.IsImpersonated {
 		return "", errors.New("cannot start nested impersonation")
 	}
 	if strings.TrimSpace(targetUserId) == "" {
 		return "", errors.New("target user id is required")
 	}
-	if targetUserId == scope.UserID {
+	if targetUserId == actor.UserID {
 		return "", errors.New("cannot impersonate your own account")
 	}
 
@@ -263,22 +270,16 @@ func (s *Service) ImpersonateUser(ctx context.Context, targetUserId string, logI
 		return "", err
 	}
 
-	if targetUser.Role == domainuser.RoleSuperAdmin && scope.Role != domainuser.RoleSuperAdmin {
+	if targetUser.Role == domainuser.RoleSuperAdmin && actor.Role != domainuser.RoleSuperAdmin {
 		return "", errors.New("cannot impersonate superadmin users")
 	}
 
-	return s.Tokens.GenerateWithClaims(&targetUser, logId, &token.AppClaims{
-		IsImpersonated:   true,
-		OriginalUserId:   scope.UserID,
-		OriginalUsername: scope.Username,
-		OriginalRole:     scope.Role,
-	})
+	return s.Tokens.GenerateImpersonated(&targetUser, logId, actor.UserID, actor.Username, actor.Role)
 }
 
-func (s *Service) StopImpersonation(ctx context.Context, logId string) (string, error) {
-	scope := domainauth.FromContext(ctx)
-	originalUserId := scope.OriginalUserID
-	currentUserId := scope.UserID
+func (s *Service) StopImpersonation(ctx context.Context, actor domainauth.Actor, logId string) (string, error) {
+	originalUserId := actor.OriginalUserID
+	currentUserId := actor.UserID
 
 	if strings.TrimSpace(originalUserId) == "" {
 		return "", errors.New("original user id is required")
@@ -327,14 +328,13 @@ func (s *Service) GetUserByAuth(ctx context.Context, id string) (map[string]any,
 	return buildUserAuthResponse(user, permissionNames), nil
 }
 
-func (s *Service) GetAllUsers(ctx context.Context, params gokit.BaseParams) ([]domainuser.Users, int64, error) {
-	scope := domainauth.FromContext(ctx)
-	users, total, err := s.UserRepo.GetAll(ctx, params)
+func (s *Service) GetAllUsers(ctx context.Context, actor domainauth.Actor, req dtouser.ListRequest) ([]domainuser.Users, int64, error) {
+	users, total, err := s.UserRepo.GetAll(ctx, req)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	if scope.Role != domainuser.RoleSuperAdmin {
+	if actor.Role != domainuser.RoleSuperAdmin {
 		filteredUsers := make([]domainuser.Users, 0)
 		for _, user := range users {
 			if user.Role != domainuser.RoleSuperAdmin {
@@ -348,31 +348,30 @@ func (s *Service) GetAllUsers(ctx context.Context, params gokit.BaseParams) ([]d
 	return users, total, nil
 }
 
-func (s *Service) Update(ctx context.Context, id string, req dtouser.UserUpdate) (domainuser.Users, error) {
-	scope := domainauth.FromContext(ctx)
+func (s *Service) Update(ctx context.Context, actor domainauth.Actor, id string, req dtouser.UserUpdate) (domainuser.Users, error) {
 	data, err := s.UserRepo.GetByID(ctx, id)
 	if err != nil {
 		return domainuser.Users{}, err
 	}
 
-	if data.Role == domainuser.RoleSuperAdmin && scope.Role != domainuser.RoleSuperAdmin {
+	if data.Role == domainuser.RoleSuperAdmin && actor.Role != domainuser.RoleSuperAdmin {
 		return domainuser.Users{}, errors.New("cannot modify superadmin users")
 	}
 
 	if req.Name != "" {
-		data.Name = gokit.TitleCase(gokit.StripHTML(req.Name))
+		data.Name = serviceshared.TitleCase(serviceshared.StripHTML(req.Name))
 	}
 
 	if req.Phone != "" {
-		phone := gokit.NormalizePhoneTo62(req.Phone)
+		phone := domainuser.NormalizePhoneTo62(req.Phone)
 		data.Phone = phone
 	}
 
 	if req.Email != "" {
-		data.Email = gokit.SanitizeEmail(req.Email)
+		data.Email = domainuser.SanitizeEmail(req.Email)
 	}
 
-	if err := s.applyRoleUpdate(ctx, scope.Role, req.Role, &data); err != nil {
+	if err := s.applyRoleUpdate(ctx, actor, req.Role, &data); err != nil {
 		return domainuser.Users{}, err
 	}
 
@@ -386,19 +385,19 @@ func (s *Service) Update(ctx context.Context, id string, req dtouser.UserUpdate)
 	return data, nil
 }
 
-func (s *Service) applyRoleUpdate(ctx context.Context, actorRole, requestedRole string, user *domainuser.Users) error {
-	newRoleName := gokit.NormalizeKey(strings.TrimSpace(requestedRole))
+func (s *Service) applyRoleUpdate(ctx context.Context, actor domainauth.Actor, requestedRole string, user *domainuser.Users) error {
+	newRoleName := serviceshared.NormalizeKey(strings.TrimSpace(requestedRole))
 	if newRoleName == "" {
 		return nil
 	}
-	canAssignRole, err := serviceshared.HasPermission(ctx, s.PermissionRepo, "users", "assign_role")
+	canAssignRole, err := serviceshared.HasPermission(ctx, s.PermissionRepo, actor, "users", "assign_role")
 	if err != nil {
 		return err
 	}
 	if !canAssignRole {
 		return errors.New("access denied: missing permission users:assign_role")
 	}
-	if newRoleName == domainuser.RoleSuperAdmin && actorRole != domainuser.RoleSuperAdmin {
+	if newRoleName == domainuser.RoleSuperAdmin && actor.Role != domainuser.RoleSuperAdmin {
 		return errors.New("cannot assign superadmin role")
 	}
 	roleID, ok := findRoleIDByName(ctx, s.RoleRepo, newRoleName)
@@ -444,7 +443,7 @@ func (s *Service) ChangePassword(ctx context.Context, id string, req dtouser.Cha
 }
 
 func (s *Service) ForgotPassword(ctx context.Context, req dtouser.ForgotPasswordRequest) (string, error) {
-	data, err := s.UserRepo.GetByEmail(ctx, gokit.SanitizeEmail(req.Email))
+	data, err := s.UserRepo.GetByEmail(ctx, domainuser.SanitizeEmail(req.Email))
 	if err != nil {
 		//nolint:nilerr // Avoid disclosing whether an email is registered.
 		return "", nil
@@ -467,7 +466,7 @@ func (s *Service) ResetPassword(ctx context.Context, req dtouser.ResetPasswordRe
 	if err != nil {
 		return errors.New("invalid or expired token")
 	}
-	if gokit.InterfaceString(claims["token_type"]) != token.TokenTypePasswordReset {
+	if !s.Tokens.IsPasswordResetClaims(claims) {
 		return errors.New("invalid or expired token")
 	}
 
@@ -479,7 +478,7 @@ func (s *Service) ResetPassword(ctx context.Context, req dtouser.ResetPasswordRe
 		return errors.New("invalid or expired token")
 	}
 
-	userId := strings.TrimSpace(gokit.InterfaceString(claims["user_id"]))
+	userId := strings.TrimSpace(serviceshared.InterfaceString(claims["user_id"]))
 	if userId == "" {
 		return errors.New("invalid or expired token")
 	}
@@ -513,7 +512,7 @@ func (s *Service) ResetPasswordByEmail(ctx context.Context, email, newPassword s
 		return err
 	}
 
-	data, err := s.UserRepo.GetByEmail(ctx, gokit.SanitizeEmail(email))
+	data, err := s.UserRepo.GetByEmail(ctx, domainuser.SanitizeEmail(email))
 	if err != nil {
 		return errors.New("user not found")
 	}
@@ -545,4 +544,9 @@ func (s *Service) invalidateUserPermissionCache(ctx context.Context, userIDs ...
 	if s.PermissionCache != nil {
 		s.PermissionCache.DeleteUser(ctx, userIDs...)
 	}
+}
+
+// IsTokenRevoked reports whether an access token was revoked at logout.
+func (s *Service) IsTokenRevoked(ctx context.Context, token string) (bool, error) {
+	return s.BlacklistRepo.ExistsByToken(ctx, token)
 }

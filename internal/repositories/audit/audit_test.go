@@ -2,13 +2,12 @@ package audit
 
 import (
 	"context"
+	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-
-	"github.com/zazhedho/gokit"
 )
 
 func newDryRunDB(t *testing.T) *gorm.DB {
@@ -32,7 +31,7 @@ func newDryRunDB(t *testing.T) *gorm.DB {
 func TestAuditRepositoryDryRunGetAll(t *testing.T) {
 	repo := NewRepository(newDryRunDB(t))
 
-	if _, _, err := repo.GetAll(context.Background(), gokit.BaseParams{
+	if _, _, err := repo.GetAll(context.Background(), dtoaudit.ListRequest{
 		Search:         "login",
 		Filters:        map[string]any{"action": "login", "status": "success"},
 		OrderBy:        "occurred_at",

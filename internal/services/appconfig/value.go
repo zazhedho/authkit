@@ -1,15 +1,15 @@
-package config
+package appconfig
 
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/zazhedho/gokit"
+	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"strconv"
 	"strings"
 	"time"
 )
 
-func String(raw, fallback string) string {
+func parseString(raw, fallback string) string {
 	value := strings.TrimSpace(raw)
 	if value == "" {
 		return fallback
@@ -17,8 +17,8 @@ func String(raw, fallback string) string {
 	return value
 }
 
-func Bool(raw string, fallback bool) (bool, error) {
-	value := gokit.NormalizeKey(raw)
+func parseBool(raw string, fallback bool) (bool, error) {
+	value := serviceshared.NormalizeKey(raw)
 	if value == "" {
 		return fallback, nil
 	}
@@ -33,7 +33,7 @@ func Bool(raw string, fallback bool) (bool, error) {
 	}
 }
 
-func Int(raw string, fallback int) (int, error) {
+func parseInt(raw string, fallback int) (int, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
 		return fallback, nil
@@ -46,7 +46,7 @@ func Int(raw string, fallback int) (int, error) {
 	return parsed, nil
 }
 
-func Duration(raw string, fallback time.Duration) (time.Duration, error) {
+func parseDuration(raw string, fallback time.Duration) (time.Duration, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
 		return fallback, nil
@@ -59,7 +59,7 @@ func Duration(raw string, fallback time.Duration) (time.Duration, error) {
 	return parsed, nil
 }
 
-func JSON(raw string, target any) error {
+func parseJSON(raw string, target any) error {
 	value := strings.TrimSpace(raw)
 	if value == "" || target == nil {
 		return nil

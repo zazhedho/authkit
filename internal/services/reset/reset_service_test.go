@@ -3,7 +3,6 @@ package reset
 import (
 	"context"
 	"errors"
-	"github.com/zazhedho/authkit/internal/config"
 	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
 	"testing"
 	"time"
@@ -96,8 +95,8 @@ func (m *resetSenderTestDouble) SendPasswordReset(to, token, appName, resetURL s
 	return m.err
 }
 
-func resetTestConfig() config.PasswordResetConfig {
-	return config.PasswordResetConfig{
+func resetTestConfig() Config {
+	return Config{
 		TTL:         15 * time.Minute,
 		Cooldown:    time.Minute,
 		RateWindow:  time.Minute,

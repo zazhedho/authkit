@@ -12,9 +12,7 @@ import (
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	"github.com/zazhedho/authkit/internal/infrastructure/ratelimit"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	serviceuser "github.com/zazhedho/authkit/internal/services/user"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 	"net/http"
@@ -29,10 +27,9 @@ import (
 const defaultCooldown = 60 * time.Second
 
 type Handler struct {
-	Service       Service
-	BlacklistRepo BlacklistRepository
-	SessionSvc    SessionService
-	LoginLimiter  ratelimit.LoginLimiter
+	Service      Service
+	SessionSvc   SessionService
+	LoginLimiter LoginLimiter
 	httpshared.AuditWriter
 	AppConfigService AppConfigService
 	OTPService       OTPService
@@ -51,9 +48,8 @@ type Options struct {
 
 func New(
 	s Service,
-	blacklistRepo BlacklistRepository,
 	sessionSvc SessionService,
-	limiter ratelimit.LoginLimiter,
+	limiter LoginLimiter,
 	auditService httpshared.AuditService,
 	options Options,
 ) *Handler {
@@ -84,7 +80,6 @@ func New(
 
 	return &Handler{
 		Service:          s,
-		BlacklistRepo:    blacklistRepo,
 		SessionSvc:       sessionSvc,
 		LoginLimiter:     limiter,
 		AuditWriter:      httpshared.NewAuditWriter(auditService, "UserHandler"),
@@ -344,7 +339,7 @@ func (h *Handler) AdminCreateUser(ctx *gin.Context) {
 	}
 	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Request: %+v;", logPrefix, gokit.JsonEncode(gokit.RedactSensitivePayload(req))))
 
-	data, err := h.Service.AdminCreateUser(reqCtx, req)
+	data, err := h.Service.AdminCreateUser(reqCtx, httpshared.ActorFrom(reqCtx), req)
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionCreate,
@@ -394,7 +389,7 @@ func (h *Handler) Login(ctx *gin.Context) {
 	}
 	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Request: %+v;", logPrefix, gokit.JsonEncode(gokit.RedactSensitivePayload(req))))
 
-	normalizedIdentifier, err := serviceuser.ResolveLoginIdentifier(req)
+	normalizedIdentifier, err := domainuser.ResolveLoginIdentifier(req.Identifier, req.Email)
 	if err != nil {
 		res := gokit.Response(http.StatusBadRequest, gokit.MsgInvalidRequest, logId, nil)
 		res.Error = gokit.Errors{Code: http.StatusBadRequest, Message: err.Error()}
@@ -618,7 +613,7 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 		return
 	}
 
-	isBlacklisted, err := h.BlacklistRepo.ExistsByToken(ctx.Request.Context(), req.RefreshToken)
+	isBlacklisted, err := h.Service.IsTokenRevoked(ctx.Request.Context(), req.RefreshToken)
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			ActorUserID:  gokit.InterfaceString(tokenClaims["user_id"]),
@@ -921,7 +916,7 @@ func (h *Handler) ImpersonateUser(ctx *gin.Context) {
 		return
 	}
 
-	token, err := h.Service.ImpersonateUser(reqCtx, id, logId.String())
+	token, err := h.Service.ImpersonateUser(reqCtx, httpshared.ActorFrom(reqCtx), id, logId.String())
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionLogin,
@@ -974,7 +969,7 @@ func (h *Handler) StopImpersonation(ctx *gin.Context) {
 		return
 	}
 
-	token, err := h.Service.StopImpersonation(reqCtx, logId.String())
+	token, err := h.Service.StopImpersonation(reqCtx, httpshared.ActorFrom(reqCtx), logId.String())
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionLogout,
@@ -1019,7 +1014,7 @@ func (h *Handler) GetAllUsers(ctx *gin.Context) {
 	params, _ := gokit.GetBaseParams(ctx.Request.URL.Query(), "updated_at", "desc", 10)
 	params.Filters = gokit.WhitelistFilter(params.Filters, []string{"role"})
 
-	users, totalData, err := h.Service.GetAllUsers(reqCtx, params)
+	users, totalData, err := h.Service.GetAllUsers(reqCtx, httpshared.ActorFrom(reqCtx), httpshared.ListRequest[dtouser.ListRequest](params))
 	if err != nil {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; GetAllUsers; ERROR: %+v;", logPrefix, err))
 		res := gokit.InternalServerError(logId)
@@ -1049,7 +1044,7 @@ func (h *Handler) Update(ctx *gin.Context) {
 	}
 
 	before, _ := h.Service.GetUserById(reqCtx, scope.UserID)
-	data, err := h.Service.Update(reqCtx, scope.UserID, req)
+	data, err := h.Service.Update(reqCtx, domainauth.ActorOf(scope), scope.UserID, req)
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionUpdate,
@@ -1104,7 +1099,7 @@ func (h *Handler) UpdateUserById(ctx *gin.Context) {
 	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Request: %+v;", logPrefix, gokit.JsonEncode(req)))
 
 	before, _ := h.Service.GetUserById(reqCtx, id)
-	data, err := h.Service.Update(reqCtx, id, req)
+	data, err := h.Service.Update(reqCtx, httpshared.ActorFrom(reqCtx), id, req)
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionUpdate,

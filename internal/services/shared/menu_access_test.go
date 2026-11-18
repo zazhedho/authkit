@@ -6,7 +6,7 @@ import (
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
-	"github.com/zazhedho/gokit"
+	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
 	"testing"
 )
 
@@ -53,7 +53,7 @@ func (m *permissionRepoSharedTestDouble) Store(ctx context.Context, data domainp
 func (m *permissionRepoSharedTestDouble) GetByID(ctx context.Context, id string) (domainpermission.Permission, error) {
 	return domainpermission.Permission{}, errors.New("not implemented")
 }
-func (m *permissionRepoSharedTestDouble) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainpermission.Permission, int64, error) {
+func (m *permissionRepoSharedTestDouble) GetAll(ctx context.Context, req dtopermission.ListRequest) ([]domainpermission.Permission, int64, error) {
 	return nil, 0, nil
 }
 func (m *permissionRepoSharedTestDouble) Update(ctx context.Context, data domainpermission.Permission) error {
@@ -77,21 +77,21 @@ func (m *permissionRepoSharedTestDouble) GetUserPermissions(ctx context.Context,
 }
 
 func TestHasPermissionUsesScopeAndRepositoryFallback(t *testing.T) {
-	ctx := domainauth.WithContext(context.Background(), domainauth.New("user-1", "Jane", "staff", []string{"users:list"}))
-	ok, err := HasPermission(ctx, &permissionRepoSharedTestDouble{}, "users", "list")
+	actor := domainauth.ActorOf(domainauth.New("user-1", "Jane", "staff", []string{"users:list"}))
+	ok, err := HasPermission(context.Background(), &permissionRepoSharedTestDouble{}, actor, "users", "list")
 	if err != nil || !ok {
 		t.Fatalf("expected scope permission to allow, ok=%v err=%v", ok, err)
 	}
 
-	ctx = domainauth.WithContext(context.Background(), domainauth.New("user-1", "Jane", "staff", nil))
-	ok, err = HasPermission(ctx, &permissionRepoSharedTestDouble{
+	actor = domainauth.ActorOf(domainauth.New("user-1", "Jane", "staff", nil))
+	ok, err = HasPermission(context.Background(), &permissionRepoSharedTestDouble{
 		permissions: []domainpermission.Permission{{Resource: "users", Action: "delete"}},
-	}, "users", "delete")
+	}, actor, "users", "delete")
 	if err != nil || !ok {
 		t.Fatalf("expected repository permission to allow, ok=%v err=%v", ok, err)
 	}
 
-	ok, err = HasPermission(context.Background(), &permissionRepoSharedTestDouble{}, "users", "delete")
+	ok, err = HasPermission(context.Background(), &permissionRepoSharedTestDouble{}, domainauth.Actor{}, "users", "delete")
 	if err != nil || ok {
 		t.Fatalf("expected anonymous context to deny without repo lookup, ok=%v err=%v", ok, err)
 	}

@@ -5,7 +5,6 @@ import (
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	dtomenu "github.com/zazhedho/authkit/internal/dto/menu"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
-	"github.com/zazhedho/gokit"
 	"time"
 )
 
@@ -25,8 +24,8 @@ func (s *Service) GetByID(ctx context.Context, id string) (domainmenu.MenuItem, 
 	return s.MenuRepo.GetByID(ctx, id)
 }
 
-func (s *Service) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainmenu.MenuItem, int64, error) {
-	return s.MenuRepo.GetAll(ctx, params)
+func (s *Service) GetAll(ctx context.Context, req dtomenu.ListRequest) ([]domainmenu.MenuItem, int64, error) {
+	return s.MenuRepo.GetAll(ctx, req)
 }
 
 func (s *Service) GetActiveMenus(ctx context.Context) ([]domainmenu.MenuItem, error) {

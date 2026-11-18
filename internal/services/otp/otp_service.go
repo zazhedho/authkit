@@ -4,26 +4,35 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/zazhedho/authkit/internal/config"
 	domainotp "github.com/zazhedho/authkit/internal/domain/otp"
-	"github.com/zazhedho/authkit/internal/infrastructure/mailer"
-	"github.com/zazhedho/gokit"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	"github.com/zazhedho/logus"
 	"strings"
+	"time"
 )
+
+// Config holds the OTP timing and limits; Secret keys the stored code hashes.
+type Config struct {
+	TTL         time.Duration
+	MaxAttempts int
+	RateLimit   int
+	RateWindow  time.Duration
+	Cooldown    time.Duration
+	Secret      string
+}
 
 type Service struct {
 	Repo   Repository
-	Sender mailer.Sender
-	Config config.OTPConfig
+	Sender Mailer
+	Config Config
 }
 
-func NewService(repo Repository, sender mailer.Sender, cfg config.OTPConfig) *Service {
+func NewService(repo Repository, sender Mailer, cfg Config) *Service {
 	return &Service{Repo: repo, Sender: sender, Config: cfg}
 }
 
-// // missingSecret reports an empty or blank secret; every entry point then treats
-// // the service as unconfigured rather than sign with an empty key.
+// missingSecret reports an empty or blank secret; every entry point then treats
+// the service as unconfigured rather than sign with an empty key.
 func (s *Service) missingSecret() bool {
 	return strings.TrimSpace(s.Config.Secret) == ""
 }
@@ -33,7 +42,7 @@ func (s *Service) SendRegisterOTP(ctx context.Context, email, appName string) er
 		return domainotp.ErrNotConfigured
 	}
 
-	normalizedEmail := gokit.SanitizeEmail(email)
+	normalizedEmail := domainuser.SanitizeEmail(email)
 	if normalizedEmail == "" {
 		return domainotp.ErrInvalid
 	}
@@ -91,7 +100,7 @@ func (s *Service) VerifyRegisterOTP(ctx context.Context, email, code string) err
 		return domainotp.ErrNotConfigured
 	}
 
-	normalizedEmail := gokit.SanitizeEmail(email)
+	normalizedEmail := domainuser.SanitizeEmail(email)
 	cleanCode := strings.TrimSpace(code)
 	if normalizedEmail == "" || cleanCode == "" {
 		return domainotp.ErrInvalid

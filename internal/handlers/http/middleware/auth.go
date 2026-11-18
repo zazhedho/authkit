@@ -7,7 +7,7 @@ import (
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
-	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
+	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
@@ -18,13 +18,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 )
 
 type Middleware struct {
 	BlacklistRepo   TokenRevocations
 	PermissionRepo  PermissionLookup
-	PermissionCache *redis.Client
+	PermissionCache PermissionCache
 	Tokens          *token.Tokens
 	// PermissionCacheTTL is how long cached permission keys live; a
 	// non-positive value disables caching.
@@ -33,7 +32,7 @@ type Middleware struct {
 
 func NewMiddleware(blacklistRepo TokenRevocations,
 	permissionRepo PermissionLookup,
-	permissionCache *redis.Client,
+	permissionCache PermissionCache,
 	tokens *token.Tokens,
 	permissionCacheTTL time.Duration) *Middleware {
 	return &Middleware{
@@ -88,11 +87,11 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		ctx.Set(CtxKeyAuthData, dataJWT)
+		ctx.Set(httpshared.CtxKeyAuthData, dataJWT)
 		ctx.Set("token", tokenString)
 		userID := gokit.InterfaceString(dataJWT["user_id"])
 		ctx.Set("userId", userID)
-		requestContext := WithAuthData(ctx.Request.Context(), dataJWT)
+		requestContext := httpshared.WithAuthData(ctx.Request.Context(), dataJWT)
 		requestContext = logus.WithLogMetadata(requestContext, logId.String(), userID)
 		ctx.Request = ctx.Request.WithContext(domainauth.WithContext(requestContext, domainauth.NewFromClaims(dataJWT, nil)))
 
@@ -112,7 +111,7 @@ func (m *Middleware) RoleMiddleware(allowedRoles ...string) gin.HandlerFunc {
 
 		scope := domainauth.FromContext(ctx.Request.Context())
 		if strings.TrimSpace(scope.Role) == "" {
-			authData, exists := ctx.Get(CtxKeyAuthData)
+			authData, exists := ctx.Get(httpshared.CtxKeyAuthData)
 			if !exists {
 				logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; AuthData not found", logPrefix))
 				res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
@@ -205,7 +204,7 @@ func (m *Middleware) LoadPermissionsMiddleware() gin.HandlerFunc {
 // LoadPermissionsMiddleware. It aborts the request and returns false when the
 // permissions cannot be established; superadmin returns without a lookup.
 func (m *Middleware) loadScopePermissions(ctx *gin.Context, logId uuid.UUID, logPrefix string) (domainauth.Scope, bool) {
-	authData, exists := ctx.Get(CtxKeyAuthData)
+	authData, exists := ctx.Get(httpshared.CtxKeyAuthData)
 	if !exists {
 		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; AuthData not found", logPrefix))
 		res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
@@ -256,7 +255,7 @@ func (m *Middleware) loadScopePermissions(ctx *gin.Context, logId uuid.UUID, log
 	}
 
 	dataJWT["permissions"] = permissionKeys
-	ctx.Set(CtxKeyAuthData, dataJWT)
+	ctx.Set(httpshared.CtxKeyAuthData, dataJWT)
 	ctx.Set("permissions", permissionKeys)
 
 	scope := domainauth.NewFromClaims(dataJWT, permissionKeys)
@@ -266,15 +265,19 @@ func (m *Middleware) loadScopePermissions(ctx *gin.Context, logId uuid.UUID, log
 }
 
 func (m *Middleware) loadPermissionKeys(ctx context.Context, userID string) ([]string, error) {
-	if keys, ok := cachepermission.GetUserPermissionKeys(ctx, m.PermissionCache, userID); ok {
-		return keys, nil
+	if m.PermissionCache != nil {
+		if keys, ok := m.PermissionCache.Get(ctx, userID); ok {
+			return keys, nil
+		}
 	}
 	permissions, err := m.PermissionRepo.GetUserPermissions(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 	keys := permissionKeysFromPermissions(permissions)
-	cachepermission.SetUserPermissionKeys(ctx, m.PermissionCache, userID, keys, m.PermissionCacheTTL)
+	if m.PermissionCache != nil {
+		m.PermissionCache.Set(ctx, userID, keys, m.PermissionCacheTTL)
+	}
 	return keys, nil
 }
 

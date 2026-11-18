@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"database/sql/driver"
+	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	"regexp"
 	"testing"
 
@@ -10,8 +11,6 @@ import (
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-
-	"github.com/zazhedho/gokit"
 )
 
 func newDryRunDB(t *testing.T) *gorm.DB {
@@ -42,7 +41,7 @@ func TestUserRepositoryDryRun(t *testing.T) {
 	if _, err := repo.GetByPhone(ctx, "08123456789"); err != nil {
 		t.Fatalf("get by phone: %v", err)
 	}
-	if _, _, err := repo.GetAll(ctx, gokit.BaseParams{
+	if _, _, err := repo.GetAll(ctx, dtouser.ListRequest{
 		Search:         "jane",
 		Filters:        map[string]any{"role": "admin", "email": "jane@example.com"},
 		OrderBy:        "email",

@@ -51,8 +51,8 @@ type Config struct {
 	Flags                           FlagKeys
 }
 
-// // String reports whether each secret is set but never prints one, so logging a
-// // Config with %v cannot leak credentials.
+// String reports whether each secret is set but never prints one, so logging a
+// Config with %v cannot leak credentials.
 func (c Config) String() string {
 	set := func(v string) string {
 		if strings.TrimSpace(v) == "" {
@@ -161,8 +161,8 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
-// // Validate expects defaults applied (as New does). OTP.Secret and Reset.Secret
-// // are required only when both Redis and Mailer are set; otherwise those services are inert.
+// Validate expects defaults applied (as New does). OTP.Secret and Reset.Secret
+// are required only when both Redis and Mailer are set; otherwise those services are inert.
 func (c Config) Validate() error {
 	if c.DB == nil {
 		return errors.New("authkit: DB is required")

@@ -23,16 +23,16 @@ import (
 // the host project's own golang-migrate table (schema_migrations by default).
 const MigrationsTable = "authkit_schema_migrations"
 
-// // BaselineVersion is the version of the baseline migrations; a legacy database
-// // already holding those tables is recorded at it.
+// BaselineVersion is the version of the baseline migrations; a legacy database
+// already holding those tables is recorded at it.
 const BaselineVersion = 4
 
-// // ErrLegacySchemaIncomplete is returned by Migrate when the users table exists
-// // without a version record and the baseline schema is partial; nothing changes.
+// ErrLegacySchemaIncomplete is returned by Migrate when the users table exists
+// without a version record and the baseline schema is partial; nothing changes.
 var ErrLegacySchemaIncomplete = errors.New("authkit: existing schema is missing expected tables or columns")
 
-// // ErrMigrationsDirty means the version table records a failed migration. Fix the
-// // database by hand and clear the dirty flag; never delete the record.
+// ErrMigrationsDirty means the version table records a failed migration. Fix the
+// database by hand and clear the dirty flag; never delete the record.
 var ErrMigrationsDirty = errors.New("authkit: migrations are in a dirty state")
 
 // migrationsFS holds the embedded *.sql files at its root.
@@ -40,9 +40,9 @@ var migrationsFS fs.FS = migrations.FS
 
 func embeddedSource() (source.Driver, error) { return iofs.New(migrationsFS, ".") }
 
-// // Migrate applies pending migrations; safe on every start (instances serialize
-// // on an advisory lock). A pre-authkit database is only stamped, never re-seeded,
-// // else ErrLegacySchemaIncomplete. ctx bounds schema inspection only; see README, Migrations.
+// Migrate applies pending migrations; safe on every start (instances serialize
+// on an advisory lock). A pre-authkit database is only stamped, never re-seeded,
+// else ErrLegacySchemaIncomplete. ctx bounds schema inspection only; see README, Migrations.
 func (k *Kit) Migrate(ctx context.Context) error {
 	return migrateUp(ctx, k.cfg.DB, embeddedSource)
 }
@@ -137,9 +137,9 @@ func stampBaseline(drv database.Driver) (err error) {
 
 func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
 
-// // detectLegacy reports a users table without a version record (or
-// // ErrLegacySchemaIncomplete). Any version row means not legacy: a dirty row may be
-// // mid-migration, so Up() decides. One statement, hence one snapshot.
+// detectLegacy reports a users table without a version record (or
+// ErrLegacySchemaIncomplete). Any version row means not legacy: a dirty row may be
+// mid-migration, so Up() decides. One statement, hence one snapshot.
 func detectLegacy(ctx context.Context, conn *sql.Conn) (bool, error) {
 	var schema sql.NullString
 	if err := conn.QueryRowContext(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
@@ -210,8 +210,8 @@ func currentColumns(ctx context.Context, conn *sql.Conn) (map[string][]string, e
 	return out, nil
 }
 
-// // presentTables reports whether the users and version tables exist, in one
-// // statement. It reads pg_catalog, which ignores role privileges.
+// presentTables reports whether the users and version tables exist, in one
+// statement. It reads pg_catalog, which ignores role privileges.
 func presentTables(ctx context.Context, conn *sql.Conn) (hasUsers, hasVersionTable bool, err error) {
 	rows, err := conn.QueryContext(ctx,
 		`SELECT c.relname FROM pg_catalog.pg_class c
@@ -275,8 +275,8 @@ var baselineSchema = map[string][]string{
 	},
 }
 
-// // missingFromSchema returns, sorted, the "table" or "table.column" entries that
-// // expected has and actual lacks; extras in actual are ignored.
+// missingFromSchema returns, sorted, the "table" or "table.column" entries that
+// expected has and actual lacks; extras in actual are ignored.
 func missingFromSchema(expected, actual map[string][]string) []string {
 	var missing []string
 	for table, cols := range expected {

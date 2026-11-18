@@ -7,7 +7,7 @@ import (
 	"fmt"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
-	"github.com/zazhedho/gokit"
+	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"net/http"
 	"net/url"
 	"strings"
@@ -33,7 +33,7 @@ func (s *Service) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, 
 		return domainuser.Users{}, false, err
 	}
 
-	email := gokit.SanitizeEmail(identity.Email)
+	email := domainuser.SanitizeEmail(identity.Email)
 	if email == "" {
 		return domainuser.Users{}, false, domainuser.ErrGoogleEmailMissing
 	}
@@ -66,7 +66,7 @@ func (s *Service) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, 
 		return domainuser.Users{}, false, fmt.Errorf("role %s is not configured", roleName)
 	}
 
-	passwordSeed := "Google-" + gokit.CreateUUID() + "-" + fmt.Sprintf("%d", time.Now().UnixNano()) + "!"
+	passwordSeed := "Google-" + s.newID() + "-" + fmt.Sprintf("%d", time.Now().UnixNano()) + "!"
 	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(passwordSeed), bcrypt.DefaultCost)
 	if err != nil {
 		return domainuser.Users{}, false, err
@@ -78,8 +78,8 @@ func (s *Service) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, 
 	}
 
 	user := domainuser.Users{
-		Id:                 gokit.CreateUUID(),
-		Name:               gokit.TitleCase(name),
+		Id:                 s.newID(),
+		Name:               serviceshared.TitleCase(name),
 		Email:              email,
 		Phone:              "",
 		Password:           string(hashedPwd),
@@ -143,7 +143,7 @@ func verifyGoogleIDToken(ctx context.Context, idToken string, clientIDs []string
 	if !strings.EqualFold(strings.TrimSpace(tokenInfo.EmailVerified), "true") {
 		return googleTokenInfo{}, domainuser.ErrGoogleTokenInvalid
 	}
-	if gokit.SanitizeEmail(tokenInfo.Email) == "" {
+	if domainuser.SanitizeEmail(tokenInfo.Email) == "" {
 		return googleTokenInfo{}, domainuser.ErrGoogleEmailMissing
 	}
 	if strings.TrimSpace(tokenInfo.Subject) == "" {

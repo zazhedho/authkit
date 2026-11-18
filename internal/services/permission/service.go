@@ -5,19 +5,21 @@ import (
 	"errors"
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
-	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
-	"github.com/zazhedho/gokit"
+	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 	"time"
 )
 
 type Service struct {
 	PermissionRepo  Repository
-	PermissionCache cachepermission.Invalidator
+	PermissionCache PermissionCache
+	// NewID makes record ids; nil uses a UUID v7.
+	NewID func() string
 }
 
-func NewService(permissionRepo Repository, invalidators ...cachepermission.Invalidator) *Service {
+func NewService(permissionRepo Repository, invalidators ...PermissionCache) *Service {
 	service := &Service{
 		PermissionRepo: permissionRepo,
+		NewID:          serviceshared.NewID,
 	}
 	if len(invalidators) > 0 {
 		service.PermissionCache = invalidators[0]
@@ -32,7 +34,7 @@ func (s *Service) Create(ctx context.Context, req dtopermission.PermissionCreate
 	}
 
 	data := domainpermission.Permission{
-		Id:          gokit.CreateUUID(),
+		Id:          s.newID(),
 		Name:        req.Name,
 		DisplayName: req.DisplayName,
 		Description: req.Description,
@@ -53,8 +55,8 @@ func (s *Service) GetByID(ctx context.Context, id string) (domainpermission.Perm
 	return s.PermissionRepo.GetByID(ctx, id)
 }
 
-func (s *Service) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainpermission.Permission, int64, error) {
-	return s.PermissionRepo.GetAll(ctx, params)
+func (s *Service) GetAll(ctx context.Context, req dtopermission.ListRequest) ([]domainpermission.Permission, int64, error) {
+	return s.PermissionRepo.GetAll(ctx, req)
 }
 
 func (s *Service) GetByResource(ctx context.Context, resource string) ([]domainpermission.Permission, error) {
@@ -103,4 +105,11 @@ func (s *Service) invalidatePermissionCache(ctx context.Context) {
 	if s.PermissionCache != nil {
 		s.PermissionCache.DeleteAll(ctx)
 	}
+}
+
+func (s *Service) newID() string {
+	if s.NewID != nil {
+		return s.NewID()
+	}
+	return serviceshared.NewID()
 }

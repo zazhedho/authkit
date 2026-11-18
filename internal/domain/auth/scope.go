@@ -151,3 +151,33 @@ func interfaceBool(data any) bool {
 func normalizeKey(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
+
+// Actor is the authenticated caller as the services see it. Handlers build it
+// from the request Scope, so services never read the request context.
+type Actor struct {
+	UserID           string
+	Username         string
+	Role             string
+	Permissions      map[string]struct{}
+	IsImpersonated   bool
+	OriginalUserID   string
+	OriginalUsername string
+	OriginalRole     string
+}
+
+// ActorOf returns the scope's identity for passing into a service. It is a
+// function, not a Scope method, because Scope is part of the public API.
+func ActorOf(s Scope) Actor {
+	return Actor(s)
+}
+
+// Has reports whether the actor may perform action on resource; superadmin
+// always may.
+func (a Actor) Has(resource, action string) bool {
+	if strings.TrimSpace(a.Role) == roleSuperAdmin {
+		return true
+	}
+
+	_, ok := a.Permissions[PermissionKey(resource, action)]
+	return ok
+}

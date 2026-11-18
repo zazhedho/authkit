@@ -183,8 +183,8 @@ func (t *Tokens) Claims(tokenString string) (map[string]any, error) {
 		return nil, ErrJWTKeyNotConfigured
 	}
 
-	// // Claims is the only JWT parse; issuer and audience must match exactly, so
-	// // tokens from other applications (or without them) are rejected.
+	// Claims is the only JWT parse; issuer and audience must match exactly, so
+	// tokens from other applications (or without them) are rejected.
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return "", fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -214,4 +214,22 @@ func (t *Tokens) ExpiresAt(tokenString string) (time.Time, error) {
 	}
 
 	return time.Unix(int64(exp), 0), nil
+}
+
+// GenerateImpersonated issues an access token for user that records the
+// original identity the impersonation started from.
+func (t *Tokens) GenerateImpersonated(user *domainuser.Users, logID, originalUserID, originalUsername, originalRole string) (string, error) {
+	return t.GenerateWithClaims(user, logID, &AppClaims{
+		IsImpersonated:   true,
+		OriginalUserId:   originalUserID,
+		OriginalUsername: originalUsername,
+		OriginalRole:     originalRole,
+	})
+}
+
+// IsPasswordResetClaims reports whether parsed claims belong to a password
+// reset token.
+func (t *Tokens) IsPasswordResetClaims(claims map[string]any) bool {
+	tokenType, _ := claims["token_type"].(string)
+	return tokenType == TokenTypePasswordReset
 }

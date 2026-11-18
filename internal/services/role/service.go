@@ -7,9 +7,7 @@ import (
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
-	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
-	"github.com/zazhedho/gokit"
 	"time"
 )
 
@@ -17,19 +15,22 @@ type Service struct {
 	RoleRepo        Repository
 	PermissionRepo  PermissionRepository
 	MenuRepo        MenuRepository
-	PermissionCache cachepermission.Invalidator
+	PermissionCache PermissionCache
+	// NewID makes record ids; nil uses a UUID v7.
+	NewID func() string
 }
 
 func NewService(
 	roleRepo Repository,
 	permissionRepo PermissionRepository,
 	menuRepo MenuRepository,
-	invalidators ...cachepermission.Invalidator,
+	invalidators ...PermissionCache,
 ) *Service {
 	service := &Service{
 		RoleRepo:       roleRepo,
 		PermissionRepo: permissionRepo,
 		MenuRepo:       menuRepo,
+		NewID:          serviceshared.NewID,
 	}
 	if len(invalidators) > 0 {
 		service.PermissionCache = invalidators[0]
@@ -44,10 +45,10 @@ func (s *Service) Create(ctx context.Context, req dtorole.RoleCreate) (domainrol
 	}
 
 	data := domainrole.Role{
-		Id:          gokit.CreateUUID(),
-		Name:        gokit.StripHTML(req.Name),
-		DisplayName: gokit.StripHTML(req.DisplayName),
-		Description: gokit.StripHTML(req.Description),
+		Id:          s.newID(),
+		Name:        serviceshared.StripHTML(req.Name),
+		DisplayName: serviceshared.StripHTML(req.DisplayName),
+		Description: serviceshared.StripHTML(req.Description),
 		IsSystem:    false,
 		CreatedAt:   time.Now(),
 	}
@@ -97,14 +98,13 @@ func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.Ro
 	}, nil
 }
 
-func (s *Service) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainrole.Role, int64, error) {
-	scope := domainauth.FromContext(ctx)
-	roles, total, err := s.RoleRepo.GetAll(ctx, params)
+func (s *Service) GetAll(ctx context.Context, actor domainauth.Actor, req dtorole.ListRequest) ([]domainrole.Role, int64, error) {
+	roles, total, err := s.RoleRepo.GetAll(ctx, req)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	if scope.Role != domainuser.RoleSuperAdmin {
+	if actor.Role != domainuser.RoleSuperAdmin {
 		filteredRoles := make([]domainrole.Role, 0)
 		for _, role := range roles {
 			if role.Name != domainuser.RoleSuperAdmin {
@@ -129,9 +129,9 @@ func (s *Service) Update(ctx context.Context, id string, req dtorole.RoleUpdate)
 	}
 
 	if req.DisplayName != "" {
-		role.DisplayName = gokit.StripHTML(req.DisplayName)
+		role.DisplayName = serviceshared.StripHTML(req.DisplayName)
 	}
-	role.Description = gokit.StripHTML(req.Description)
+	role.Description = serviceshared.StripHTML(req.Description)
 	role.UpdatedAt = new(time.Now())
 
 	if err := s.RoleRepo.Update(ctx, role); err != nil {
@@ -158,22 +158,21 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Service) AssignPermissions(ctx context.Context, roleId string, req dtorole.AssignPermissions) error {
-	scope := domainauth.FromContext(ctx)
+func (s *Service) AssignPermissions(ctx context.Context, actor domainauth.Actor, roleId string, req dtorole.AssignPermissions) error {
 	role, err := s.RoleRepo.GetByID(ctx, roleId)
 	if err != nil {
 		return err
 	}
 
 	if role.IsSystem {
-		canManageSystem, err := serviceshared.HasPermission(ctx, s.PermissionRepo, "roles", "manage_system")
+		canManageSystem, err := serviceshared.HasPermission(ctx, s.PermissionRepo, actor, "roles", "manage_system")
 		if err != nil {
 			return err
 		}
 		if !canManageSystem {
 			return errors.New("access denied: missing permission roles:manage_system")
 		}
-		if role.Name == domainuser.RoleSuperAdmin && scope.Role != domainuser.RoleSuperAdmin {
+		if role.Name == domainuser.RoleSuperAdmin && actor.Role != domainuser.RoleSuperAdmin {
 			return errors.New("access denied: cannot modify superadmin role")
 		}
 	}
@@ -236,4 +235,11 @@ func (s *Service) deriveMenuIDsFromPermissions(ctx context.Context, permissionId
 	}
 
 	return serviceshared.ResolveAccessibleMenuIDs(activeMenus, resources), nil
+}
+
+func (s *Service) newID() string {
+	if s.NewID != nil {
+		return s.NewID()
+	}
+	return serviceshared.NewID()
 }

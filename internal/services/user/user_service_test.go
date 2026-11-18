@@ -7,26 +7,27 @@ import (
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
+	dtorole "github.com/zazhedho/authkit/internal/dto/role"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	"github.com/zazhedho/gokit"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
-func authContext(userID, username, role string, permissions ...string) context.Context {
-	return domainauth.WithContext(context.Background(), domainauth.New(userID, username, role, permissions))
+func authActor(userID, username, role string, permissions ...string) domainauth.Actor {
+	return domainauth.ActorOf(domainauth.New(userID, username, role, permissions))
 }
 
-func impersonatedAuthContext(userID, username, role, originalUserID, originalUsername, originalRole string, permissions ...string) context.Context {
+func impersonatedActor(userID, username, role, originalUserID, originalUsername, originalRole string, permissions ...string) domainauth.Actor {
 	scope := domainauth.New(userID, username, role, permissions)
 	scope.IsImpersonated = true
 	scope.OriginalUserID = originalUserID
 	scope.OriginalUsername = originalUsername
 	scope.OriginalRole = originalRole
-	return domainauth.WithContext(context.Background(), scope)
+	return domainauth.ActorOf(scope)
 }
 
 type userRepoMock struct {
@@ -59,7 +60,7 @@ func (m *userRepoMock) GetByID(ctx context.Context, id string) (domainuser.Users
 	}
 	return m.user, nil
 }
-func (m *userRepoMock) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainuser.Users, int64, error) {
+func (m *userRepoMock) GetAll(ctx context.Context, req dtouser.ListRequest) ([]domainuser.Users, int64, error) {
 	if m.getAllErr != nil {
 		return nil, 0, m.getAllErr
 	}
@@ -129,7 +130,7 @@ func (m *roleRepoUserMock) Store(ctx context.Context, data domainrole.Role) erro
 func (m *roleRepoUserMock) GetByID(ctx context.Context, id string) (domainrole.Role, error) {
 	return domainrole.Role{}, errors.New("not implemented")
 }
-func (m *roleRepoUserMock) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainrole.Role, int64, error) {
+func (m *roleRepoUserMock) GetAll(ctx context.Context, req dtorole.ListRequest) ([]domainrole.Role, int64, error) {
 	return nil, 0, nil
 }
 func (m *roleRepoUserMock) Update(ctx context.Context, data domainrole.Role) error { return nil }
@@ -174,7 +175,7 @@ func (m *permissionRepoUserMock) Store(ctx context.Context, data domainpermissio
 func (m *permissionRepoUserMock) GetByID(ctx context.Context, id string) (domainpermission.Permission, error) {
 	return domainpermission.Permission{}, errors.New("not implemented")
 }
-func (m *permissionRepoUserMock) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainpermission.Permission, int64, error) {
+func (m *permissionRepoUserMock) GetAll(ctx context.Context, req dtopermission.ListRequest) ([]domainpermission.Permission, int64, error) {
 	return nil, 0, nil
 }
 func (m *permissionRepoUserMock) Update(ctx context.Context, data domainpermission.Permission) error {
@@ -208,7 +209,7 @@ func TestAdminCreateUserRequiresAssignRolePermissionForNonViewer(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	_, err := service.AdminCreateUser(authContext("creator-1", "Admin User", domainuser.RoleAdmin), dtouser.AdminCreateUser{
+	_, err := service.AdminCreateUser(context.Background(), authActor("creator-1", "Admin User", domainuser.RoleAdmin), dtouser.AdminCreateUser{
 		Name:     "Jane Doe",
 		Email:    "jane@example.com",
 		Phone:    "08123456789",
@@ -233,7 +234,7 @@ func TestUpdateRequiresAssignRolePermissionWhenChangingRole(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	_, err := service.Update(authContext("editor-1", "Editor User", domainuser.RoleAdmin), "user-1", dtouser.UserUpdate{Role: domainuser.RoleStaff})
+	_, err := service.Update(context.Background(), authActor("editor-1", "Editor User", domainuser.RoleAdmin), "user-1", dtouser.UserUpdate{Role: domainuser.RoleStaff})
 	if err == nil || err.Error() != "access denied: missing permission users:assign_role" {
 		t.Fatalf("expected assign_role access error, got %v", err)
 	}
@@ -254,7 +255,7 @@ func TestUpdateRejectsSuperadminAssignmentForNonSuperadmin(t *testing.T) {
 		},
 	}
 
-	_, err := service.Update(authContext("editor-1", "Editor User", domainuser.RoleAdmin, "users:assign_role"), "user-1", dtouser.UserUpdate{Role: domainuser.RoleSuperAdmin})
+	_, err := service.Update(context.Background(), authActor("editor-1", "Editor User", domainuser.RoleAdmin, "users:assign_role"), "user-1", dtouser.UserUpdate{Role: domainuser.RoleSuperAdmin})
 	if err == nil || err.Error() != "cannot assign superadmin role" {
 		t.Fatalf("expected superadmin assignment error, got %v", err)
 	}
@@ -299,7 +300,7 @@ func TestAdminCreateUserNormalizesEmailToLowercase(t *testing.T) {
 		},
 	}
 
-	user, err := service.AdminCreateUser(authContext("creator-1", "Admin User", domainuser.RoleAdmin, "users:assign_role"), dtouser.AdminCreateUser{
+	user, err := service.AdminCreateUser(context.Background(), authActor("creator-1", "Admin User", domainuser.RoleAdmin, "users:assign_role"), dtouser.AdminCreateUser{
 		Name:     "Jane Doe",
 		Email:    "Jane.Doe@Example.COM",
 		Phone:    "08123456789",
@@ -326,7 +327,7 @@ func TestUpdateNormalizesEmailToLowercase(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	user, err := service.Update(authContext("user-1", "Jane Doe", domainuser.RoleViewer), "user-1", dtouser.UserUpdate{
+	user, err := service.Update(context.Background(), authActor("user-1", "Jane Doe", domainuser.RoleViewer), "user-1", dtouser.UserUpdate{
 		Email: "Jane.Doe@Example.COM",
 	})
 	if err != nil {
@@ -431,59 +432,6 @@ func TestLoginUserRejectsInvalidRandomIdentifier(t *testing.T) {
 	}
 }
 
-func TestResolveLoginIdentifier(t *testing.T) {
-	tests := []struct {
-		name    string
-		req     dtouser.Login
-		want    string
-		wantErr string
-	}{
-		{
-			name: "email identifier",
-			req:  dtouser.Login{Identifier: " Jane.Doe@Example.COM "},
-			want: "jane.doe@example.com",
-		},
-		{
-			name: "email fallback",
-			req:  dtouser.Login{Email: " Jane.Doe@Example.COM "},
-			want: "jane.doe@example.com",
-		},
-		{
-			name: "phone identifier",
-			req:  dtouser.Login{Identifier: "0812-3456-7890"},
-			want: "6281234567890",
-		},
-		{
-			name:    "empty identifier",
-			req:     dtouser.Login{},
-			wantErr: "identifier or email is required",
-		},
-		{
-			name:    "invalid identifier",
-			req:     dtouser.Login{Identifier: "randomtext"},
-			wantErr: "identifier must be a valid email or phone number",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := ResolveLoginIdentifier(tt.req)
-			if tt.wantErr != "" {
-				if err == nil || err.Error() != tt.wantErr {
-					t.Fatalf("expected error %q, got %v", tt.wantErr, err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("expected success, got %v", err)
-			}
-			if got != tt.want {
-				t.Fatalf("expected identifier %q, got %q", tt.want, got)
-			}
-		})
-	}
-}
-
 func TestImpersonateUserGeneratesTokenWithOriginalUserClaims(t *testing.T) {
 
 	service := &Service{
@@ -503,7 +451,7 @@ func TestImpersonateUserGeneratesTokenWithOriginalUserClaims(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	token, err := service.ImpersonateUser(authContext("admin-1", "Admin User", domainuser.RoleAdmin), "target-1", "log-1")
+	token, err := service.ImpersonateUser(context.Background(), authActor("admin-1", "Admin User", domainuser.RoleAdmin), "target-1", "log-1")
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -541,7 +489,7 @@ func TestImpersonateUserRejectsSuperadminTargetForNonSuperadmin(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	_, err := service.ImpersonateUser(authContext("admin-1", "Admin User", domainuser.RoleAdmin), "target-1", "log-1")
+	_, err := service.ImpersonateUser(context.Background(), authActor("admin-1", "Admin User", domainuser.RoleAdmin), "target-1", "log-1")
 	if err == nil || err.Error() != "cannot impersonate superadmin users" {
 		t.Fatalf("expected superadmin impersonation error, got %v", err)
 	}
@@ -565,7 +513,7 @@ func TestStopImpersonationReturnsOriginalUserToken(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	token, err := service.StopImpersonation(impersonatedAuthContext("target-1", "Target User", domainuser.RoleStaff, "admin-1", "Admin User", domainuser.RoleAdmin), "log-1")
+	token, err := service.StopImpersonation(context.Background(), impersonatedActor("target-1", "Target User", domainuser.RoleStaff, "admin-1", "Admin User", domainuser.RoleAdmin), "log-1")
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -786,11 +734,11 @@ func TestUserServicePassThroughAndFilteringMethods(t *testing.T) {
 		t.Fatalf("get by auth: user=%+v err=%v", got, err)
 	}
 
-	users, total, err := service.GetAllUsers(authContext("viewer-1", "Viewer", domainuser.RoleViewer), gokit.BaseParams{})
+	users, total, err := service.GetAllUsers(context.Background(), authActor("viewer-1", "Viewer", domainuser.RoleViewer), dtouser.ListRequest{})
 	if err != nil || total != 1 || len(users) != 1 || users[0].Role == domainuser.RoleSuperAdmin {
 		t.Fatalf("expected superadmin filtered for non-superadmin, users=%+v total=%d err=%v", users, total, err)
 	}
-	users, total, err = service.GetAllUsers(authContext("root", "Root", domainuser.RoleSuperAdmin), gokit.BaseParams{})
+	users, total, err = service.GetAllUsers(context.Background(), authActor("root", "Root", domainuser.RoleSuperAdmin), dtouser.ListRequest{})
 	if err != nil || total != 2 || len(users) != 2 {
 		t.Fatalf("expected superadmin to see all users, users=%+v total=%d err=%v", users, total, err)
 	}
@@ -900,7 +848,7 @@ func TestRegisterUserValidationAndRepositoryErrors(t *testing.T) {
 
 func TestAdminCreateUserValidationBranches(t *testing.T) {
 	service := newTestUserService(t, &userRepoMock{emailUser: domainuser.Users{Id: "existing-email"}}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err := service.AdminCreateUser(authContext("admin-1", "Admin", domainuser.RoleAdmin, "users:assign_role"), dtouser.AdminCreateUser{
+	_, err := service.AdminCreateUser(context.Background(), authActor("admin-1", "Admin", domainuser.RoleAdmin, "users:assign_role"), dtouser.AdminCreateUser{
 		Name:     "Jane Doe",
 		Email:    "jane@example.com",
 		Phone:    "08123456789",
@@ -912,7 +860,7 @@ func TestAdminCreateUserValidationBranches(t *testing.T) {
 	}
 
 	service = newTestUserService(t, &userRepoMock{phoneUser: domainuser.Users{Id: "existing-phone"}}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err = service.AdminCreateUser(authContext("admin-1", "Admin", domainuser.RoleAdmin, "users:assign_role"), dtouser.AdminCreateUser{
+	_, err = service.AdminCreateUser(context.Background(), authActor("admin-1", "Admin", domainuser.RoleAdmin, "users:assign_role"), dtouser.AdminCreateUser{
 		Name:     "Jane Doe",
 		Email:    "jane@example.com",
 		Phone:    "08123456789",
@@ -924,7 +872,7 @@ func TestAdminCreateUserValidationBranches(t *testing.T) {
 	}
 
 	service = newTestUserService(t, &userRepoMock{}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err = service.AdminCreateUser(authContext("admin-1", "Admin", domainuser.RoleAdmin, "users:assign_role"), dtouser.AdminCreateUser{
+	_, err = service.AdminCreateUser(context.Background(), authActor("admin-1", "Admin", domainuser.RoleAdmin, "users:assign_role"), dtouser.AdminCreateUser{
 		Name:     "Jane Doe",
 		Email:    "jane@example.com",
 		Phone:    "08123456789",
@@ -936,7 +884,7 @@ func TestAdminCreateUserValidationBranches(t *testing.T) {
 	}
 
 	service = newTestUserService(t, &userRepoMock{}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{err: errors.New("permission lookup failed")})
-	_, err = service.AdminCreateUser(authContext("admin-1", "Admin", domainuser.RoleAdmin), dtouser.AdminCreateUser{
+	_, err = service.AdminCreateUser(context.Background(), authActor("admin-1", "Admin", domainuser.RoleAdmin), dtouser.AdminCreateUser{
 		Name:     "Jane Doe",
 		Email:    "jane@example.com",
 		Phone:    "08123456789",
@@ -950,7 +898,7 @@ func TestAdminCreateUserValidationBranches(t *testing.T) {
 	service = newTestUserService(t, &userRepoMock{storeErr: errors.New("insert failed")}, &authRepoMock{}, &roleRepoUserMock{roles: map[string]domainrole.Role{
 		domainuser.RoleViewer: {Id: "role-viewer", Name: domainuser.RoleViewer},
 	}}, &permissionRepoUserMock{})
-	_, err = service.AdminCreateUser(authContext("admin-1", "Admin", domainuser.RoleAdmin), dtouser.AdminCreateUser{
+	_, err = service.AdminCreateUser(context.Background(), authActor("admin-1", "Admin", domainuser.RoleAdmin), dtouser.AdminCreateUser{
 		Name:     "Jane Doe",
 		Email:    "jane@example.com",
 		Phone:    "",
@@ -986,19 +934,19 @@ func TestUserServiceLoginAndChangePasswordErrors(t *testing.T) {
 
 func TestUserServiceUpdateErrorBranches(t *testing.T) {
 	service := newTestUserService(t, &userRepoMock{user: domainuser.Users{Id: "root", Role: domainuser.RoleSuperAdmin}}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err := service.Update(authContext("admin-1", "Admin", domainuser.RoleAdmin), "root", dtouser.UserUpdate{Name: "Root"})
+	_, err := service.Update(context.Background(), authActor("admin-1", "Admin", domainuser.RoleAdmin), "root", dtouser.UserUpdate{Name: "Root"})
 	if err == nil || err.Error() != "cannot modify superadmin users" {
 		t.Fatalf("expected superadmin modify guard, got %v", err)
 	}
 
 	service = newTestUserService(t, &userRepoMock{user: domainuser.Users{Id: "user-1", Role: domainuser.RoleViewer}}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err = service.Update(authContext("admin-1", "Admin", domainuser.RoleAdmin), "user-1", dtouser.UserUpdate{Role: domainuser.RoleStaff})
+	_, err = service.Update(context.Background(), authActor("admin-1", "Admin", domainuser.RoleAdmin), "user-1", dtouser.UserUpdate{Role: domainuser.RoleStaff})
 	if err == nil || err.Error() != "access denied: missing permission users:assign_role" {
 		t.Fatalf("expected role assignment permission guard, got %v", err)
 	}
 
 	service = newTestUserService(t, &userRepoMock{user: domainuser.Users{Id: "user-1", Role: domainuser.RoleViewer}, updateErr: errors.New("update failed")}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err = service.Update(authContext("user-1", "Jane", domainuser.RoleViewer), "user-1", dtouser.UserUpdate{Name: "Jane Updated"})
+	_, err = service.Update(context.Background(), authActor("user-1", "Jane", domainuser.RoleViewer), "user-1", dtouser.UserUpdate{Name: "Jane Updated"})
 	if err == nil || err.Error() != "update failed" {
 		t.Fatalf("expected update error, got %v", err)
 	}
@@ -1064,27 +1012,27 @@ func TestUserServiceLogoutAndListErrors(t *testing.T) {
 	}
 
 	service = newTestUserService(t, &userRepoMock{getAllErr: errors.New("list failed")}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	if _, _, err := service.GetAllUsers(context.Background(), gokit.BaseParams{}); err == nil || err.Error() != "list failed" {
+	if _, _, err := service.GetAllUsers(context.Background(), domainauth.Actor{}, dtouser.ListRequest{}); err == nil || err.Error() != "list failed" {
 		t.Fatalf("expected get all error, got %v", err)
 	}
 }
 
 func TestImpersonationValidationBranches(t *testing.T) {
 	service := newTestUserService(t, &userRepoMock{}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	if _, err := service.ImpersonateUser(impersonatedAuthContext("target-1", "Target", domainuser.RoleViewer, "admin-1", "Admin", domainuser.RoleAdmin), "target-2", "log-1"); err == nil || err.Error() != "cannot start nested impersonation" {
+	if _, err := service.ImpersonateUser(context.Background(), impersonatedActor("target-1", "Target", domainuser.RoleViewer, "admin-1", "Admin", domainuser.RoleAdmin), "target-2", "log-1"); err == nil || err.Error() != "cannot start nested impersonation" {
 		t.Fatalf("expected nested impersonation error, got %v", err)
 	}
-	if _, err := service.ImpersonateUser(authContext("user-1", "Jane", domainuser.RoleViewer), "", "log-1"); err == nil || err.Error() != "target user id is required" {
+	if _, err := service.ImpersonateUser(context.Background(), authActor("user-1", "Jane", domainuser.RoleViewer), "", "log-1"); err == nil || err.Error() != "target user id is required" {
 		t.Fatalf("expected missing target error, got %v", err)
 	}
-	if _, err := service.ImpersonateUser(authContext("user-1", "Jane", domainuser.RoleViewer), "user-1", "log-1"); err == nil || err.Error() != "cannot impersonate your own account" {
+	if _, err := service.ImpersonateUser(context.Background(), authActor("user-1", "Jane", domainuser.RoleViewer), "user-1", "log-1"); err == nil || err.Error() != "cannot impersonate your own account" {
 		t.Fatalf("expected self impersonation error, got %v", err)
 	}
 
-	if _, err := service.StopImpersonation(authContext("user-1", "Jane", domainuser.RoleViewer), "log-1"); err == nil || err.Error() != "original user id is required" {
+	if _, err := service.StopImpersonation(context.Background(), authActor("user-1", "Jane", domainuser.RoleViewer), "log-1"); err == nil || err.Error() != "original user id is required" {
 		t.Fatalf("expected missing original user error, got %v", err)
 	}
-	if _, err := service.StopImpersonation(impersonatedAuthContext("user-1", "Jane", domainuser.RoleViewer, "user-1", "Jane", domainuser.RoleViewer), "log-1"); err == nil || err.Error() != "current session is not impersonated" {
+	if _, err := service.StopImpersonation(context.Background(), impersonatedActor("user-1", "Jane", domainuser.RoleViewer, "user-1", "Jane", domainuser.RoleViewer), "log-1"); err == nil || err.Error() != "current session is not impersonated" {
 		t.Fatalf("expected not impersonated error, got %v", err)
 	}
 }
@@ -1100,7 +1048,7 @@ func testUserTokens(t *testing.T) *token.Tokens {
 	return tokens
 }
 
-func newTestUserService(t *testing.T, userRepo Repository, blacklistRepo BlacklistRepository, roleRepo RoleRepository, permissionRepo PermissionRepository) *Service {
+func newTestUserService(t *testing.T, userRepo Repository, blacklistRepo TokenRevocations, roleRepo RoleRepository, permissionRepo PermissionRepository) *Service {
 	t.Helper()
 	return NewService(userRepo, blacklistRepo, roleRepo, permissionRepo, Options{Tokens: testUserTokens(t)})
 }
@@ -1144,12 +1092,12 @@ func TestAdminCreateUserDoesNotRequireAssignRoleForConfiguredDefaultRole(t *test
 	req := dtouser.AdminCreateUser{Name: "Jane Doe", Email: "jane@example.com", Phone: "08123456789", Password: "Password1!"}
 
 	req.Role = "member"
-	if _, err := service.AdminCreateUser(authContext("creator-1", "Admin", domainuser.RoleAdmin), req); err != nil {
+	if _, err := service.AdminCreateUser(context.Background(), authActor("creator-1", "Admin", domainuser.RoleAdmin), req); err != nil {
 		t.Fatalf("expected default role to need no assign_role permission, got %v", err)
 	}
 
 	req.Email, req.Phone, req.Role = "other@example.com", "08123456780", domainuser.RoleViewer
-	_, err := service.AdminCreateUser(authContext("creator-1", "Admin", domainuser.RoleAdmin), req)
+	_, err := service.AdminCreateUser(context.Background(), authActor("creator-1", "Admin", domainuser.RoleAdmin), req)
 	if err == nil || err.Error() != "access denied: missing permission users:assign_role" {
 		t.Fatalf("expected viewer to need assign_role when it is not the default role, got %v", err)
 	}
@@ -1226,7 +1174,7 @@ func TestPrivilegedDefaultRoleDoesNotSkipAssignRoleCheck(t *testing.T) {
 		BlacklistRepo:  &authRepoMock{},
 		PermissionRepo: &permissionRepoUserMock{},
 	}
-	_, err := service.AdminCreateUser(authContext("creator-1", "Admin", domainuser.RoleAdmin), dtouser.AdminCreateUser{
+	_, err := service.AdminCreateUser(context.Background(), authActor("creator-1", "Admin", domainuser.RoleAdmin), dtouser.AdminCreateUser{
 		Name: "Jane Doe", Email: "jane@example.com", Phone: "08123456789", Password: "Password1!", Role: domainuser.RoleAdmin,
 	})
 	if err == nil || err.Error() != "access denied: missing permission users:assign_role" {
@@ -1300,5 +1248,38 @@ func TestLogoutUserRejectsTokenFromOtherApp(t *testing.T) {
 	}
 	if authRepo.stored.Token != "" {
 		t.Fatal("expected a foreign token not to be written to the blacklist")
+	}
+}
+
+func TestIsTokenRevokedAsksTheRevocationStore(t *testing.T) {
+	repo := &authRepoMock{tokens: map[string]struct{}{"revoked": {}}}
+	service := newTestUserService(t, &userRepoMock{}, repo, &roleRepoUserMock{}, &permissionRepoUserMock{})
+
+	if ok, err := service.IsTokenRevoked(context.Background(), "revoked"); err != nil || !ok {
+		t.Fatalf("expected revoked token, ok=%v err=%v", ok, err)
+	}
+	if ok, err := service.IsTokenRevoked(context.Background(), "fresh"); err != nil || ok {
+		t.Fatalf("expected live token, ok=%v err=%v", ok, err)
+	}
+	repo.existsErr = errors.New("store down")
+	if _, err := service.IsTokenRevoked(context.Background(), "x"); err == nil || err.Error() != "store down" {
+		t.Fatalf("expected store error, got %v", err)
+	}
+}
+
+func TestRegisterUserUsesInjectedIDGenerator(t *testing.T) {
+	userRepo := &userRepoMock{}
+	service := NewService(userRepo, &authRepoMock{}, &roleRepoUserMock{roles: map[string]domainrole.Role{
+		"viewer": {Id: "role-viewer", Name: "viewer"},
+	}}, &permissionRepoUserMock{}, Options{Tokens: testUserTokens(t), NewID: func() string { return "user-fixed" }})
+
+	user, err := service.RegisterUser(context.Background(), dtouser.UserRegister{
+		Name: "Jane Doe", Email: "jane@example.com", Phone: "08123456789", Password: "Password1!",
+	})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if user.Id != "user-fixed" {
+		t.Fatalf("expected injected id, got %q", user.Id)
 	}
 }

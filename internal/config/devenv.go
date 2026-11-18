@@ -1,5 +1,5 @@
-// // Package devenv defines which AppEnv values count as development, shared by the
-// // reset fallback and the New warning so they cannot drift.
+// Package devenv defines which AppEnv values count as development, shared by the
+// reset fallback and the New warning so they cannot drift.
 package config
 
 import "github.com/zazhedho/gokit"

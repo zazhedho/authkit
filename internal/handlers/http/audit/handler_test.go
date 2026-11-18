@@ -6,7 +6,6 @@ import (
 	"errors"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
-	"github.com/zazhedho/gokit"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,12 +18,14 @@ type auditServiceTestDouble struct {
 	row   dtoaudit.AuditTrailResponse
 	total int64
 	err   error
+	got   dtoaudit.ListRequest
 }
 
 func (m *auditServiceTestDouble) Store(ctx context.Context, req domainaudit.AuditEvent) error {
 	return nil
 }
-func (m *auditServiceTestDouble) GetAll(ctx context.Context, params gokit.BaseParams) ([]dtoaudit.AuditTrailResponse, int64, error) {
+func (m *auditServiceTestDouble) GetAll(ctx context.Context, req dtoaudit.ListRequest) ([]dtoaudit.AuditTrailResponse, int64, error) {
+	m.got = req
 	if m.err != nil {
 		return nil, 0, m.err
 	}
@@ -87,5 +88,19 @@ func TestAuditGetByIDValidatesUUIDAndReturnsNotFound(t *testing.T) {
 	rec = performAuditRequest(http.MethodGet, "/audits/:id", "/audits/550e8400-e29b-41d4-a716-446655440000", handler.GetByID)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAuditGetAllPassesParsedQueryAsListRequest(t *testing.T) {
+	service := &auditServiceTestDouble{}
+	handler := New(service)
+
+	rec := performAuditRequest(http.MethodGet, "/audits", "/audits?page=2&limit=5&search=login&order_by=action&order_direction=asc", handler.GetAll)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	got := service.got
+	if got.Search != "login" || got.OrderBy != "action" || got.Page != 2 || got.Limit != 5 || got.Offset != 5 {
+		t.Fatalf("unexpected list request: %+v", got)
 	}
 }
