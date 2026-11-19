@@ -93,7 +93,7 @@ func New(cfg Config) (*Kit, error) {
 	}
 
 	for _, w := range startupWarnings(cfg.AppEnv, cfg.Redis == nil) {
-		logus.WriteLog(logus.LogLevelWarn, w)
+		logus.Log(logus.LevelWarn, w)
 	}
 
 	tokens, err := token.NewTokens(token.TokenConfig{
@@ -176,8 +176,25 @@ func New(cfg Config) (*Kit, error) {
 		appConfigHandler:  httpappconfig.New(appConfigCore, auditSvc),
 		auditHandler:      httpaudit.New(auditCore),
 		sessionHandler:    sessionHdlr,
-		registerLimiter:   gokit.IPRateLimitMiddleware(cfg.Redis, "user_register", cfg.Register.Limit, cfg.Register.Window),
+		registerLimiter:   registerRateLimit(cfg),
 	}, nil
+}
+
+// registerRateLimit limits the registration endpoints per client IP. It lets
+// every request through when there is no Redis to count in or when the limit
+// is switched off (gokit panics on a non-positive limit or window, and a nil
+// *redis.Client must not reach it wrapped in an interface). Redis failures
+// fail open.
+func registerRateLimit(cfg Config) gin.HandlerFunc {
+	if cfg.Redis == nil || cfg.Register.Limit <= 0 || cfg.Register.Window <= 0 {
+		return func(c *gin.Context) { c.Next() }
+	}
+	return gokit.IPRateLimit(gokit.RateLimitOptions{
+		Redis:  cfg.Redis,
+		Prefix: "user_register",
+		Limit:  cfg.Register.Limit,
+		Window: cfg.Register.Window,
+	})
 }
 
 // Auth returns the middleware that requires a valid access token and puts the

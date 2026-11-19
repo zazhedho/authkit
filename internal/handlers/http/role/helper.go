@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func roleMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiResponse) {
+func roleMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.APIResponse) {
 	// A dangling permission id or a deleted actor surfaces as a 404 too.
 	if httpshared.IsNotFound(err) {
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, "role not found")

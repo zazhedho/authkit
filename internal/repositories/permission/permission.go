@@ -26,7 +26,7 @@ func translateErr(err error) error {
 }
 
 func (r *Repository) Store(ctx context.Context, permission domainpermission.Permission) error {
-	return translateErr(r.Repository.Store(ctx, permission))
+	return translateErr(r.Repository.Store(ctx, &permission))
 }
 
 func (r *Repository) GetByID(ctx context.Context, id string) (domainpermission.Permission, error) {
@@ -35,7 +35,7 @@ func (r *Repository) GetByID(ctx context.Context, id string) (domainpermission.P
 }
 
 func (r *Repository) Update(ctx context.Context, permission domainpermission.Permission) error {
-	return translateErr(r.Repository.Update(ctx, permission))
+	return translateErr(r.Repository.Update(ctx, &permission))
 }
 
 func (r *Repository) Delete(ctx context.Context, id string) error {
@@ -49,6 +49,8 @@ func (r *Repository) GetByName(ctx context.Context, name string) (ret domainperm
 
 func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainpermission.Permission, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
+		MaxLimit:       dtoshared.ReferenceList.MaxLimit,
+		AllowAll:       dtoshared.ReferenceList.AllowAll,
 		Search:         gokit.BuildSearchFunc("name", "display_name", "description", "resource"),
 		AllowedFilters: []string{"id", "name", "display_name", "resource", "action", "created_at", "updated_at"},
 		AllowedOrderColumns: []string{
@@ -63,7 +65,7 @@ func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret
 }
 
 func (r *Repository) GetByResource(ctx context.Context, resource string) (ret []domainpermission.Permission, err error) {
-	return r.GetManyByField(ctx, "resource", resource)
+	return r.GetManyByField(ctx, "resource", resource, gokit.DefaultMaxLimit, "action asc")
 }
 
 func (r *Repository) GetUserPermissions(ctx context.Context, userId string) (ret []domainpermission.Permission, err error) {

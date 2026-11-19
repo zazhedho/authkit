@@ -53,12 +53,12 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 			logPrefix string
 		)
 
-		logId = gokit.GenerateLogId(ctx)
+		logId = gokit.RequestID(ctx)
 		logPrefix = "[AuthMiddleware]"
 
 		tokenString, dataJWT, err := m.Tokens.ClaimsFromRequest(ctx.Request)
 		if err != nil {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Invalid token; Error: %s;", logPrefix, err.Error()))
+			logus.LogContextf(ctx, logus.LevelError, "%s; Invalid token; Error: %s;", logPrefix, err.Error())
 			res := gokit.Unauthorized(logId, "Invalid or expired token. Please login again.")
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)
 			return
@@ -67,7 +67,7 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 
 		tokenType := strings.TrimSpace(gokit.InterfaceString(dataJWT["token_type"]))
 		if tokenType != tokenTypeAccess {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Invalid token type used on protected route", logPrefix))
+			logus.LogContextf(ctx, logus.LevelError, "%s; Invalid token type used on protected route", logPrefix)
 			res := gokit.Unauthorized(logId, "Invalid token type. Please use an access token.")
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)
 			return
@@ -75,14 +75,14 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 
 		isBlacklisted, err := m.BlacklistRepo.ExistsByToken(ctx.Request.Context(), tokenString)
 		if err != nil {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; blacklistRepo.ExistsByToken; Error: %+v", logPrefix, err))
+			logus.LogContextf(ctx, logus.LevelError, "%s; blacklistRepo.ExistsByToken; Error: %+v", logPrefix, err)
 			res := gokit.InternalServerError(logId)
 			ctx.AbortWithStatusJSON(http.StatusInternalServerError, res)
 			return
 		}
 
 		if isBlacklisted {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Invalid token; Error: token is blacklisted;", logPrefix))
+			logus.LogContextf(ctx, logus.LevelError, "%s; Invalid token; Error: token is blacklisted;", logPrefix)
 			res := gokit.Unauthorized(logId, "Your session is no longer valid. Please login again.")
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)
 			return
@@ -93,7 +93,8 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 		userID := gokit.InterfaceString(dataJWT["user_id"])
 		ctx.Set("userId", userID)
 		requestContext := httpshared.WithAuthData(ctx.Request.Context(), dataJWT)
-		requestContext = logus.WithLogMetadata(requestContext, logId.String(), userID)
+		requestContext = logus.WithRequestID(requestContext, logId)
+		requestContext = logus.WithUserID(requestContext, userID)
 		ctx.Request = ctx.Request.WithContext(domainauth.WithContext(requestContext, domainauth.NewFromClaims(dataJWT, nil)))
 
 		ctx.Next()
@@ -107,14 +108,14 @@ func (m *Middleware) RoleMiddleware(allowedRoles ...string) gin.HandlerFunc {
 			logPrefix string
 		)
 
-		logId = gokit.GenerateLogId(ctx)
+		logId = gokit.RequestID(ctx)
 		logPrefix = "[RoleMiddleware]"
 
 		scope := domainauth.FromContext(ctx.Request.Context())
 		if strings.TrimSpace(scope.Role) == "" {
 			authData, exists := ctx.Get(httpshared.CtxKeyAuthData)
 			if !exists {
-				logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; AuthData not found", logPrefix))
+				logus.LogContextf(ctx, logus.LevelError, "%s; AuthData not found", logPrefix)
 				res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
 				ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 				return
@@ -122,7 +123,7 @@ func (m *Middleware) RoleMiddleware(allowedRoles ...string) gin.HandlerFunc {
 
 			dataJWT, ok := authData.(map[string]any)
 			if !ok {
-				logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Invalid AuthData type", logPrefix))
+				logus.LogContextf(ctx, logus.LevelError, "%s; Invalid AuthData type", logPrefix)
 				res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
 				ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 				return
@@ -134,7 +135,7 @@ func (m *Middleware) RoleMiddleware(allowedRoles ...string) gin.HandlerFunc {
 
 		userRole := strings.TrimSpace(scope.Role)
 		if userRole == "" {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; AuthData not found", logPrefix))
+			logus.LogContextf(ctx, logus.LevelError, "%s; AuthData not found", logPrefix)
 			res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
 			ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 			return
@@ -147,7 +148,7 @@ func (m *Middleware) RoleMiddleware(allowedRoles ...string) gin.HandlerFunc {
 
 		isAllowed := slices.Contains(allowedRoles, userRole)
 		if !isAllowed {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; User with role '%s' tried to access a restricted route;", logPrefix, userRole))
+			logus.LogContextf(ctx, logus.LevelError, "%s; User with role '%s' tried to access a restricted route;", logPrefix, userRole)
 			res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
 			ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 			return
@@ -164,7 +165,7 @@ func (m *Middleware) PermissionMiddleware(resource, action string) gin.HandlerFu
 			logPrefix string
 		)
 
-		logId = gokit.GenerateLogId(ctx)
+		logId = gokit.RequestID(ctx)
 		logPrefix = "[PermissionMiddleware]"
 
 		scope, ok := m.loadScopePermissions(ctx, logId, logPrefix)
@@ -177,7 +178,7 @@ func (m *Middleware) PermissionMiddleware(resource, action string) gin.HandlerFu
 
 		// Superadmin bypasses all permission checks (Has is true for it).
 		if !scope.Has(targetResource, targetAction) {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; User '%s' lacks permission '%s:%s'", logPrefix, scope.UserID, targetResource, targetAction))
+			logus.LogContextf(ctx, logus.LevelError, "%s; User '%s' lacks permission '%s:%s'", logPrefix, scope.UserID, targetResource, targetAction)
 			res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
 			ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 			return
@@ -191,7 +192,7 @@ func (m *Middleware) PermissionMiddleware(resource, action string) gin.HandlerFu
 // scope like PermissionMiddleware, but never rejects for lacking one.
 func (m *Middleware) LoadPermissionsMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		logId := gokit.GenerateLogId(ctx)
+		logId := gokit.RequestID(ctx)
 
 		if _, ok := m.loadScopePermissions(ctx, logId, "[LoadPermissionsMiddleware]"); !ok {
 			return
@@ -207,14 +208,14 @@ func (m *Middleware) LoadPermissionsMiddleware() gin.HandlerFunc {
 func (m *Middleware) loadScopePermissions(ctx *gin.Context, logId uuid.UUID, logPrefix string) (domainauth.Scope, bool) {
 	authData, exists := ctx.Get(httpshared.CtxKeyAuthData)
 	if !exists {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; AuthData not found", logPrefix))
+		logus.LogContextf(ctx, logus.LevelError, "%s; AuthData not found", logPrefix)
 		res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
 		ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 		return domainauth.Scope{}, false
 	}
 	dataJWT, ok := authData.(map[string]any)
 	if !ok {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Invalid AuthData type", logPrefix))
+		logus.LogContextf(ctx, logus.LevelError, "%s; Invalid AuthData type", logPrefix)
 		res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
 		ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 		return domainauth.Scope{}, false
@@ -222,7 +223,7 @@ func (m *Middleware) loadScopePermissions(ctx *gin.Context, logId uuid.UUID, log
 
 	userRole := strings.TrimSpace(gokit.InterfaceString(dataJWT["role"]))
 	if userRole == "" {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; there is no role user", logPrefix))
+		logus.LogContextf(ctx, logus.LevelError, "%s; there is no role user", logPrefix)
 		res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
 		ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 		return domainauth.Scope{}, false
@@ -234,7 +235,7 @@ func (m *Middleware) loadScopePermissions(ctx *gin.Context, logId uuid.UUID, log
 
 	userId := strings.TrimSpace(gokit.InterfaceString(dataJWT["user_id"]))
 	if userId == "" {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Invalid token claims: user_id is empty", logPrefix))
+		logus.LogContextf(ctx, logus.LevelError, "%s; Invalid token claims: user_id is empty", logPrefix)
 		res := gokit.Unauthorized(logId, "Invalid or expired token. Please login again.")
 		ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)
 		return domainauth.Scope{}, false
@@ -243,13 +244,13 @@ func (m *Middleware) loadScopePermissions(ctx *gin.Context, logId uuid.UUID, log
 	permissionKeys, err := m.loadPermissionKeys(ctx.Request.Context(), userId)
 	if err != nil {
 		if errors.Is(err, domainuser.ErrNotFound) {
-			logus.WriteLogWithContext(ctx, logus.LogLevelWarn, fmt.Sprintf("%s; User '%s' not found when loading permissions", logPrefix, userId))
+			logus.LogContextf(ctx, logus.LevelWarn, "%s; User '%s' not found when loading permissions", logPrefix, userId)
 			res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
 			ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 			return domainauth.Scope{}, false
 		}
 
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Failed to get user permissions: %s", logPrefix, err.Error()))
+		logus.LogContextf(ctx, logus.LevelError, "%s; Failed to get user permissions: %s", logPrefix, err.Error())
 		res := gokit.InternalServerError(logId)
 		ctx.AbortWithStatusJSON(http.StatusInternalServerError, res)
 		return domainauth.Scope{}, false

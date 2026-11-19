@@ -90,7 +90,7 @@ func (s *Service) SendRegisterOTP(ctx context.Context, email, appName string) er
 		_ = s.Repo.ResetAttempts(ctx, normalizedEmail)
 		_ = s.Repo.ClearCooldown(ctx, normalizedEmail)
 		_ = s.Repo.ClearSendCount(ctx, normalizedEmail)
-		logus.WriteLog(logus.LogLevelError, "OTP delivery error: ", err)
+		logus.Log(logus.LevelError, "OTP delivery error:", err)
 		return domainotp.ErrDeliveryFailed
 	}
 

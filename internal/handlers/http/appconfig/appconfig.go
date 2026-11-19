@@ -33,10 +33,9 @@ var configResource = httpshared.Resource[domainappconfig.AppConfig]{
 	MutationError: configMutationErrorResponse,
 }
 
-func configMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.ApiResponse) {
+func configMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIResponse) {
 	if errors.Is(err, domainappconfig.ErrNotFound) {
-		res := gokit.Response(http.StatusNotFound, gokit.MsgResourceNotFound, logID, nil)
-		res.Error = "config data not found"
+		res := gokit.ErrorResponse(http.StatusNotFound, gokit.MsgResourceNotFound, logID, "config data not found")
 		return http.StatusNotFound, res
 	}
 	return httpshared.InternalErrorResponse(logID, err)

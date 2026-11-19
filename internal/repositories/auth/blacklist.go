@@ -34,7 +34,7 @@ func (r *Repository) Store(ctx context.Context, blacklist domainauth.Blacklist) 
 		return err
 	}
 
-	return translateErr(r.Repository.Store(ctx, blacklist))
+	return translateErr(r.Repository.Store(ctx, &blacklist))
 }
 
 func translateErr(err error) error {

@@ -56,14 +56,13 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 
 func errorMessage(t *testing.T, body map[string]any) string {
 	t.Helper()
-	switch e := body["error"].(type) {
-	case map[string]any:
-		msg, _ := e["message"].(string)
-		return msg
-	case string:
-		return e
+	details, ok := body["error"].([]any)
+	if !ok || len(details) == 0 {
+		t.Fatalf("error must be a non-empty list, got %v", body["error"])
 	}
-	return ""
+	first, _ := details[0].(map[string]any)
+	msg, _ := first["message"].(string)
+	return msg
 }
 
 func TestBindDecodesAndRejectsInvalidBodies(t *testing.T) {
@@ -103,7 +102,7 @@ func TestGetByIDAnswersFoundAndNotFound(t *testing.T) {
 		return widget{}, errors.New("boom")
 	})
 	body = decode(t, rec)
-	if rec.Code != http.StatusNotFound || body["message"] != "Not Found" || errorMessage(t, body) != "audit trail not found" {
+	if rec.Code != http.StatusNotFound || body["message"] != "Audit trail not found" || errorMessage(t, body) != "audit trail not found" {
 		t.Fatalf("unexpected not-found response %d %v", rec.Code, body)
 	}
 }
@@ -129,8 +128,9 @@ func TestListWritesPaginatedResponseAndMapsFailures(t *testing.T) {
 	if _, kept := got.Filters["kind"]; !kept {
 		t.Fatalf("expected the allowed filter to be kept, got %v", got.Filters)
 	}
-	if body := decode(t, rec); body["data"] == nil {
-		t.Fatalf("expected data in the paginated response, got %v", body)
+	body := decode(t, rec)
+	if body["data"] == nil || body["total_data"] != float64(7) || body["limit"] != float64(3) {
+		t.Fatalf("expected data, total 7 and limit 3 in the paginated response, got %v", body)
 	}
 
 	f, rec = newTestFlow(http.MethodGet, "/widgets", "")
@@ -147,7 +147,7 @@ func TestListWritesPaginatedResponseAndMapsFailures(t *testing.T) {
 		called = true
 		return nil, 0, nil
 	})
-	body := decode(t, rec)
+	body = decode(t, rec)
 	if rec.Code != http.StatusBadRequest || errorMessage(t, body) != "invalid query parameters" || called {
 		t.Fatalf("expected 400 without calling the service, got %d %v called=%v", rec.Code, body, called)
 	}
@@ -248,7 +248,7 @@ func TestDeleteAuditsBeforeStateAndUsesResourceErrorMapping(t *testing.T) {
 	}
 
 	conflict := widgetResource
-	conflict.MutationError = func(logID uuid.UUID, err error) (int, *gokit.ApiResponse) {
+	conflict.MutationError = func(logID uuid.UUID, err error) (int, *gokit.APIResponse) {
 		return http.StatusConflict, gokit.ErrorResponse(http.StatusConflict, "conflict", logID, err.Error())
 	}
 	f, rec = newTestFlow(http.MethodDelete, "/widgets/w-1", "")
@@ -300,5 +300,59 @@ func TestInternalErrorResponseHidesTheCause(t *testing.T) {
 	raw, _ := json.Marshal(res)
 	if strings.Contains(string(raw), "secret detail") {
 		t.Fatalf("response leaks the cause: %s", raw)
+	}
+}
+
+func TestListReportsTheEffectiveLimit(t *testing.T) {
+	fetch := func(context.Context, dtoshared.ListRequest) ([]widget, int64, error) {
+		return []widget{{Id: "w-1"}}, 250, nil
+	}
+	cases := []struct {
+		name   string
+		target string
+		policy dtoshared.ListPolicy
+		want   float64
+		pages  float64
+	}{
+		{"above the cap", "/widgets?limit=5000", dtoshared.PagedList, 100, 3},
+		{"missing", "/widgets", dtoshared.PagedList, 5, 50},
+		{"minus one without AllowAll", "/widgets?limit=-1", dtoshared.PagedList, 100, 3},
+		{"minus one with AllowAll", "/widgets?limit=-1", dtoshared.ReferenceList, -1, 1},
+		{"inside the cap", "/widgets?limit=40", dtoshared.PagedList, 40, 7},
+	}
+	for _, c := range cases {
+		f, rec := newTestFlow(http.MethodGet, c.target, "")
+		List(f, ListOptions{OrderBy: "name", Direction: "asc", Limit: 5, Policy: c.policy}, fetch)
+		body := decode(t, rec)
+		if rec.Code != http.StatusOK || body["limit"] != c.want || body["total_pages"] != c.pages {
+			t.Errorf("%s: limit=%v total_pages=%v (status %d), want %v and %v", c.name, body["limit"], body["total_pages"], rec.Code, c.want, c.pages)
+		}
+	}
+}
+
+func TestEmptyListSerializesDataAsAnArray(t *testing.T) {
+	f, rec := newTestFlow(http.MethodGet, "/widgets", "")
+	List(f, ListOptions{OrderBy: "name", Direction: "asc", Limit: 5}, func(context.Context, dtoshared.ListRequest) ([]widget, int64, error) {
+		return nil, 0, nil
+	})
+	if got := decode(t, rec)["data"]; got == nil {
+		t.Fatalf("data must be [], got null in %s", rec.Body.String())
+	}
+}
+
+func TestErrorEnvelopeIsAListWithAStringCodeAndAUUIDLogID(t *testing.T) {
+	f, rec := newTestFlow(http.MethodGet, "/", "")
+	RespondNotFound(f.Ctx, f.LogID, "role")
+	body := decode(t, rec)
+	details, ok := body["error"].([]any)
+	if !ok || len(details) != 1 {
+		t.Fatalf("error must be a one-element list, got %v", body["error"])
+	}
+	detail := details[0].(map[string]any)
+	if detail["code"] != "not_found" || detail["message"] != "role not found" {
+		t.Fatalf("unexpected error detail %v", detail)
+	}
+	if _, err := uuid.Parse(body["log_id"].(string)); err != nil {
+		t.Fatalf("log_id must be a UUID: %v", err)
 	}
 }

@@ -22,6 +22,8 @@ func NewRepository(db *gorm.DB) *Repository {
 
 func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainaudit.AuditTrail, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
+		MaxLimit:       dtoshared.PagedList.MaxLimit,
+		AllowAll:       dtoshared.PagedList.AllowAll,
 		Search:         gokit.BuildSearchFunc("action", "resource", "status", "actor_role", "message", "error_message", "request_id", "ip_address"),
 		AllowedFilters: []string{"actor_user_id", "actor_role", "action", "resource", "status", "request_id"},
 		AllowedOrderColumns: []string{
@@ -39,4 +41,10 @@ func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret
 func (r *Repository) GetByID(ctx context.Context, id string) (domainaudit.AuditTrail, error) {
 	ret, err := r.Repository.GetByID(ctx, id)
 	return ret, repositoryshared.Gorm(err, domainaudit.ErrNotFound, nil)
+}
+
+// Store writes one audit trail. gokit's Store takes a pointer; the service
+// port passes the trail by value.
+func (r *Repository) Store(ctx context.Context, trail domainaudit.AuditTrail) error {
+	return r.Repository.Store(ctx, &trail)
 }

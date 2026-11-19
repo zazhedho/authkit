@@ -2,7 +2,6 @@ package shared
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -24,7 +23,7 @@ type Flow struct {
 
 // NewFlow starts a flow for one handler method.
 func NewFlow(ctx *gin.Context, prefix string) Flow {
-	return Flow{Ctx: ctx, LogID: gokit.GenerateLogId(ctx), Prefix: prefix}
+	return Flow{Ctx: ctx, LogID: gokit.RequestID(ctx), Prefix: prefix}
 }
 
 // NewQuietFlow starts a flow that does not write the debug request and
@@ -54,7 +53,7 @@ func (f Flow) UUIDParam() (id string, ok bool) {
 
 // LogError logs a failed step as "<prefix>; <step>; Error: <err>".
 func (f Flow) LogError(step string, err error) {
-	logus.WriteLogWithContext(f.Ctx, logus.LogLevelError, fmt.Sprintf("%s; %s; Error: %+v", f.Prefix, step, err))
+	logus.LogContextf(f.Ctx, logus.LevelError, "%s; %s; Error: %+v", f.Prefix, step, err)
 }
 
 // LogRequest writes the debug line for a bound request body.
@@ -62,7 +61,7 @@ func (f Flow) LogRequest(req any) {
 	if f.quiet {
 		return
 	}
-	logus.WriteLogWithContext(f.Ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Request: %+v;", f.Prefix, gokit.JsonEncode(req)))
+	logus.LogContextf(f.Ctx, logus.LevelDebug, "%s; Request: %+v;", f.Prefix, gokit.JSONEncode(req))
 }
 
 // LogResponse writes the debug line for a successful response body.
@@ -70,7 +69,7 @@ func (f Flow) LogResponse(data any) {
 	if f.quiet {
 		return
 	}
-	logus.WriteLogWithContext(f.Ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Response: %+v;", f.Prefix, gokit.JsonEncode(data)))
+	logus.LogContextf(f.Ctx, logus.LevelDebug, "%s; Response: %+v;", f.Prefix, gokit.JSONEncode(data))
 }
 
 // LogResponseText writes the debug line for a response that has no body.
@@ -78,7 +77,7 @@ func (f Flow) LogResponseText(text string) {
 	if f.quiet {
 		return
 	}
-	logus.WriteLogWithContext(f.Ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Response: %s", f.Prefix, text))
+	logus.LogContextf(f.Ctx, logus.LevelDebug, "%s; Response: %s", f.Prefix, text)
 }
 
 // RespondInternalError writes the generic 500 response.
@@ -94,8 +93,7 @@ func RespondUnauthorized(ctx *gin.Context, logID uuid.UUID) {
 // RespondNotFound writes the 404 response for a missing resource, for example
 // "Role not found" with the public error "role not found".
 func RespondNotFound(ctx *gin.Context, logID uuid.UUID, name string) {
-	res := gokit.Response(http.StatusNotFound, capitalize(name)+" not found", logID, nil)
-	res.Error = gokit.Errors{Code: http.StatusNotFound, Message: name + " not found"}
+	res := gokit.ErrorResponse(http.StatusNotFound, capitalize(name)+" not found", logID, name+" not found")
 	ctx.JSON(http.StatusNotFound, res)
 }
 

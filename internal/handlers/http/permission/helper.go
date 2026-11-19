@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func permissionMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiResponse) {
+func permissionMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.APIResponse) {
 	if httpshared.IsNotFound(err) {
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, "permission not found")
 	}

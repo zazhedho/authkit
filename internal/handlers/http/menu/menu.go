@@ -7,6 +7,7 @@ import (
 
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
 	dtomenu "github.com/zazhedho/authkit/internal/dto/menu"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 
 	"github.com/gin-gonic/gin"
@@ -38,7 +39,7 @@ func (h *Handler) GetByID(ctx *gin.Context) {
 
 func (h *Handler) GetAll(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[MenuHandler][GetAll]")
-	httpshared.List(f, httpshared.ListOptions{OrderBy: "order_index", Direction: "asc", Limit: 100}, h.Service.GetAll)
+	httpshared.List(f, httpshared.ListOptions{OrderBy: "order_index", Direction: "asc", Limit: 100, Policy: dtoshared.ReferenceList}, h.Service.GetAll)
 }
 
 func (h *Handler) GetActiveMenus(ctx *gin.Context) {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/zazhedho/gokit"
 	"gorm.io/gorm"
 )
 
@@ -60,5 +61,12 @@ func TestRedisMsgKeepsCallerMessage(t *testing.T) {
 	other := errors.New("boom")
 	if !errors.Is(RedisMsg(other, errMissing, "x"), other) {
 		t.Fatal("other errors must pass through")
+	}
+}
+
+func TestGormMapsGokitNotFoundFromWrites(t *testing.T) {
+	got := Gorm(gokit.ErrNotFound, errMissing, errDup)
+	if !errors.Is(got, errMissing) || !errors.Is(got, gokit.ErrNotFound) {
+		t.Fatalf("a write that matched no row must map to the domain error, got %v", got)
 	}
 }

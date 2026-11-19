@@ -27,7 +27,7 @@ func translateErr(err error) error {
 }
 
 func (r *Repository) Store(ctx context.Context, role domainrole.Role) error {
-	return translateErr(r.Repository.Store(ctx, role))
+	return translateErr(r.Repository.Store(ctx, &role))
 }
 
 func (r *Repository) GetByID(ctx context.Context, id string) (domainrole.Role, error) {
@@ -36,7 +36,7 @@ func (r *Repository) GetByID(ctx context.Context, id string) (domainrole.Role, e
 }
 
 func (r *Repository) Update(ctx context.Context, role domainrole.Role) error {
-	return translateErr(r.Repository.Update(ctx, role))
+	return translateErr(r.Repository.Update(ctx, &role))
 }
 
 func (r *Repository) Delete(ctx context.Context, id string) error {
@@ -50,6 +50,8 @@ func (r *Repository) GetByName(ctx context.Context, name string) (ret domainrole
 
 func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainrole.Role, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
+		MaxLimit:       dtoshared.ReferenceList.MaxLimit,
+		AllowAll:       dtoshared.ReferenceList.AllowAll,
 		Search:         gokit.BuildSearchFunc("name", "display_name", "description"),
 		AllowedFilters: []string{"id", "name", "display_name", "is_system", "created_at", "updated_at"},
 		AllowedOrderColumns: []string{

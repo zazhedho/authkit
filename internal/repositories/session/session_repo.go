@@ -60,7 +60,7 @@ func (r *Repository) Create(ctx context.Context, session *domainsession.Session)
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 
-	logus.WriteLog(logus.LogLevelDebug, fmt.Sprintf("Session created: %s for user: %s", session.SessionID, session.UserID))
+	logus.Logf(logus.LevelDebug, "Session created: %s for user: %s", session.SessionID, session.UserID)
 	return nil
 }
 
@@ -95,7 +95,7 @@ func (r *Repository) GetByUserID(ctx context.Context, userID string) ([]*domains
 	for _, sessionID := range sessionIDs {
 		session, err := r.GetBySessionID(ctx, sessionID)
 		if err != nil {
-			logus.WriteLog(logus.LogLevelDebug, fmt.Sprintf("Skipping invalid session %s: %v", sessionID, err))
+			logus.Logf(logus.LevelDebug, "Skipping invalid session %s: %v", sessionID, err)
 			r.Redis.SRem(ctx, userSessionKey, sessionID)
 			continue
 		}
@@ -151,7 +151,7 @@ func (r *Repository) Delete(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("failed to delete session: %w", err)
 	}
 
-	logus.WriteLog(logus.LogLevelDebug, fmt.Sprintf("Session deleted: %s", sessionID))
+	logus.Logf(logus.LevelDebug, "Session deleted: %s", sessionID)
 	return nil
 }
 
@@ -163,7 +163,7 @@ func (r *Repository) DeleteByUserID(ctx context.Context, userID string) error {
 
 	for _, session := range sessions {
 		if err := r.Delete(ctx, session.SessionID); err != nil {
-			logus.WriteLog(logus.LogLevelError, fmt.Sprintf("Failed to delete session %s: %v", session.SessionID, err))
+			logus.Logf(logus.LevelError, "Failed to delete session %s: %v", session.SessionID, err)
 		}
 	}
 
@@ -215,6 +215,6 @@ func (r *Repository) RotateTokens(ctx context.Context, sessionID string, accessT
 }
 
 func (r *Repository) DeleteExpired(ctx context.Context) error {
-	logus.WriteLog(logus.LogLevelDebug, "Expired sessions are automatically removed by Redis TTL")
+	logus.Log(logus.LevelDebug, "Expired sessions are automatically removed by Redis TTL")
 	return nil
 }

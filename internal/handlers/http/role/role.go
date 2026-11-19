@@ -2,7 +2,6 @@ package role
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/zazhedho/gokit"
@@ -52,7 +51,7 @@ func (h *Handler) GetByID(ctx *gin.Context) {
 
 func (h *Handler) GetAll(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[RoleHandler][GetAll]")
-	httpshared.List(f, httpshared.ListOptions{OrderBy: "name", Direction: "asc", Limit: 10},
+	httpshared.List(f, httpshared.ListOptions{OrderBy: "name", Direction: "asc", Limit: 10, Policy: dtoshared.ReferenceList},
 		func(reqCtx context.Context, req dtoshared.ListRequest) ([]domainrole.Role, int64, error) {
 			return h.Service.GetAll(reqCtx, httpshared.ActorFrom(reqCtx), req)
 		})
@@ -105,14 +104,14 @@ type roleRelationAssignment[T any] struct {
 
 func handleRoleRelationAssignment[T any](h *Handler, ctx *gin.Context, req *T, assignment roleRelationAssignment[T]) {
 	id := ctx.Param("id")
-	logId := gokit.GenerateLogId(ctx)
+	logId := gokit.RequestID(ctx)
 	reqCtx := ctx.Request.Context()
 
 	if !gokit.BindJSON(ctx, logId, assignment.logPrefix, req) {
 		return
 	}
 
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Request: %+v;", assignment.logPrefix, gokit.JsonEncode(*req)))
+	logus.LogContextf(ctx, logus.LevelDebug, "%s; Request: %+v;", assignment.logPrefix, gokit.JSONEncode(*req))
 
 	beforeIDs, _ := assignment.getBefore(reqCtx, id)
 	beforeData := map[string]any{assignment.beforeDataKey: beforeIDs}
@@ -127,7 +126,7 @@ func handleRoleRelationAssignment[T any](h *Handler, ctx *gin.Context, req *T, a
 			BeforeData:   beforeData,
 			AfterData:    *req,
 		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.%s; Error: %+v", assignment.logPrefix, assignment.serviceName, err))
+		logus.LogContextf(ctx, logus.LevelError, "%s; Service.%s; Error: %+v", assignment.logPrefix, assignment.serviceName, err)
 		statusCode, res := roleMutationErrorResponse(logId, err)
 		ctx.JSON(statusCode, res)
 		return
@@ -144,6 +143,6 @@ func handleRoleRelationAssignment[T any](h *Handler, ctx *gin.Context, req *T, a
 	})
 
 	res := gokit.Response(http.StatusOK, assignment.responseMsg, logId, nil)
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; %s", assignment.logPrefix, assignment.debugMsg))
+	logus.LogContextf(ctx, logus.LevelDebug, "%s; %s", assignment.logPrefix, assignment.debugMsg)
 	ctx.JSON(http.StatusOK, res)
 }

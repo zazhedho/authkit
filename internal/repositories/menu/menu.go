@@ -32,7 +32,7 @@ func (r *Repository) GetByID(ctx context.Context, id string) (domainmenu.MenuIte
 }
 
 func (r *Repository) Update(ctx context.Context, item domainmenu.MenuItem) error {
-	return translateErr(r.Repository.Update(ctx, item))
+	return translateErr(r.Repository.Update(ctx, &item))
 }
 
 func (r *Repository) GetByName(ctx context.Context, name string) (ret domainmenu.MenuItem, err error) {
@@ -42,6 +42,8 @@ func (r *Repository) GetByName(ctx context.Context, name string) (ret domainmenu
 
 func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainmenu.MenuItem, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
+		MaxLimit:       dtoshared.ReferenceList.MaxLimit,
+		AllowAll:       dtoshared.ReferenceList.AllowAll,
 		Search:         gokit.BuildSearchFunc("name", "display_name", "path"),
 		AllowedFilters: []string{"id", "name", "display_name", "path", "parent_id", "order_index", "is_active", "created_at", "updated_at"},
 		AllowedOrderColumns: []string{

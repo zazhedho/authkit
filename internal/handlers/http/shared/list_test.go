@@ -15,7 +15,7 @@ import (
 func TestListRequestCopiesEveryField(t *testing.T) {
 	params := gokit.BaseParams{
 		Search: "x", Filters: map[string]any{"a": 1}, OrderBy: "name", OrderDirection: "DESC",
-		Page: 3, Limit: 10, Offset: 20, Columns: []string{"ignored"},
+		Page: 3, Limit: 10, Offset: 20,
 	}
 
 	got := ListRequest(params)

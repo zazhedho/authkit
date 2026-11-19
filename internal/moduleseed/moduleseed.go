@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/zazhedho/gokit"
+	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 )
 
 var defaultActions = []string{"list", "view", "create", "update", "delete"}
@@ -24,12 +24,12 @@ type Definition struct {
 }
 
 func (d Definition) Normalize() Definition {
-	d.Name = gokit.NormalizeKey(d.Name)
+	d.Name = serviceshared.NormalizeKey(d.Name)
 	d.DisplayName = strings.TrimSpace(d.DisplayName)
 	d.Path = strings.TrimSpace(d.Path)
 	d.Icon = strings.TrimSpace(d.Icon)
-	d.ParentName = gokit.NormalizeKey(d.ParentName)
-	d.Resource = gokit.NormalizeKey(d.Resource)
+	d.ParentName = serviceshared.NormalizeKey(d.ParentName)
+	d.Resource = serviceshared.NormalizeKey(d.Resource)
 
 	if d.Resource == "" {
 		d.Resource = d.Name
@@ -40,7 +40,7 @@ func (d Definition) Normalize() Definition {
 
 	normalizedActions := make([]string, 0, len(d.Actions))
 	for _, action := range d.Actions {
-		action = gokit.NormalizeKey(action)
+		action = serviceshared.NormalizeKey(action)
 		if action == "" || slices.Contains(normalizedActions, action) {
 			continue
 		}
@@ -50,7 +50,7 @@ func (d Definition) Normalize() Definition {
 
 	normalizedRoles := make([]string, 0, len(d.GrantRoles))
 	for _, role := range d.GrantRoles {
-		role = gokit.NormalizeKey(role)
+		role = serviceshared.NormalizeKey(role)
 		if role == "" || slices.Contains(normalizedRoles, role) {
 			continue
 		}
@@ -168,11 +168,11 @@ func renderRolePermissionInsert(def Definition) string {
 }
 
 func permissionName(action, moduleName string) string {
-	return fmt.Sprintf("%s_%s", gokit.NormalizeKey(action), gokit.NormalizeKey(moduleName))
+	return fmt.Sprintf("%s_%s", serviceshared.NormalizeKey(action), serviceshared.NormalizeKey(moduleName))
 }
 
 func permissionDisplayName(action, displayName string) string {
-	return fmt.Sprintf("%s %s", gokit.TitleHumanized(action), displayName)
+	return fmt.Sprintf("%s %s", serviceshared.TitleHumanized(action), displayName)
 }
 
 func quote(value string) string {

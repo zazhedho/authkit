@@ -18,7 +18,7 @@ func TestRequestLoggerAndRecoveryMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(RequestLogger())
-	router.Use(gin.CustomRecovery(gokit.ErrorHandler))
+	router.Use(gokit.Recovery())
 	router.GET("/panic", func(ctx *gin.Context) {
 		panic("boom")
 	})

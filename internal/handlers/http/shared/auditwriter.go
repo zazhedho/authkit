@@ -1,8 +1,6 @@
 package shared
 
 import (
-	"fmt"
-
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 
@@ -33,12 +31,12 @@ func (w AuditWriter) WriteAudit(ctx *gin.Context, event domainaudit.AuditEvent) 
 	if event.ActorRole == "" && scopeData.ActorRole() != "" {
 		event.ActorRole = scopeData.ActorRole()
 	}
-	event.RequestID = gokit.GetRequestID(ctx)
+	event.RequestID = gokit.RequestID(ctx).String()
 	event.IPAddress = ctx.ClientIP()
 	event.UserAgent = ctx.GetHeader("User-Agent")
-	event.Metadata = gokit.MergeMetadata(event.Metadata, GetImpersonationMetadata(ctx))
+	event.Metadata = MergeMetadata(event.Metadata, GetImpersonationMetadata(ctx))
 
 	if err := w.Service.Store(ctx.Request.Context(), event); err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelWarn, fmt.Sprintf("[%s][Audit]; failed to store audit trail: %v", w.Scope, err))
+		logus.LogContextf(ctx, logus.LevelWarn, "[%s][Audit]; failed to store audit trail: %v", w.Scope, err)
 	}
 }

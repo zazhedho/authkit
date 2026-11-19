@@ -28,7 +28,7 @@ func (r *Repository) Store(ctx context.Context, user domainuser.Users) error {
 	if user.Phone == "" {
 		return translateErr(r.DB.WithContext(ctx).Omit("phone").Create(&user).Error)
 	}
-	return translateErr(r.Repository.Store(ctx, user))
+	return translateErr(r.Repository.Store(ctx, &user))
 }
 
 func (r *Repository) GetByID(ctx context.Context, id string) (domainuser.Users, error) {
@@ -37,7 +37,7 @@ func (r *Repository) GetByID(ctx context.Context, id string) (domainuser.Users, 
 }
 
 func (r *Repository) Update(ctx context.Context, user domainuser.Users) error {
-	return translateErr(r.Repository.Update(ctx, user))
+	return translateErr(r.Repository.Update(ctx, &user))
 }
 
 func (r *Repository) Delete(ctx context.Context, id string) error {
@@ -56,6 +56,8 @@ func (r *Repository) GetByPhone(ctx context.Context, phone string) (ret domainus
 
 func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainuser.Users, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
+		MaxLimit:       dtoshared.PagedList.MaxLimit,
+		AllowAll:       dtoshared.PagedList.AllowAll,
 		Search:         gokit.BuildSearchFunc("name", "email", "phone"),
 		AllowedFilters: []string{"id", "name", "email", "phone", "role", "role_id", "created_at", "updated_at"},
 		AllowedOrderColumns: []string{

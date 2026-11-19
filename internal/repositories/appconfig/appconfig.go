@@ -22,6 +22,8 @@ func NewRepository(db *gorm.DB) *Repository {
 
 func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainappconfig.AppConfig, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
+		MaxLimit:        dtoshared.PagedList.MaxLimit,
+		AllowAll:        dtoshared.PagedList.AllowAll,
 		Search:          gokit.BuildSearchFunc("config_key", "display_name", "category"),
 		AllowedFilters:  []string{"category", "is_active"},
 		FilterSanitizer: gokit.WhitelistStringFilter,
@@ -47,7 +49,7 @@ func (r *Repository) GetByID(ctx context.Context, id string) (domainappconfig.Ap
 }
 
 func (r *Repository) Update(ctx context.Context, config domainappconfig.AppConfig) error {
-	return translateErr(r.Repository.Update(ctx, config))
+	return translateErr(r.Repository.Update(ctx, &config))
 }
 
 func (r *Repository) GetByKey(ctx context.Context, configKey string) (ret domainappconfig.AppConfig, err error) {

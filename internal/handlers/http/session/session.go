@@ -1,7 +1,6 @@
 package session
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/zazhedho/gokit"
@@ -33,7 +32,7 @@ func New(s Service, auditService httpshared.AuditService) *Handler {
 }
 
 func (h *Handler) GetActiveSessions(ctx *gin.Context) {
-	logId := gokit.GenerateLogId(ctx)
+	logId := gokit.RequestID(ctx)
 	logPrefix := "[SessionHandler][GetActiveSessions]"
 	reqCtx := ctx.Request.Context()
 
@@ -51,7 +50,7 @@ func (h *Handler) GetActiveSessions(ctx *gin.Context) {
 
 	sessions, err := h.Service.GetUserSessions(reqCtx, userID, currentSessionID)
 	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetUserSessions; Error: %+v", logPrefix, err))
+		logus.LogContextf(ctx, logus.LevelError, "%s; Service.GetUserSessions; Error: %+v", logPrefix, err)
 		httpshared.RespondInternalError(ctx, logId)
 		return
 	}
@@ -64,7 +63,7 @@ func (h *Handler) GetActiveSessions(ctx *gin.Context) {
 }
 
 func (h *Handler) RevokeSession(ctx *gin.Context) {
-	logId := gokit.GenerateLogId(ctx)
+	logId := gokit.RequestID(ctx)
 	logPrefix := "[SessionHandler][RevokeSession]"
 	reqCtx := ctx.Request.Context()
 
@@ -77,8 +76,7 @@ func (h *Handler) RevokeSession(ctx *gin.Context) {
 			Message:      failedRevokeSessionMessage,
 			ErrorMessage: "Session ID is required",
 		})
-		res := gokit.Response(http.StatusBadRequest, gokit.MsgInvalidRequest, logId, nil)
-		res.Error = "session_id is required"
+		res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgInvalidRequest, logId, "session_id is required")
 		ctx.JSON(http.StatusBadRequest, res)
 		return
 	}
@@ -98,9 +96,8 @@ func (h *Handler) RevokeSession(ctx *gin.Context) {
 			Message:      failedRevokeSessionMessage,
 			ErrorMessage: "The requested session was not found",
 		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetSessionBySessionID; Error: %+v", logPrefix, err))
-		res := gokit.Response(http.StatusNotFound, gokit.MsgSomethingWrong, logId, nil)
-		res.Error = "session not found"
+		logus.LogContextf(ctx, logus.LevelError, "%s; Service.GetSessionBySessionID; Error: %+v", logPrefix, err)
+		res := gokit.ErrorResponse(http.StatusNotFound, gokit.MsgSomethingWrong, logId, "session not found")
 		ctx.JSON(http.StatusNotFound, res)
 		return
 	}
@@ -117,7 +114,7 @@ func (h *Handler) RevokeSession(ctx *gin.Context) {
 				"session_user_id": session.UserID,
 			},
 		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; unauthorized session revocation attempt", logPrefix))
+		logus.LogContextf(ctx, logus.LevelError, "%s; unauthorized session revocation attempt", logPrefix)
 		res := gokit.Forbidden(logId, gokit.MsgAccessDenied)
 		ctx.JSON(http.StatusForbidden, res)
 		return
@@ -132,7 +129,7 @@ func (h *Handler) RevokeSession(ctx *gin.Context) {
 			Message:      failedRevokeSessionMessage,
 			ErrorMessage: err.Error(),
 		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.DestroySession; Error: %+v", logPrefix, err))
+		logus.LogContextf(ctx, logus.LevelError, "%s; Service.DestroySession; Error: %+v", logPrefix, err)
 		httpshared.RespondInternalError(ctx, logId)
 		return
 	}
@@ -150,7 +147,7 @@ func (h *Handler) RevokeSession(ctx *gin.Context) {
 }
 
 func (h *Handler) RevokeAllOtherSessions(ctx *gin.Context) {
-	logId := gokit.GenerateLogId(ctx)
+	logId := gokit.RequestID(ctx)
 	logPrefix := "[SessionHandler][RevokeAllOtherSessions]"
 	reqCtx := ctx.Request.Context()
 
@@ -169,7 +166,7 @@ func (h *Handler) RevokeAllOtherSessions(ctx *gin.Context) {
 			Message:      "Failed to revoke other login sessions",
 			ErrorMessage: "Could not identify the current session",
 		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.GetSessionByToken; Error: %+v", logPrefix, err))
+		logus.LogContextf(ctx, logus.LevelError, "%s; Service.GetSessionByToken; Error: %+v", logPrefix, err)
 		httpshared.RespondInternalError(ctx, logId)
 		return
 	}
@@ -183,7 +180,7 @@ func (h *Handler) RevokeAllOtherSessions(ctx *gin.Context) {
 			Message:      "Failed to revoke other login sessions",
 			ErrorMessage: err.Error(),
 		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.DestroyOtherSessions; Error: %+v", logPrefix, err))
+		logus.LogContextf(ctx, logus.LevelError, "%s; Service.DestroyOtherSessions; Error: %+v", logPrefix, err)
 		httpshared.RespondInternalError(ctx, logId)
 		return
 	}
@@ -205,7 +202,7 @@ func (h *Handler) RevokeAllOtherSessions(ctx *gin.Context) {
 func requireUserID(ctx *gin.Context, logId uuid.UUID, logPrefix string) (userID string, ok bool) {
 	userID = domainauth.FromContext(ctx.Request.Context()).UserID
 	if userID == "" {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; userId not found in context", logPrefix))
+		logus.LogContextf(ctx, logus.LevelError, "%s; userId not found in context", logPrefix)
 		ctx.JSON(http.StatusUnauthorized, gokit.Unauthorized(logId, sessionAuthenticationRequiredMessage))
 		return "", false
 	}

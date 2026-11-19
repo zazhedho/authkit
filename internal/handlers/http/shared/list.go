@@ -19,3 +19,13 @@ func ListRequest(params gokit.BaseParams) dtoshared.ListRequest {
 		Offset:         params.Offset,
 	}
 }
+
+// PageSize is the page size the repository applies to params under policy: the
+// value pagination metadata must report, instead of the raw requested limit.
+// The zero policy means dtoshared.PagedList.
+func PageSize(policy dtoshared.ListPolicy, params gokit.BaseParams) int {
+	if policy == (dtoshared.ListPolicy{}) {
+		policy = dtoshared.PagedList
+	}
+	return gokit.QueryOptions{MaxLimit: policy.MaxLimit, AllowAll: policy.AllowAll}.PageSize(params)
+}

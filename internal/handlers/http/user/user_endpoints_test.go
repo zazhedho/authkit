@@ -363,6 +363,27 @@ func TestUserHandlerPublicAndAdminFlows(t *testing.T) {
 	assertUserHandlerStatus(t, rec, http.StatusOK)
 }
 
+func TestGetAllUsersRejectsInvalidQueryAndReportsTheEffectiveLimit(t *testing.T) {
+	handler := newUserHandlerForTest()
+
+	ctx, rec := newUserHandlerTestContext(t, http.MethodGet, "/users?page=abc", "", nil)
+	handler.GetAllUsers(ctx)
+	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
+
+	ctx, rec = newUserHandlerTestContext(t, http.MethodGet, "/users?limit=-1", "", nil)
+	handler.GetAllUsers(ctx)
+	assertUserHandlerStatus(t, rec, http.StatusOK)
+	var body struct {
+		Limit int `json:"limit"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Limit != dtoshared.DefaultMaxLimit {
+		t.Fatalf("users stay paged, so limit=-1 reports %d, got %d", dtoshared.DefaultMaxLimit, body.Limit)
+	}
+}
+
 func TestUserHandlerGetRegisterStatusIncludesOTPConfig(t *testing.T) {
 	handler := newUserHandlerForTest()
 	handler.Settings.OTPCooldown = 45 * time.Second

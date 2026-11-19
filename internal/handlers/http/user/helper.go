@@ -41,8 +41,7 @@ func (h *Handler) respondTooManyLoginAttempts(ctx *gin.Context, logId uuid.UUID,
 		message = fmt.Sprintf("Too many login attempts. Try again in %d seconds.", int(ttl.Seconds()))
 	}
 
-	res := gokit.Response(http.StatusTooManyRequests, gokit.MsgSomethingWrong, logId, nil)
-	res.Error = gokit.Errors{Code: http.StatusTooManyRequests, Message: message}
+	res := gokit.ErrorResponse(http.StatusTooManyRequests, gokit.MsgSomethingWrong, logId, message)
 	ctx.AbortWithStatusJSON(http.StatusTooManyRequests, res)
 }
 
@@ -55,8 +54,7 @@ func (h *Handler) respondThrottle(ctx *gin.Context, logId uuid.UUID, ttl time.Du
 		message = "Too many requests. Please try again later."
 	}
 
-	res := gokit.Response(http.StatusTooManyRequests, gokit.MsgSomethingWrong, logId, nil)
-	res.Error = gokit.Errors{Code: http.StatusTooManyRequests, Message: message}
+	res := gokit.ErrorResponse(http.StatusTooManyRequests, gokit.MsgSomethingWrong, logId, message)
 	ctx.AbortWithStatusJSON(http.StatusTooManyRequests, res)
 }
 
@@ -72,7 +70,7 @@ func (h *Handler) registrationConflict(ctx context.Context, email, phone string)
 		return "", "", nil
 	}
 
-	user, err = h.Service.GetUserByPhone(ctx, gokit.NormalizePhoneTo62(phone))
+	user, err = h.Service.GetUserByPhone(ctx, domainuser.NormalizePhoneTo62(phone))
 	if err != nil && !httpshared.IsNotFound(err) {
 		return "", "Service.GetUserByPhone", err
 	}
@@ -88,7 +86,7 @@ func (h *Handler) rejectBlockedLogin(ctx *gin.Context, logId uuid.UUID, logPrefi
 	}
 	blocked, ttl, err := h.LoginLimiter.IsBlocked(ctx.Request.Context(), loginIdentifier)
 	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; LoginLimiter.IsBlocked error: %v", logPrefix, err))
+		logus.LogContextf(ctx, logus.LevelError, "%s; LoginLimiter.IsBlocked error: %v", logPrefix, err)
 		return false
 	}
 	if !blocked {
@@ -103,13 +101,13 @@ func (h *Handler) rejectBlockedLogin(ctx *gin.Context, logId uuid.UUID, logPrefi
 			"identifier": normalizedIdentifier,
 		},
 	})
-	logus.WriteLogWithContext(ctx, logus.LogLevelWarn, fmt.Sprintf("%s; Too many attempts", logPrefix))
+	logus.LogContextf(ctx, logus.LevelWarn, "%s; Too many attempts", logPrefix)
 	h.respondTooManyLoginAttempts(ctx, logId, ttl)
 	return true
 }
 
 func (h *Handler) handleLoginFailure(ctx *gin.Context, logId uuid.UUID, logPrefix, normalizedIdentifier, loginIdentifier string, err error) {
-	logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.LoginUser; ERROR: %s;", logPrefix, err))
+	logus.LogContextf(ctx, logus.LevelError, "%s; Service.LoginUser; ERROR: %s;", logPrefix, err)
 	if !httpshared.IsNotFound(err) && err.Error() != ErrHashPassword {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionLogin,
@@ -126,7 +124,7 @@ func (h *Handler) handleLoginFailure(ctx *gin.Context, logId uuid.UUID, logPrefi
 	if h.LoginLimiter != nil {
 		blocked, ttl, limiterErr := h.LoginLimiter.RegisterFailure(ctx.Request.Context(), loginIdentifier)
 		if limiterErr != nil {
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; LoginLimiter.RegisterFailure error: %v", logPrefix, limiterErr))
+			logus.LogContextf(ctx, logus.LevelError, "%s; LoginLimiter.RegisterFailure error: %v", logPrefix, limiterErr)
 		}
 		if blocked {
 			h.WriteAudit(ctx, domainaudit.AuditEvent{
@@ -138,7 +136,7 @@ func (h *Handler) handleLoginFailure(ctx *gin.Context, logId uuid.UUID, logPrefi
 					"identifier": normalizedIdentifier,
 				},
 			})
-			logus.WriteLogWithContext(ctx, logus.LogLevelWarn, fmt.Sprintf("%s; Account temporarily locked after repeated failures", logPrefix))
+			logus.LogContextf(ctx, logus.LevelWarn, "%s; Account temporarily locked after repeated failures", logPrefix)
 			h.respondTooManyLoginAttempts(ctx, logId, ttl)
 			return
 		}
@@ -153,8 +151,7 @@ func (h *Handler) handleLoginFailure(ctx *gin.Context, logId uuid.UUID, logPrefi
 			"identifier": normalizedIdentifier,
 		},
 	})
-	res := gokit.Response(http.StatusBadRequest, InvalidCred, logId, nil)
-	res.Error = gokit.Errors{Code: http.StatusBadRequest, Message: MsgCredential}
+	res := gokit.ErrorResponse(http.StatusBadRequest, InvalidCred, logId, MsgCredential)
 	ctx.JSON(http.StatusBadRequest, res)
 }
 
@@ -163,7 +160,7 @@ func (h *Handler) resetLoginLimiter(ctx *gin.Context, logPrefix, loginIdentifier
 		return
 	}
 	if err := h.LoginLimiter.Reset(ctx.Request.Context(), loginIdentifier); err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; LoginLimiter.Reset error: %v", logPrefix, err))
+		logus.LogContextf(ctx, logus.LevelError, "%s; LoginLimiter.Reset error: %v", logPrefix, err)
 	}
 }
 
@@ -176,22 +173,21 @@ func (h *Handler) createLoginSession(ctx *gin.Context, reqCtx context.Context, u
 		UserAgent: ctx.GetHeader("User-Agent"),
 	})
 	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Failed to create session: %v", logPrefix, err))
+		logus.LogContextf(ctx, logus.LevelError, "%s; Failed to create session: %v", logPrefix, err)
 		return
 	}
-	logus.WriteLogWithContext(ctx, logus.LogLevelInfo, fmt.Sprintf("%s; Session created: %s", logPrefix, session.SessionID))
+	logus.LogContextf(ctx, logus.LevelInfo, "%s; Session created: %s", logPrefix, session.SessionID)
 }
 
 func (h *Handler) forgotPasswordByEmail(ctx *gin.Context, req dtouser.ForgotPasswordRequest, logId uuid.UUID, logPrefix string) {
 	if h.ResetService == nil {
-		res := gokit.Response(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logId, nil)
-		res.Error = gokit.Errors{Code: http.StatusServiceUnavailable, Message: passwordResetEmailNotConfiguredMessage}
+		res := gokit.ErrorResponse(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logId, passwordResetEmailNotConfiguredMessage)
 		ctx.JSON(http.StatusServiceUnavailable, res)
 		return
 	}
 
 	reqCtx := ctx.Request.Context()
-	normalizedEmail := gokit.SanitizeEmail(req.Email)
+	normalizedEmail := domainuser.SanitizeEmail(req.Email)
 	if data, err := h.Service.GetUserByEmail(reqCtx, normalizedEmail); err == nil && data.Id != "" {
 		appName := h.Settings.EmailAppName
 		if err := h.ResetService.RequestReset(reqCtx, normalizedEmail, appName); err != nil {
@@ -210,8 +206,7 @@ func (h *Handler) forgotPasswordByEmail(ctx *gin.Context, req dtouser.ForgotPass
 				statusCode = http.StatusServiceUnavailable
 				message = "Password reset email service is temporarily unavailable."
 			}
-			res := gokit.Response(statusCode, gokit.MsgSomethingWrong, logId, nil)
-			res.Error = gokit.Errors{Code: statusCode, Message: message}
+			res := gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logId, message)
 			ctx.JSON(statusCode, res)
 			return
 		}
@@ -224,14 +219,13 @@ func (h *Handler) forgotPasswordByEmail(ctx *gin.Context, req dtouser.ForgotPass
 	res := gokit.Response(http.StatusOK, "Password reset instructions sent to your email", logId, map[string]any{
 		"cooldown": int(h.Settings.ResetCooldown.Seconds()),
 	})
-	logus.WriteLogWithContext(ctx, logus.LogLevelInfo, fmt.Sprintf("%s; Password reset instructions sent to email: %s", logPrefix, normalizedEmail))
+	logus.LogContextf(ctx, logus.LevelInfo, "%s; Password reset instructions sent to email: %s", logPrefix, normalizedEmail)
 	ctx.JSON(http.StatusOK, res)
 }
 
 func (h *Handler) resetPasswordByEmail(ctx *gin.Context, req dtouser.ResetPasswordRequest, logId uuid.UUID, logPrefix string) {
 	if h.ResetService == nil {
-		res := gokit.Response(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logId, nil)
-		res.Error = gokit.Errors{Code: http.StatusServiceUnavailable, Message: passwordResetEmailNotConfiguredMessage}
+		res := gokit.ErrorResponse(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logId, passwordResetEmailNotConfiguredMessage)
 		ctx.JSON(http.StatusServiceUnavailable, res)
 		return
 	}
@@ -248,8 +242,7 @@ func (h *Handler) resetPasswordByEmail(ctx *gin.Context, req dtouser.ResetPasswo
 			statusCode = http.StatusServiceUnavailable
 			message = passwordResetEmailNotConfiguredMessage
 		}
-		res := gokit.Response(statusCode, gokit.MsgSomethingWrong, logId, nil)
-		res.Error = gokit.Errors{Code: statusCode, Message: message}
+		res := gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logId, message)
 		ctx.JSON(statusCode, res)
 		return
 	}
@@ -285,7 +278,7 @@ func (h *Handler) resetPasswordByEmail(ctx *gin.Context, req dtouser.ResetPasswo
 			Message: "Failed to revoke sessions after password reset", ErrorMessage: err.Error(),
 			AfterData: map[string]any{"email": email},
 		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; SessionSvc.DestroyAllUserSessions; ERROR: %s;", logPrefix, err))
+		logus.LogContextf(ctx, logus.LevelError, "%s; SessionSvc.DestroyAllUserSessions; ERROR: %s;", logPrefix, err)
 		ctx.JSON(http.StatusInternalServerError, gokit.InternalServerError(logId))
 		return
 	}
@@ -319,7 +312,7 @@ func (h *Handler) buildAuthTokenResponse(accessToken, refreshToken string) map[s
 	return data
 }
 
-func userMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiResponse) {
+func userMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.APIResponse) {
 	if httpshared.IsNotFound(err) {
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, userNotFoundMessage)
 	}
@@ -347,7 +340,7 @@ func userMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiRespo
 	}
 }
 
-func impersonationErrorResponse(logId uuid.UUID, err error) (int, *gokit.ApiResponse) {
+func impersonationErrorResponse(logId uuid.UUID, err error) (int, *gokit.APIResponse) {
 	if httpshared.IsNotFound(err) {
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, userNotFoundMessage)
 	}
@@ -372,7 +365,7 @@ type impersonation struct {
 }
 
 func impersonationFromClaims(claims map[string]any) *impersonation {
-	if claims == nil || !gokit.InterfaceBool(claims["is_impersonated"]) {
+	if claims == nil || !httpshared.InterfaceBool(claims["is_impersonated"]) {
 		return nil
 	}
 
@@ -402,7 +395,7 @@ func (h *Handler) issueRefreshToken(user *domainuser.Users, logID string, imp *i
 func (h *Handler) configEnabled(ctx *gin.Context, logId uuid.UUID, logPrefix, key string, fallback bool) (enabled, ok bool) {
 	enabled, err := h.isRuntimeConfigEnabled(ctx.Request.Context(), key, fallback)
 	if err != nil {
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Config check ERROR: %s;", logPrefix, err.Error()))
+		logus.LogContextf(ctx, logus.LevelError, "%s; Config check ERROR: %s;", logPrefix, err.Error())
 		httpshared.RespondInternalError(ctx, logId)
 		return false, false
 	}
@@ -425,13 +418,12 @@ func (h *Handler) registrationOpen(ctx *gin.Context, logId uuid.UUID, logPrefix 
 
 // respondStepFailed logs a failed step and writes the generic 500 response.
 func respondStepFailed(ctx *gin.Context, logId uuid.UUID, logPrefix, step string, err error) {
-	logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; %s; ERROR: %s;", logPrefix, step, err))
+	logus.LogContextf(ctx, logus.LevelError, "%s; %s; ERROR: %s;", logPrefix, step, err)
 	httpshared.RespondInternalError(ctx, logId)
 }
 
 func respondUserNotFound(ctx *gin.Context, logId uuid.UUID) {
-	res := gokit.Response(http.StatusNotFound, gokit.MsgNotFound, logId, nil)
-	res.Error = gokit.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
+	res := gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, userNotFoundMessage)
 	ctx.JSON(http.StatusNotFound, res)
 }
 
@@ -500,7 +492,7 @@ func (h *Handler) updateUser(ctx *gin.Context, logId uuid.UUID, logPrefix, id st
 			BeforeData:   before,
 			AfterData:    req,
 		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Update; ERROR: %s;", logPrefix, err))
+		logus.LogContextf(ctx, logus.LevelError, "%s; Service.Update; ERROR: %s;", logPrefix, err)
 		respondUserMutationError(ctx, logId, err)
 		return
 	}
@@ -515,7 +507,7 @@ func (h *Handler) updateUser(ctx *gin.Context, logId uuid.UUID, logPrefix, id st
 	})
 
 	res := gokit.Response(http.StatusOK, "User updated successfully", logId, data)
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Response: %+v;", logPrefix, gokit.JsonEncode(data)))
+	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(data))
 	ctx.JSON(http.StatusOK, res)
 }
 
@@ -535,7 +527,7 @@ func (h *Handler) deleteUser(ctx *gin.Context, logId uuid.UUID, logPrefix, id, f
 			ErrorMessage: err.Error(),
 			BeforeData:   before,
 		})
-		logus.WriteLogWithContext(ctx, logus.LogLevelError, fmt.Sprintf("%s; Service.Delete; ERROR: %s;", logPrefix, err))
+		logus.LogContextf(ctx, logus.LevelError, "%s; Service.Delete; ERROR: %s;", logPrefix, err)
 		respondUserLookupError(ctx, logId, err)
 		return
 	}
@@ -549,7 +541,7 @@ func (h *Handler) deleteUser(ctx *gin.Context, logId uuid.UUID, logPrefix, id, f
 	})
 
 	res := gokit.Response(http.StatusOK, "User deleted successfully", logId, nil)
-	logus.WriteLogWithContext(ctx, logus.LogLevelDebug, fmt.Sprintf("%s; Success: User deleted successfully", logPrefix))
+	logus.LogContextf(ctx, logus.LevelDebug, "%s; Success: User deleted successfully", logPrefix)
 	ctx.JSON(http.StatusOK, res)
 }
 
@@ -561,7 +553,6 @@ func (h *Handler) rejectRefresh(ctx *gin.Context, logId uuid.UUID, publicError s
 }
 
 func respondRefreshUnauthorized(ctx *gin.Context, logId uuid.UUID, publicError string) {
-	res := gokit.Response(http.StatusUnauthorized, gokit.MsgSomethingWrong, logId, nil)
-	res.Error = publicError
+	res := gokit.ErrorResponse(http.StatusUnauthorized, gokit.MsgSomethingWrong, logId, publicError)
 	ctx.JSON(http.StatusUnauthorized, res)
 }
