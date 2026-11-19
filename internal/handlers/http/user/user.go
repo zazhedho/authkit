@@ -459,16 +459,9 @@ func (h *Handler) GoogleLogin(ctx *gin.Context) {
 		return
 	}
 
-	if h.SessionSvc != nil {
-		session, errSession := h.SessionSvc.CreateSession(reqCtx, &user, accessToken, refreshToken, domainsession.RequestMeta{
-			IP:        ctx.ClientIP(),
-			UserAgent: ctx.GetHeader("User-Agent"),
-		})
-		if errSession != nil {
-			logus.LogContextf(ctx, logus.LevelError, "%s; Failed to create session: %v", logPrefix, errSession)
-		} else {
-			logus.LogContextf(ctx, logus.LevelInfo, "%s; Session created: %s", logPrefix, session.SessionID)
-		}
+	if err := h.createLoginSession(ctx, reqCtx, &user, accessToken, refreshToken, logPrefix); err != nil {
+		respondStepFailed(ctx, logID, logPrefix, "SessionSvc.CreateSession", err)
+		return
 	}
 
 	successMessage := "Google login success"

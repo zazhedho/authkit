@@ -262,3 +262,13 @@ func TestUserResponsesHideLoginBookkeepingFromNonSuperadmins(t *testing.T) {
 		t.Error("locked_until is gone for everyone")
 	}
 }
+
+func TestGoogleLoginFailsWhenTheSessionCannotBeStored(t *testing.T) {
+	handler := New(&userServiceTestDouble{user: domainuser.Users{ID: "u1", Email: "jane@example.com", Role: "viewer"}}, &sessionServiceUserHandlerTestDouble{createErr: errors.New("redis down")}, nil, nil, testHandlerOptions())
+	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/google/login", `{"id_token":"abc"}`, nil)
+	handler.GoogleLogin(ctx)
+	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
+	if strings.Contains(rec.Body.String(), "access_token") {
+		t.Fatalf("tokens must not be returned: %s", rec.Body.String())
+	}
+}
