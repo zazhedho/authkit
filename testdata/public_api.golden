@@ -40,7 +40,6 @@ type AuditWriter alias struct
 	field Service AuditService
 	field Scope string
 	method (T) WriteAudit(ctx *github.com/gin-gonic/gin.Context, event AuditEvent)
-const BaselineVersion untyped int = 4
 type BrevoConfig alias struct
 	field Host string
 	field Port int
@@ -75,7 +74,6 @@ type Config struct
 	method (T) String() string
 	method (T) Validate() error
 func ConfigFromEnv() Config
-var ErrLegacySchemaIncomplete error
 var ErrMigrationsDirty error
 type FlagKeys alias struct
 	field PublicRegistration string

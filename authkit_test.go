@@ -576,12 +576,35 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 			if rec, _ := doJSON(engine, http.MethodPost, "/api/user/forgot-password", "", forgot); rec.Code != http.StatusOK {
 				t.Fatalf("request %d: %d", i, rec.Code)
 			}
+			waitForResets(t, mailer, i)
 		}
+		// The throttled fourth request still answers 200 (the route never
+		// reveals throttling) but sends nothing.
 		mr.FastForward(45 * time.Second)
-		if rec, _ := doJSON(engine, http.MethodPost, "/api/user/forgot-password", "", forgot); rec.Code != http.StatusTooManyRequests {
-			t.Fatalf("fourth request (Reset.RateLimit=3): %d, want 429", rec.Code)
+		if rec, _ := doJSON(engine, http.MethodPost, "/api/user/forgot-password", "", forgot); rec.Code != http.StatusOK {
+			t.Fatalf("fourth request: %d, want 200", rec.Code)
+		}
+		time.Sleep(300 * time.Millisecond)
+		if n := mailer.resetCount(); n != 3 {
+			t.Fatalf("resets sent = %d, want 3 (Reset.RateLimit=3)", n)
 		}
 	})
+}
+
+func (m *recordingMailer) resetCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.resets)
+}
+
+func waitForResets(t *testing.T, m *recordingMailer, want int) {
+	t.Helper()
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if m.resetCount() >= want {
+			return
+		}
+	}
+	t.Fatalf("resets sent = %d, want %d", m.resetCount(), want)
 }
 
 func TestNewWiresServiceSettings(t *testing.T) {

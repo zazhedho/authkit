@@ -18,13 +18,13 @@ CREATE INDEX IF NOT EXISTS idx_app_configs_deleted_at ON app_configs(deleted_at)
 INSERT INTO menu_items (id, name, display_name, path, icon, order_index, is_active)
 VALUES
     (gen_random_uuid(), 'configs', 'Configurations', '/configs', 'bi-sliders', 903, TRUE)
-ON CONFLICT (name) DO NOTHING;
+ON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING;
 
 INSERT INTO permissions (id, name, display_name, resource, action) VALUES
     (gen_random_uuid(), 'list_configs', 'List Configurations', 'configs', 'list'),
     (gen_random_uuid(), 'view_configs', 'View Configuration Detail', 'configs', 'view'),
     (gen_random_uuid(), 'update_configs', 'Update Configurations', 'configs', 'update')
-ON CONFLICT (name) DO NOTHING;
+ON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING;
 
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id

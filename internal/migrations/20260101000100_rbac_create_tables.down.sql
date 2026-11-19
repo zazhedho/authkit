@@ -1,3 +1,5 @@
+ALTER TABLE users DROP CONSTRAINT IF EXISTS fk_users_role;
+DROP INDEX IF EXISTS idx_users_role_id;
 DROP TABLE IF EXISTS role_menus;
 DROP TABLE IF EXISTS role_permissions;
 DROP TABLE IF EXISTS menu_items;

@@ -1,7 +1,7 @@
 -- Create roles table
 CREATE TABLE IF NOT EXISTS roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(50) NOT NULL,
     display_name VARCHAR(100) NOT NULL,
     description TEXT,
     is_system BOOLEAN DEFAULT FALSE,
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS roles (
 -- Create permissions table
 CREATE TABLE IF NOT EXISTS permissions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(100) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
     display_name VARCHAR(150) NOT NULL,
     description TEXT,
     resource VARCHAR(50) NOT NULL,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS permissions (
 -- Create menu_items table
 CREATE TABLE IF NOT EXISTS menu_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(50) NOT NULL,
     display_name VARCHAR(100) NOT NULL,
     path VARCHAR(255) NOT NULL,
     icon VARCHAR(50),
@@ -61,8 +61,12 @@ CREATE TABLE IF NOT EXISTS role_menus (
     UNIQUE(role_id, menu_item_id)
 );
 
+-- Names are unique among live rows only, so a name can be reused after a soft delete.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_roles_name_live ON roles(name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_permissions_name_live ON permissions(name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_menu_items_name_live ON menu_items(name) WHERE deleted_at IS NULL;
+
 -- Create indexes
-CREATE INDEX IF NOT EXISTS idx_roles_name ON roles(name);
 CREATE INDEX IF NOT EXISTS idx_permissions_resource_action ON permissions(resource, action);
 CREATE INDEX IF NOT EXISTS idx_menu_items_parent_id ON menu_items(parent_id);
 CREATE INDEX IF NOT EXISTS idx_menu_items_order ON menu_items(order_index);
@@ -93,7 +97,7 @@ INSERT INTO roles (id, name, display_name, description, is_system) VALUES
     (gen_random_uuid(), 'admin', 'Administrator', 'Full system access', TRUE),
     (gen_random_uuid(), 'staff', 'Staff', 'Staff access with limited permissions', TRUE),
     (gen_random_uuid(), 'viewer', 'Viewer', 'Read-only access', TRUE)
-ON CONFLICT (name) DO NOTHING;
+ON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING;
 
 -- Insert menu items
 INSERT INTO menu_items (id, name, display_name, path, icon, order_index) VALUES
@@ -103,7 +107,7 @@ INSERT INTO menu_items (id, name, display_name, path, icon, order_index) VALUES
     (gen_random_uuid(), 'roles', 'Roles', '/roles', 'bi-shield-lock', 901),
     (gen_random_uuid(), 'menus', 'Menus', '/menus', 'bi-list-ul', 902),
     (gen_random_uuid(), 'audits', 'Audit Trails', '/audits', 'bi-journal-text', 904)
-ON CONFLICT (name) DO NOTHING;
+ON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING;
 
 -- Insert permissions
 INSERT INTO permissions (id, name, display_name, resource, action) VALUES
@@ -150,7 +154,7 @@ INSERT INTO permissions (id, name, display_name, resource, action) VALUES
     (gen_random_uuid(), 'update_profile', 'Update Profile', 'profile', 'update'),
     (gen_random_uuid(), 'update_password_profile', 'Update Password Profile', 'profile', 'update_password'),
     (gen_random_uuid(), 'delete_profile', 'Delete Profile', 'profile', 'delete')
-ON CONFLICT (name) DO NOTHING;
+ON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING;
 
 -- Assign all permissions to admin role
 INSERT INTO role_permissions (role_id, permission_id)

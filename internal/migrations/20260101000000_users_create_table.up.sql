@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(100) NOT NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
+    email VARCHAR(255) NOT NULL,
     phone VARCHAR(20),
     password VARCHAR(255) NOT NULL,
     role VARCHAR(50) DEFAULT 'viewer',
@@ -11,8 +11,9 @@ CREATE TABLE IF NOT EXISTS users (
     last_login_at TIMESTAMP,
     last_login_ip VARCHAR(45),
     last_login_user_agent TEXT,
-    locked_until TIMESTAMP,
     password_changed_at TIMESTAMP,
+    -- Tokens issued before this instant are void; bumped on delete, role, password and email change.
+    tokens_valid_after TIMESTAMPTZ,
     login_provider VARCHAR(50) DEFAULT 'local',
     avatar_url TEXT,
     metadata JSONB DEFAULT '{}'::jsonb,
@@ -21,15 +22,17 @@ CREATE TABLE IF NOT EXISTS users (
     deleted_at TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone) WHERE phone IS NOT NULL AND phone <> '';
+-- Unique values apply to live rows only, so an email or phone can be reused after a soft delete.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email_live ON users(email) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)
+    WHERE deleted_at IS NULL AND phone IS NOT NULL AND phone <> '';
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_login_provider ON users(login_provider);
 CREATE INDEX IF NOT EXISTS idx_users_last_login_at ON users(last_login_at);
-CREATE INDEX IF NOT EXISTS idx_users_locked_until ON users(locked_until);
 
 CREATE TABLE IF NOT EXISTS blacklist (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- The hex sha256 of the revoked token, never the token itself.
     token TEXT UNIQUE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMP NOT NULL

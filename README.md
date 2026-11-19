@@ -329,14 +329,7 @@ func main() {}
 
 `kit.Migrate(ctx)` applies the embedded migrations: the tables `users`, `blacklist`, `roles`, `permissions`, `menu_items`, `role_permissions`, `role_menus`, `audit_trails` and `app_configs`, plus seed rows for the system roles, menus, permissions and the three flags. It keeps its own version table, `authkit_schema_migrations` (the constant `authkit.MigrationsTable`), in the connection's current schema, so it never collides with your own `schema_migrations`. It is idempotent and safe on every start; instances starting together serialize on an advisory lock.
 
-| Database state | Behavior |
-|---|---|
-| Empty (no `users` table, no version record) | Applies all migrations; the version table ends at 4 (`authkit.BaselineVersion`). |
-| `users` exists, no version record, schema complete | Records version 4 without running the baseline SQL, then applies later migrations. |
-| `users` exists, no version record, schema incomplete | Returns an error wrapping `authkit.ErrLegacySchemaIncomplete` listing the missing `table` or `table.column`. Nothing changes. |
-| Has a version record | Applies pending migrations. A dirty record returns `authkit.ErrMigrationsDirty`. |
-
-The baseline seed is not idempotent (it computes role grants from `permissions` as they are), so it is never replayed on an existing database. "Complete" compares expected table and column names (not types or indexes) against `current_schema()`.
+Migration files are named `<UTC YYYYMMDDHHMMSS>_<area>_<change>.{up,down}.sql`; a guard test enforces the pattern, an up and a down for each, and increasing unique versions. Every file is idempotent. A dirty version record returns `authkit.ErrMigrationsDirty`. Databases that were created by an earlier authkit release or by hand are not adopted: authkit assumes it owns an empty `authkit_schema_migrations` history.
 
 ```go
 package main
@@ -352,8 +345,6 @@ import (
 func migrate(ctx context.Context, kit *authkit.Kit) {
 	err := kit.Migrate(ctx)
 	switch {
-	case errors.Is(err, authkit.ErrLegacySchemaIncomplete):
-		log.Fatalf("existing schema lacks authkit tables or columns: %v", err)
 	case errors.Is(err, authkit.ErrMigrationsDirty):
 		log.Fatalf("repair authkit_schema_migrations by hand: %v", err)
 	case err != nil:
@@ -365,8 +356,8 @@ func main() {}
 ```
 
 - Use a direct database connection. The advisory lock is session-level and does not work through transaction-pooling proxies such as pgbouncer in transaction mode.
-- `ctx` bounds schema inspection and the connection checkout, not the wait for another instance's lock or a running migration.
-- If `ErrMigrationsDirty` is returned, repair the database by hand, set the record in `authkit_schema_migrations` to the last fully applied version and clear the dirty flag. Never delete the record: a missing record next to existing tables looks like a pre-authkit database.
+- `ctx` bounds the connection checkout, not the wait for another instance's lock or a running migration.
+- If `ErrMigrationsDirty` is returned, repair the database by hand, set the record in `authkit_schema_migrations` to the last fully applied version and clear the dirty flag. Never delete the record.
 - Keep your own tables in your own migrations, run after `Migrate`. Per-user extras fit in the `users.metadata` jsonb column; anything structured belongs in your own table with a foreign key to `users(id)`.
 
 **New modules.** `cmd/module-seed` prints SQL that inserts a menu, its permissions and the role grants for a module. Put the output in your own migration.
