@@ -13,6 +13,7 @@ import (
 	"github.com/zazhedho/logus"
 
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
@@ -179,48 +180,53 @@ func (h *Handler) createLoginSession(ctx *gin.Context, reqCtx context.Context, u
 	logus.LogContextf(ctx, logus.LevelInfo, "%s; Session created: %s", logPrefix, session.SessionID)
 }
 
-func (h *Handler) forgotPasswordByEmail(ctx *gin.Context, req dtouser.ForgotPasswordRequest, logID uuid.UUID, logPrefix string) {
-	if h.ResetService == nil {
-		res := gokit.ErrorResponse(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logID, passwordResetEmailNotConfiguredMessage)
-		ctx.JSON(http.StatusServiceUnavailable, res)
-		return
-	}
+// forgotPasswordMessage is the one answer the forgot-password route gives.
+//
+//nolint:gosec // a user-facing message, not a credential
+const forgotPasswordMessage = "If the email is registered, password reset instructions have been sent."
 
-	reqCtx := ctx.Request.Context()
+// resetRequestTimeout bounds the background work of one forgot-password request.
+const resetRequestTimeout = 15 * time.Second
+
+func (h *Handler) forgotPasswordByEmail(ctx *gin.Context, req dtouser.ForgotPasswordRequest, logID uuid.UUID, logPrefix string) {
 	normalizedEmail := domainuser.SanitizeEmail(req.Email)
-	if data, err := h.Service.GetUserByEmail(reqCtx, normalizedEmail); err == nil && data.ID != "" {
+
+	if h.ResetService != nil && normalizedEmail != "" {
+		// Lookup, throttling and delivery all happen after the response, so
+		// neither the status nor the latency depends on whether the email is
+		// registered. Failures are only logged.
 		appName := h.Settings.EmailAppName
-		if err := h.ResetService.RequestReset(reqCtx, normalizedEmail, appName); err != nil {
-			h.WriteAudit(ctx, domainaudit.AuditEvent{
-				Action: domainaudit.ActionUpdate, Resource: "user_password_reset", Status: domainaudit.StatusFailed,
-				Message: "Failed to request password reset email", ErrorMessage: err.Error(),
-				AfterData: map[string]any{"email": normalizedEmail},
-			})
-			if throttle, ok := errors.AsType[*domainreset.ThrottleError](err); ok {
-				h.respondThrottle(ctx, logID, throttle.RetryAfter, "Password reset request is throttled. Please try again later.")
+		h.runAsync(func() {
+			bg, cancel := context.WithTimeout(context.Background(), resetRequestTimeout)
+			defer cancel()
+			data, err := h.Service.GetUserByEmail(bg, normalizedEmail)
+			if err != nil || data.ID == "" {
 				return
 			}
-			statusCode := http.StatusInternalServerError
-			message := "Failed to send password reset email. Please contact support with the log ID."
-			if errors.Is(err, domainreset.ErrNotConfigured) || errors.Is(err, domainreset.ErrDeliveryFailed) {
-				statusCode = http.StatusServiceUnavailable
-				message = "Password reset email service is temporarily unavailable."
+			if err := h.ResetService.RequestReset(bg, normalizedEmail, appName); err != nil {
+				logus.Logf(logus.LevelError, "%s; ResetService.RequestReset; ERROR: %s;", logPrefix, err)
 			}
-			res := gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logID, message)
-			ctx.JSON(statusCode, res)
-			return
-		}
+		})
+	} else if h.ResetService == nil {
+		logus.LogContextf(ctx, logus.LevelError, "%s; %s", logPrefix, passwordResetEmailNotConfiguredMessage)
 	}
 
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
 		Action: domainaudit.ActionUpdate, Resource: "user_password_reset", Status: domainaudit.StatusSuccess,
 		Message: "Requested password reset email", AfterData: map[string]any{"email": normalizedEmail},
 	})
-	res := gokit.Response(http.StatusOK, "Password reset instructions sent to your email", logID, map[string]any{
+	ctx.JSON(http.StatusOK, gokit.Response(http.StatusOK, forgotPasswordMessage, logID, map[string]any{
 		"cooldown": int(h.Settings.ResetCooldown.Seconds()),
-	})
-	logus.LogContextf(ctx, logus.LevelInfo, "%s; Password reset instructions sent to email: %s", logPrefix, normalizedEmail)
-	ctx.JSON(http.StatusOK, res)
+	}))
+}
+
+// runAsync runs fn in the background; tests replace it to run inline.
+func (h *Handler) runAsync(fn func()) {
+	if h.Async != nil {
+		h.Async(fn)
+		return
+	}
+	go fn()
 }
 
 func (h *Handler) resetPasswordByEmail(ctx *gin.Context, req dtouser.ResetPasswordRequest, logID uuid.UUID, logPrefix string) {
@@ -577,4 +583,99 @@ func (h *Handler) rejectRefresh(ctx *gin.Context, logID uuid.UUID, publicError s
 func respondRefreshUnauthorized(ctx *gin.Context, logID uuid.UUID, publicError string) {
 	res := gokit.ErrorResponse(http.StatusUnauthorized, gokit.MsgSomethingWrong, logID, publicError)
 	ctx.JSON(http.StatusUnauthorized, res)
+}
+
+// sessionExpiry is when a rotated session expires: a full refresh TTL from now,
+// but never past the absolute cap counted from the original login. The bool is
+// false when the cap has already passed.
+func (h *Handler) sessionExpiry(loginAt time.Time) (time.Time, bool) {
+	expiry := time.Now().Add(h.Settings.RefreshTTL)
+	if h.Settings.SessionMaxLifetime > 0 && !loginAt.IsZero() {
+		limit := loginAt.Add(h.Settings.SessionMaxLifetime)
+		if !limit.After(time.Now()) {
+			return time.Time{}, false
+		}
+		if limit.Before(expiry) {
+			expiry = limit
+		}
+	}
+	return expiry, true
+}
+
+// revokeRefreshToken blacklists a refresh token the caller owns. A token that
+// is invalid, belongs to someone else or is already revoked is ignored: the
+// logout itself must still succeed.
+func (h *Handler) revokeRefreshToken(ctx context.Context, userID, refreshToken string) error {
+	claims, err := h.Tokens.Claims(refreshToken)
+	if err != nil {
+		//nolint:nilerr // a bad token is ignored on purpose: logout must still succeed
+		return nil
+	}
+	if !strings.EqualFold(gokit.InterfaceString(claims["token_type"]), "refresh") ||
+		gokit.InterfaceString(claims["user_id"]) != userID {
+		return nil
+	}
+	if err := h.Service.LogoutUser(ctx, refreshToken); err != nil && !errors.Is(err, domainauth.ErrDuplicate) {
+		return err
+	}
+	return nil
+}
+
+// denyWhileImpersonating answers 403 and audits the denial when the request
+// carries an impersonation token; sensitive self-service routes are closed to
+// it so an admin cannot change a user's own credentials through it.
+func (h *Handler) denyWhileImpersonating(ctx *gin.Context, logID uuid.UUID, scope domainauth.Scope, resource, what string) bool {
+	if !scope.IsImpersonated {
+		return false
+	}
+	h.WriteAudit(ctx, domainaudit.AuditEvent{
+		Action:       domainaudit.ActionUpdate,
+		Resource:     resource,
+		ResourceID:   scope.UserID,
+		Status:       domainaudit.StatusFailed,
+		Message:      "Denied: cannot " + what + " while impersonating",
+		ErrorMessage: "forbidden while impersonating",
+	})
+	ctx.JSON(http.StatusForbidden, gokit.Forbidden(logID, "This action is not available while impersonating a user."))
+	return true
+}
+
+// tokenIssuedAt is the iat of the request's access token, or zero.
+func (h *Handler) tokenIssuedAt(ctx *gin.Context) time.Time {
+	iat, _ := httpshared.GetAuthData(ctx.Request.Context())["iat"].(float64)
+	if iat == 0 {
+		return time.Time{}
+	}
+	return time.Unix(int64(iat), 0)
+}
+
+// registerLimiterFailure records a failed attempt on key and reports whether
+// the key is now blocked.
+func (h *Handler) registerLimiterFailure(ctx *gin.Context, logPrefix, key string) bool {
+	if h.LoginLimiter == nil {
+		return false
+	}
+	blocked, _, err := h.LoginLimiter.RegisterFailure(ctx.Request.Context(), key)
+	if err != nil {
+		logus.LogContextf(ctx, logus.LevelError, "%s; LoginLimiter.RegisterFailure error: %v", logPrefix, err)
+	}
+	return blocked
+}
+
+// revokeOtherSessions ends every session of the user but the one the request's
+// access token belongs to. A token without a session keeps nothing.
+func (h *Handler) revokeOtherSessions(reqCtx context.Context, ctx *gin.Context, userID string) error {
+	if h.SessionSvc == nil {
+		return nil
+	}
+	token, _ := ctx.Get("token")
+	tokenString, _ := token.(string)
+	current, err := h.SessionSvc.GetSessionByToken(reqCtx, tokenString)
+	if err != nil {
+		if errors.Is(err, domainsession.ErrNotFound) {
+			return h.SessionSvc.DestroyAllUserSessions(reqCtx, userID)
+		}
+		return err
+	}
+	return h.SessionSvc.DestroyOtherSessions(reqCtx, userID, current.SessionID)
 }

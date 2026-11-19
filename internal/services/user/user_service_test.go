@@ -784,26 +784,13 @@ func TestChangePasswordAndForgotResetPasswordFlows(t *testing.T) {
 	authRepo := &authRepoMock{}
 	service := newTestUserService(t, userRepo, authRepo, &roleRepoUserMock{}, &permissionRepoUserMock{})
 
-	changed, err := service.ChangePassword(context.Background(), "user-1", dtouser.ChangePassword{CurrentPassword: "OldPassword1!", NewPassword: "NewPassword1!"})
+	changed, err := service.ChangePassword(context.Background(), "user-1", dtouser.ChangePassword{CurrentPassword: "OldPassword1!", NewPassword: "NewPassword1!"}, time.Time{})
 	if err != nil || changed.PasswordChangedAt == nil {
 		t.Fatalf("change password: user=%+v err=%v", changed, err)
 	}
 
-	token, err := service.ForgotPassword(context.Background(), dtouser.ForgotPasswordRequest{Email: "jane@example.com"})
-	if err != nil || token == "" {
-		t.Fatalf("forgot password: token=%q err=%v", token, err)
-	}
-	if err := service.ResetPassword(context.Background(), dtouser.ResetPasswordRequest{Token: token, NewPassword: "AnotherPassword1!"}); err != nil {
-		t.Fatalf("reset password: %v", err)
-	}
-	if _, ok := authRepo.tokens[token]; !ok {
-		t.Fatalf("expected reset token to be blacklisted")
-	}
-	if authRepo.stored.ExpiresAt.IsZero() || time.Until(authRepo.stored.ExpiresAt) <= 0 {
-		t.Fatalf("expected reset token blacklist expiry, got %v", authRepo.stored.ExpiresAt)
-	}
-	if err := service.ResetPassword(context.Background(), dtouser.ResetPasswordRequest{Token: token, NewPassword: "AnotherPassword1!"}); err == nil || err.Error() != "invalid or expired token" {
-		t.Fatalf("expected used reset token to fail, got %v", err)
+	if userRepo.updated.PasswordChangedAt == nil {
+		t.Fatal("expected the password change to be stored")
 	}
 }
 
@@ -940,7 +927,7 @@ func TestUserServiceLoginAndChangePasswordErrors(t *testing.T) {
 	}
 
 	service = newTestUserService(t, &userRepoMock{user: domainuser.Users{ID: "user-1", Password: string(oldPassword)}, updateErr: errors.New("update failed")}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err = service.ChangePassword(context.Background(), "user-1", dtouser.ChangePassword{CurrentPassword: "OldPassword1!", NewPassword: "NewPassword1!"})
+	_, err = service.ChangePassword(context.Background(), "user-1", dtouser.ChangePassword{CurrentPassword: "OldPassword1!", NewPassword: "NewPassword1!"}, time.Time{})
 	if err == nil || err.Error() != "update failed" {
 		t.Fatalf("expected password update error, got %v", err)
 	}
@@ -968,42 +955,9 @@ func TestUserServiceUpdateErrorBranches(t *testing.T) {
 
 func TestUserServiceChangePasswordRejectsSamePassword(t *testing.T) {
 	service := newTestUserService(t, &userRepoMock{}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err := service.ChangePassword(context.Background(), "user-1", dtouser.ChangePassword{CurrentPassword: "SamePassword1!", NewPassword: "SamePassword1!"})
+	_, err := service.ChangePassword(context.Background(), "user-1", dtouser.ChangePassword{CurrentPassword: "SamePassword1!", NewPassword: "SamePassword1!"}, time.Time{})
 	if err == nil || err.Error() != "new password must be different from current password" {
 		t.Fatalf("expected same password error, got %v", err)
-	}
-}
-
-func TestUserServiceForgotPasswordMissingUserSucceeds(t *testing.T) {
-	service := newTestUserService(t, &userRepoMock{emailErr: domainuser.ErrNotFound}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	token, err := service.ForgotPassword(context.Background(), dtouser.ForgotPasswordRequest{Email: "missing@example.com"})
-	if err != nil || token != "" {
-		t.Fatalf("expected missing forgot password to return empty success, token=%q err=%v", token, err)
-	}
-}
-
-func TestUserServiceResetPasswordErrorBranches(t *testing.T) {
-	service := newTestUserService(t, &userRepoMock{}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	if err := service.ResetPassword(context.Background(), dtouser.ResetPasswordRequest{Token: "bad-token", NewPassword: "Password1!"}); err == nil || err.Error() != "invalid or expired token" {
-		t.Fatalf("expected invalid token error, got %v", err)
-	}
-
-	password, err := bcrypt.GenerateFromPassword([]byte("OldPassword1!"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("hash password: %v", err)
-	}
-	resetUser := domainuser.Users{ID: "user-1", Email: "jane@example.com", Password: string(password), Role: domainuser.RoleViewer}
-	resetToken, err := testUserTokens(t).GeneratePasswordReset(resetUser.ID, resetUser.Name, resetUser.Role, "reset_password")
-	if err != nil {
-		t.Fatalf("generate reset token: %v", err)
-	}
-	userRepo := &userRepoMock{user: resetUser}
-	service = newTestUserService(t, userRepo, &authRepoMock{err: errors.New("blacklist failed")}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	if err := service.ResetPassword(context.Background(), dtouser.ResetPasswordRequest{Token: resetToken, NewPassword: "Password1!"}); err == nil || err.Error() != "blacklist failed" {
-		t.Fatalf("expected reset token blacklist error, got %v", err)
-	}
-	if userRepo.updated.ID != "" {
-		t.Fatal("expected password update to be skipped when reset token blacklist fails")
 	}
 }
 
@@ -1055,7 +1009,7 @@ const testUserJWTKey = "test-secret-must-be-at-least-32-bytes"
 
 func testUserTokens(t *testing.T) *token.Tokens {
 	t.Helper()
-	tokens, err := token.NewTokens(token.Config{Key: testUserJWTKey, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
+	tokens, err := token.NewTokens(token.Config{Key: testUserJWTKey, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 	if err != nil {
 		t.Fatalf("failed to build tokens: %v", err)
 	}
@@ -1220,33 +1174,11 @@ func TestRegisterUserFailsWhenDefaultRoleDoesNotExist(t *testing.T) {
 
 func otherAppUserTokens(t *testing.T) *token.Tokens {
 	t.Helper()
-	tokens, err := token.NewTokens(token.Config{Key: testUserJWTKey, AppName: "other-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
+	tokens, err := token.NewTokens(token.Config{Key: testUserJWTKey, AppName: "other-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 	if err != nil {
 		t.Fatalf("failed to build tokens: %v", err)
 	}
 	return tokens
-}
-
-func TestResetPasswordRejectsTokenFromOtherApp(t *testing.T) {
-	password, err := bcrypt.GenerateFromPassword([]byte("OldPassword1!"), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("hash password: %v", err)
-	}
-	resetUser := domainuser.Users{ID: "user-1", Email: "jane@example.com", Password: string(password), Role: domainuser.RoleViewer}
-	foreign, err := otherAppUserTokens(t).GeneratePasswordReset(resetUser.ID, resetUser.Name, resetUser.Role, "reset_password")
-	if err != nil {
-		t.Fatalf("generate reset token: %v", err)
-	}
-
-	userRepo := &userRepoMock{user: resetUser}
-	service := newTestUserService(t, userRepo, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	err = service.ResetPassword(context.Background(), dtouser.ResetPasswordRequest{Token: foreign, NewPassword: "Password1!"})
-	if err == nil || err.Error() != "invalid or expired token" {
-		t.Fatalf("expected invalid token error, got %v", err)
-	}
-	if userRepo.updated.ID != "" {
-		t.Fatal("expected password to stay unchanged for a reset token from another app")
-	}
 }
 
 func TestLogoutUserRejectsTokenFromOtherApp(t *testing.T) {

@@ -30,6 +30,12 @@ type Middleware struct {
 	// PermissionCacheTTL is how long cached permission keys live; a
 	// non-positive value disables caching.
 	PermissionCacheTTL time.Duration
+
+	// Users, StateCache and Sessions are set by the root package. Without
+	// Users the middleware trusts the token's role (internal tests only).
+	Users      UserStates
+	StateCache StateCache
+	Sessions   SessionIndex
 }
 
 // NewMiddleware creates the authentication and authorization middleware.
@@ -91,6 +97,10 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		if !m.checkLiveUser(ctx, logID, logPrefix, tokenString, dataJWT) {
+			return
+		}
+
 		ctx.Set(httpshared.CtxKeyAuthData, dataJWT)
 		ctx.Set("token", tokenString)
 		userID := gokit.InterfaceString(dataJWT["user_id"])
@@ -102,6 +112,69 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 
 		ctx.Next()
 	}
+}
+
+// checkLiveUser applies the per-user checks: the user still exists, the token
+// was issued after tokens_valid_after, the role is the current one and, with
+// Redis sessions, the token's session is still alive. It writes the 401 or 500
+// itself and returns false on failure.
+func (m *Middleware) checkLiveUser(ctx *gin.Context, logID uuid.UUID, logPrefix, tokenString string, claims map[string]any) bool {
+	reject := func(message string) bool {
+		res := gokit.Unauthorized(logID, message)
+		ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)
+		return false
+	}
+	fail := func(step string, err error) bool {
+		logus.LogContextf(ctx, logus.LevelError, "%s; %s; Error: %+v", logPrefix, step, err)
+		ctx.AbortWithStatusJSON(http.StatusInternalServerError, gokit.InternalServerError(logID))
+		return false
+	}
+
+	if m.Users != nil {
+		userID := strings.TrimSpace(gokit.InterfaceString(claims["user_id"]))
+		state, err := m.userState(ctx.Request.Context(), userID)
+		if errors.Is(err, domainuser.ErrNotFound) {
+			logus.LogContextf(ctx, logus.LevelWarn, "%s; token for a user that no longer exists", logPrefix)
+			return reject("Invalid or expired token. Please login again.")
+		}
+		if err != nil {
+			return fail("Users.GetAuthState", err)
+		}
+		if state.TokensValidAfter != nil {
+			iat, _ := claims["iat"].(float64)
+			if int64(iat) < state.TokensValidAfter.Unix() {
+				return reject("Your session is no longer valid. Please login again.")
+			}
+		}
+		claims["role"] = state.Role
+	}
+
+	if m.Sessions != nil && !httpshared.InterfaceBool(claims["no_session"]) {
+		live, err := m.Sessions.HasAccessTokenSession(ctx.Request.Context(), tokenString)
+		if err != nil {
+			return fail("Sessions.HasAccessTokenSession", err)
+		}
+		if !live {
+			return reject("Your session is no longer valid. Please login again.")
+		}
+	}
+	return true
+}
+
+func (m *Middleware) userState(ctx context.Context, userID string) (domainuser.AuthState, error) {
+	if m.StateCache != nil {
+		if state, ok := m.StateCache.GetAuthState(ctx, userID); ok {
+			return state, nil
+		}
+	}
+	state, err := m.Users.GetAuthState(ctx, userID)
+	if err != nil {
+		return domainuser.AuthState{}, err
+	}
+	if m.StateCache != nil {
+		m.StateCache.SetAuthState(ctx, userID, state, m.PermissionCacheTTL)
+	}
+	return state, nil
 }
 
 // RoleMiddleware implements the role middleware operation.

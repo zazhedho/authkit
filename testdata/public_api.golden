@@ -59,6 +59,9 @@ type Config struct
 	field JWTKey string
 	field AccessTokenTTL time.Duration
 	field RefreshTokenTTL time.Duration
+	field SessionMaxLifetime time.Duration
+	field FailClosedLimiters bool
+	field PhoneLogin bool
 	field DefaultRole string
 	field GoogleClientIDs []string
 	field EmailAppName string

@@ -7,16 +7,27 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/zazhedho/logus"
+
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
+// The key prefixes carry a version so a change of the stored shape never reads
+// an old entry.
 const (
-	keyPrefix = "permission:user:"
-	scanCount = int64(100)
+	keyPrefix      = "permission:v2:user:"
+	stateKeyPrefix = "authstate:v2:user:"
+	scanCount      = int64(100)
 )
 
 // Key implements the key operation.
 func Key(userID string) string {
 	return keyPrefix + userID
+}
+
+// StateKey is the cache key of a user's auth state.
+func StateKey(userID string) string {
+	return stateKeyPrefix + userID
 }
 
 // GetUserPermissionKeys returns the user permission keys.
@@ -63,16 +74,19 @@ func DeleteUserPermissionKeys(ctx context.Context, client *redis.Client, userIDs
 		if userID == "" {
 			continue
 		}
-		keys = append(keys, Key(userID))
+		keys = append(keys, Key(userID), StateKey(userID))
 	}
 	if len(keys) == 0 {
 		return
 	}
 
-	_ = client.Del(ctx, keys...).Err()
+	if err := client.Del(ctx, keys...).Err(); err != nil {
+		logus.LogContextf(ctx, logus.LevelError, "permission cache: delete user keys: %v", err)
+	}
 }
 
-// DeleteAllUserPermissionKeys deletes the all user permission keys.
+// DeleteAllUserPermissionKeys deletes every cached permission set; auth states
+// are per user and survive.
 func DeleteAllUserPermissionKeys(ctx context.Context, client *redis.Client) {
 	if client == nil {
 		return
@@ -82,10 +96,13 @@ func DeleteAllUserPermissionKeys(ctx context.Context, client *redis.Client) {
 	for {
 		keys, nextCursor, err := client.Scan(ctx, cursor, keyPrefix+"*", scanCount).Result()
 		if err != nil {
+			logus.LogContextf(ctx, logus.LevelError, "permission cache: scan: %v", err)
 			return
 		}
 		if len(keys) > 0 {
-			_ = client.Del(ctx, keys...).Err()
+			if err := client.Del(ctx, keys...).Err(); err != nil {
+				logus.LogContextf(ctx, logus.LevelError, "permission cache: delete: %v", err)
+			}
 		}
 		if nextCursor == 0 {
 			return
@@ -119,4 +136,40 @@ func (c *Cache) Set(ctx context.Context, userID string, keys []string, ttl time.
 		return
 	}
 	SetUserPermissionKeys(ctx, c.client, userID, keys, ttl)
+}
+
+// authState is the cached form of domainuser.AuthState.
+type authState struct {
+	Role             string     `json:"role"`
+	TokensValidAfter *time.Time `json:"tokens_valid_after,omitempty"`
+}
+
+// GetAuthState returns a cached auth state.
+func (c *Cache) GetAuthState(ctx context.Context, userID string) (domainuser.AuthState, bool) {
+	if c == nil || c.client == nil {
+		return domainuser.AuthState{}, false
+	}
+	raw, err := c.client.Get(ctx, StateKey(userID)).Result()
+	if err != nil {
+		return domainuser.AuthState{}, false
+	}
+	var cached authState
+	if err := json.Unmarshal([]byte(raw), &cached); err != nil {
+		return domainuser.AuthState{}, false
+	}
+	return domainuser.AuthState(cached), true
+}
+
+// SetAuthState caches a state for ttl; a non-positive ttl disables caching.
+func (c *Cache) SetAuthState(ctx context.Context, userID string, state domainuser.AuthState, ttl time.Duration) {
+	if c == nil || c.client == nil || ttl <= 0 {
+		return
+	}
+	raw, err := json.Marshal(authState(state))
+	if err != nil {
+		return
+	}
+	if err := c.client.Set(ctx, StateKey(userID), raw, ttl).Err(); err != nil {
+		logus.LogContextf(ctx, logus.LevelError, "permission cache: set auth state: %v", err)
+	}
 }

@@ -4,19 +4,23 @@ import "time"
 
 // Session is the session domain type: session.
 type Session struct {
-	SessionID    string    `json:"session_id"`
-	UserID       string    `json:"user_id"`
-	Username     string    `json:"username"`
-	Email        string    `json:"email"`
-	Role         string    `json:"role"`
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token"`
-	DeviceInfo   string    `json:"device_info,omitempty"`
-	IP           string    `json:"ip,omitempty"`
-	UserAgent    string    `json:"user_agent,omitempty"`
-	LoginAt      time.Time `json:"login_at"`
-	LastActivity time.Time `json:"last_activity"`
-	ExpiresAt    time.Time `json:"expires_at"`
+	SessionID string `json:"session_id"`
+	UserID    string `json:"user_id"`
+	Username  string `json:"username"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	// AccessToken and RefreshToken carry the raw tokens only into Create and
+	// RotateTokens; they are never stored. The record keeps their hashes.
+	AccessToken      string    `json:"-"`
+	RefreshToken     string    `json:"-"`
+	AccessTokenHash  string    `json:"access_token_hash"`
+	RefreshTokenHash string    `json:"refresh_token_hash"`
+	DeviceInfo       string    `json:"device_info,omitempty"`
+	IP               string    `json:"ip,omitempty"`
+	UserAgent        string    `json:"user_agent,omitempty"`
+	LoginAt          time.Time `json:"login_at"`
+	LastActivity     time.Time `json:"last_activity"`
+	ExpiresAt        time.Time `json:"expires_at"`
 }
 
 // Info is the session domain type: session info.

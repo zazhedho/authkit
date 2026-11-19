@@ -134,3 +134,17 @@ func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret
 		},
 	})
 }
+
+// GetAuthState returns the role and token cut-off of a live user.
+func (r *Repository) GetAuthState(ctx context.Context, id string) (domainuser.AuthState, error) {
+	var row struct {
+		Role             string
+		TokensValidAfter *time.Time
+	}
+	err := r.DB.WithContext(ctx).Table("users").Select("role, tokens_valid_after").
+		Where("id = ? AND deleted_at IS NULL", id).First(&row).Error
+	if err != nil {
+		return domainuser.AuthState{}, translateErr(err)
+	}
+	return domainuser.AuthState{Role: row.Role, TokensValidAfter: row.TokensValidAfter}, nil
+}

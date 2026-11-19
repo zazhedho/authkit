@@ -130,7 +130,9 @@ func TestCanAllowsAndDenies(t *testing.T) {
 }
 
 func TestRoleAllowsAndDenies(t *testing.T) {
-	kit, _ := newTestKit(t, nil)
+	kit, drv := newTestKit(t, nil)
+	drv.AddUser(testutil.User{ID: "a", Role: "admin"})
+	drv.AddUser(testutil.User{ID: "v", Role: "viewer"})
 	engine := gin.New()
 	group := engine.Group("/x")
 	group.Use(kit.Auth(), kit.Role("admin"))
@@ -145,7 +147,8 @@ func TestRoleAllowsAndDenies(t *testing.T) {
 }
 
 func TestScopeFromReturnsAuthenticatedUser(t *testing.T) {
-	kit, _ := newTestKit(t, nil)
+	kit, drv := newTestKit(t, nil)
+	drv.AddUser(testutil.User{ID: "user-42", Role: "viewer"})
 	var gotID, gotRole string
 	engine := gin.New()
 	engine.GET("/who", kit.Auth(), func(c *gin.Context) {
@@ -163,7 +166,8 @@ func TestScopeFromReturnsAuthenticatedUser(t *testing.T) {
 }
 
 func TestIssueAccessTokenPassesAuth(t *testing.T) {
-	kit, _ := newTestKit(t, nil)
+	kit, drv := newTestKit(t, nil)
+	drv.AddUser(testutil.User{ID: "user-7", Role: RoleStaff})
 	engine := gin.New()
 	engine.GET("/who", kit.Auth(), func(c *gin.Context) {
 		s := ScopeFrom(c.Request.Context())
@@ -238,8 +242,17 @@ func (m *recordingMailer) lastOTP(t *testing.T) sentOTP {
 	return m.otps[len(m.otps)-1]
 }
 
+// lastReset waits briefly: forgot-password sends after it has answered.
 func (m *recordingMailer) lastReset(t *testing.T) sentReset {
 	t.Helper()
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		m.mu.Lock()
+		n := len(m.resets)
+		m.mu.Unlock()
+		if n > 0 {
+			break
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.resets) == 0 {
@@ -343,9 +356,8 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 			issue func() (string, error)
 			want  time.Duration
 		}{
-			"access":         {func() (string, error) { return kit.tokens.Generate(u.ID, u.Name, u.Role, "log") }, 7 * time.Hour},
-			"refresh":        {func() (string, error) { return kit.tokens.GenerateRefresh(u.ID, u.Name, u.Role, "log") }, 50 * time.Hour},
-			"password reset": {func() (string, error) { return kit.tokens.GeneratePasswordReset(u.ID, u.Name, u.Role, "log") }, 333 * time.Second},
+			"access":  {func() (string, error) { return kit.tokens.Generate(u.ID, u.Name, u.Role, "log") }, 7 * time.Hour},
+			"refresh": {func() (string, error) { return kit.tokens.GenerateRefresh(u.ID, u.Name, u.Role, "log") }, 50 * time.Hour},
 		} {
 			tok, err := tc.issue()
 			if err != nil {
@@ -359,7 +371,7 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 				t.Errorf("%s token expires in %v, want about %v", name, d, tc.want)
 			}
 		}
-		foreign, err := token.NewTokens(token.Config{Key: testJWTKey, AppName: "other-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
+		foreign, err := token.NewTokens(token.Config{Key: testJWTKey, AppName: "other-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -611,14 +623,14 @@ func TestNewWiresRegistrationFlagKey(t *testing.T) {
 	}
 }
 
-func TestNewWiresAppEnvIntoPasswordResetFallback(t *testing.T) {
-	// With e-mail reset disabled, forgot-password falls back to a development
-	// flow that is allowed only in development-like environments.
-	for env, wantUnavailable := range map[string]bool{"production": true, "local": false} {
+func TestForgotPasswordNeverReturnsATokenInAnyEnv(t *testing.T) {
+	// The legacy development fallback that put a reset token in the response
+	// is gone: every AppEnv answers the same 200 without a token.
+	for _, env := range []string{"production", "local", "development", "test"} {
 		kit, _ := newTestKit(t, func(c *Config) { c.AppEnv = env })
 		rec, _ := doJSON(mountedEngine(t, kit), http.MethodPost, "/api/user/forgot-password", "", `{"email":"x@example.test"}`)
-		if got := rec.Code == http.StatusServiceUnavailable; got != wantUnavailable {
-			t.Errorf("AppEnv=%s: status %d, unavailable=%v want %v", env, rec.Code, got, wantUnavailable)
+		if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "token") {
+			t.Errorf("AppEnv=%s: status %d body %s", env, rec.Code, rec.Body.String())
 		}
 	}
 }
@@ -657,8 +669,8 @@ func TestNewWithRedisButNoMailerKeepsOTPAndResetInert(t *testing.T) {
 		t.Errorf("OTP send without Mailer: %d, want 503", rec.Code)
 	}
 	rec, _ = doJSON(engine, http.MethodPost, "/api/user/forgot-password", "", `{"email":"u1@example.test"}`)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("forgot-password without Mailer: %d, want 503", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Errorf("forgot-password without Mailer: %d, want 200 (always the same answer)", rec.Code)
 	}
 	for _, k := range mr.Keys() {
 		if strings.HasPrefix(k, "otp:") || strings.HasPrefix(k, "reset:") {
@@ -674,48 +686,45 @@ func TestNewWithRedisButNoMailerKeepsOTPAndResetInert(t *testing.T) {
 }
 
 func TestStartupWarnings(t *testing.T) {
-	cases := []struct {
-		env       string
-		redisNil  bool
-		wantDev   bool
-		wantRedis bool
-	}{
-		{"development", true, true, true},
-		{"Local", false, true, false},
-		{"test", false, true, false},
-		{"production", true, false, true},
-		{"", false, false, false},
+	if got := startupWarnings(true); len(got) != 1 || !strings.Contains(got[0], "Redis is not configured") {
+		t.Errorf("redis nil: warnings = %v", got)
 	}
-	for _, c := range cases {
-		got := startupWarnings(c.env, c.redisNil)
-		if (len(got) > 0 && hasDevWarning(got)) != c.wantDev {
-			t.Errorf("env %q: dev warning = %v, want %v (%v)", c.env, !c.wantDev, c.wantDev, got)
-		}
-		wantN := 0
-		if c.wantDev {
-			wantN++
-		}
-		if c.wantRedis {
-			wantN++
-		}
-		if len(got) != wantN {
-			t.Errorf("env %q redisNil=%v: %d warnings, want %d", c.env, c.redisNil, len(got), wantN)
-		}
+	if got := startupWarnings(false); len(got) != 0 {
+		t.Errorf("redis set: warnings = %v", got)
 	}
-	for _, w := range startupWarnings("development", true) {
-		for _, secret := range []string{testJWTKey} {
-			if strings.Contains(w, secret) {
-				t.Errorf("warning leaks a secret: %q", w)
-			}
+	for _, w := range startupWarnings(true) {
+		if strings.Contains(w, testJWTKey) {
+			t.Errorf("warning leaks a secret: %q", w)
 		}
 	}
 }
 
-func hasDevWarning(ws []string) bool {
-	for _, w := range ws {
-		if strings.Contains(w, "/user/forgot-password") && strings.Contains(w, "never") {
-			return true
-		}
+func TestAuthRejectsATokenForAUserThatDoesNotExist(t *testing.T) {
+	kit, _ := newTestKit(t, nil)
+	engine := gin.New()
+	engine.GET("/who", kit.Auth(), func(c *gin.Context) { c.Status(http.StatusOK) })
+	if code := do(engine, http.MethodGet, "/who", tokenFor(t, kit, "ghost", "superadmin")).Code; code != http.StatusUnauthorized {
+		t.Fatalf("got %d, want 401: a signed token must not outlive its user", code)
 	}
-	return false
+}
+
+func TestAuthRequiresARedisSessionForLoginTokens(t *testing.T) {
+	_, client := newMiniRedis(t)
+	kit, drv := newTestKit(t, func(c *Config) { c.Redis = client })
+	drv.AddUser(testutil.User{ID: "u1", Role: "viewer"})
+	engine := gin.New()
+	engine.GET("/who", kit.Auth(), func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	// A login-style token without a session index entry is revoked.
+	loginToken, err := kit.tokens.Generate("u1", "User", "viewer", "log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := do(engine, http.MethodGet, "/who", loginToken).Code; code != http.StatusUnauthorized {
+		t.Fatalf("token without a session: got %d, want 401", code)
+	}
+	// The tooling token carries no session and passes.
+	if code := do(engine, http.MethodGet, "/who", tokenFor(t, kit, "u1", "viewer")).Code; code != http.StatusOK {
+		t.Fatalf("tooling token: got %d, want 200", code)
+	}
 }

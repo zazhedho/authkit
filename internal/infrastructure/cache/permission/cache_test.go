@@ -2,14 +2,17 @@ package permission
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	redismock "github.com/go-redis/redismock/v9"
+
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
 func TestKey(t *testing.T) {
-	if got := Key("user-1"); got != "permission:user:user-1" {
+	if got := Key("user-1"); got != "permission:v2:user:user-1" {
 		t.Fatalf("Key() = %q", got)
 	}
 }
@@ -18,7 +21,7 @@ func TestGetUserPermissionKeys(t *testing.T) {
 	client, mock := redismock.NewClientMock()
 	ctx := context.Background()
 
-	mock.ExpectGet("permission:user:user-1").SetVal(`["users:list","users:create"]`)
+	mock.ExpectGet("permission:v2:user:user-1").SetVal(`["users:list","users:create"]`)
 
 	got, ok := GetUserPermissionKeys(ctx, client, "user-1")
 	if !ok {
@@ -43,7 +46,7 @@ func TestGetUserPermissionKeysMissOnInvalidJSON(t *testing.T) {
 	client, mock := redismock.NewClientMock()
 	ctx := context.Background()
 
-	mock.ExpectGet("permission:user:user-1").SetVal(`{`)
+	mock.ExpectGet("permission:v2:user:user-1").SetVal(`{`)
 
 	got, ok := GetUserPermissionKeys(ctx, client, "user-1")
 	if ok {
@@ -58,7 +61,7 @@ func TestSetUserPermissionKeys(t *testing.T) {
 	client, mock := redismock.NewClientMock()
 	ctx := context.Background()
 
-	mock.ExpectSet("permission:user:user-1", `["users:list"]`, 2*time.Minute).SetVal("OK")
+	mock.ExpectSet("permission:v2:user:user-1", `["users:list"]`, 2*time.Minute).SetVal("OK")
 
 	SetUserPermissionKeys(ctx, client, "user-1", []string{"users:list"}, 2*time.Minute)
 
@@ -71,7 +74,7 @@ func TestDeleteUserPermissionKeys(t *testing.T) {
 	client, mock := redismock.NewClientMock()
 	ctx := context.Background()
 
-	mock.ExpectDel("permission:user:user-1", "permission:user:user-2").SetVal(2)
+	mock.ExpectDel("permission:v2:user:user-1", "authstate:v2:user:user-1", "permission:v2:user:user-2", "authstate:v2:user:user-2").SetVal(2)
 
 	DeleteUserPermissionKeys(ctx, client, "user-1", "", " user-2 ")
 
@@ -84,8 +87,8 @@ func TestDeleteAllUserPermissionKeys(t *testing.T) {
 	client, mock := redismock.NewClientMock()
 	ctx := context.Background()
 
-	mock.ExpectScan(0, "permission:user:*", 100).SetVal([]string{"permission:user:user-1"}, 0)
-	mock.ExpectDel("permission:user:user-1").SetVal(1)
+	mock.ExpectScan(0, "permission:v2:user:*", 100).SetVal([]string{"permission:v2:user:user-1"}, 0)
+	mock.ExpectDel("permission:v2:user:user-1").SetVal(1)
 
 	DeleteAllUserPermissionKeys(ctx, client)
 
@@ -112,9 +115,9 @@ func TestCacheWrapsRedisHelpersAndIsNilSafe(t *testing.T) {
 	ctx := context.Background()
 	cache := NewCache(client)
 
-	mock.ExpectSet("permission:user:user-1", `["users:list"]`, time.Minute).SetVal("OK")
+	mock.ExpectSet("permission:v2:user:user-1", `["users:list"]`, time.Minute).SetVal("OK")
 	cache.Set(ctx, "user-1", []string{"users:list"}, time.Minute)
-	mock.ExpectGet("permission:user:user-1").SetVal(`["users:list"]`)
+	mock.ExpectGet("permission:v2:user:user-1").SetVal(`["users:list"]`)
 	if got, ok := cache.Get(ctx, "user-1"); !ok || len(got) != 1 || got[0] != "users:list" {
 		t.Fatalf("expected cache hit, got %#v ok=%v", got, ok)
 	}
@@ -127,5 +130,25 @@ func TestCacheWrapsRedisHelpersAndIsNilSafe(t *testing.T) {
 		if got, ok := empty.Get(ctx, "user-1"); ok {
 			t.Fatalf("expected miss without a client, got %#v", got)
 		}
+	}
+}
+
+func TestAuthStateRoundTripAndNilSafety(t *testing.T) {
+	client, mock := redismock.NewClientMock()
+	cache := NewCache(client)
+	cutoff := time.Now().Truncate(time.Second)
+	raw, _ := json.Marshal(authState{Role: "viewer", TokensValidAfter: &cutoff})
+	mock.ExpectSet("authstate:v2:user:u1", raw, time.Minute).SetVal("OK")
+	cache.SetAuthState(context.Background(), "u1", domainuser.AuthState{Role: "viewer", TokensValidAfter: &cutoff}, time.Minute)
+	mock.ExpectGet("authstate:v2:user:u1").SetVal(string(raw))
+	got, ok := cache.GetAuthState(context.Background(), "u1")
+	if !ok || got.Role != "viewer" || got.TokensValidAfter == nil || !got.TokensValidAfter.Equal(cutoff) {
+		t.Fatalf("got %+v ok=%v", got, ok)
+	}
+	if _, ok := (*Cache)(nil).GetAuthState(context.Background(), "u1"); ok {
+		t.Fatal("a nil cache never hits")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }

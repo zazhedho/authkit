@@ -6,6 +6,7 @@ import (
 	"time"
 
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
 // TokenRevocations reports whether an access token was revoked at logout.
@@ -23,6 +24,25 @@ type PermissionLookup interface {
 type PermissionCache interface {
 	Get(ctx context.Context, userID string) ([]string, bool)
 	Set(ctx context.Context, userID string, keys []string, ttl time.Duration)
+}
+
+// UserStates loads the current auth state of a live user; a missing or
+// soft-deleted user is domainuser.ErrNotFound.
+type UserStates interface {
+	GetAuthState(ctx context.Context, userID string) (domainuser.AuthState, error)
+}
+
+// StateCache keeps auth states between requests, invalidated when a user's role
+// or tokens change. A nil value disables caching.
+type StateCache interface {
+	GetAuthState(ctx context.Context, userID string) (domainuser.AuthState, bool)
+	SetAuthState(ctx context.Context, userID string, state domainuser.AuthState, ttl time.Duration)
+}
+
+// SessionIndex answers whether an access token still belongs to a live
+// session. A nil value means sessions are off.
+type SessionIndex interface {
+	HasAccessTokenSession(ctx context.Context, token string) (bool, error)
 }
 
 // TokenVerifier reads and verifies the bearer token of a request.

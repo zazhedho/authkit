@@ -38,18 +38,27 @@ type Config struct {
 	Redis  *redis.Client // optional
 	Mailer Mailer        // optional
 
-	AppName, AppEnv                 string // AppName is required
-	JWTKey                          string // required, at least 32 characters
-	AccessTokenTTL, RefreshTokenTTL time.Duration
-	DefaultRole                     string // default "viewer"
-	GoogleClientIDs                 []string
-	EmailAppName                    string        // default: AppName
-	PermissionCacheTTL              time.Duration // default 300s
-	Login                           LoginLimit
-	Register                        RateLimit
-	OTP                             OTPConfig
-	Reset                           PasswordResetConfig
-	Flags                           FlagKeys
+	AppName, AppEnv                 string        // AppName is required
+	JWTKey                          string        // required, at least 32 characters
+	AccessTokenTTL, RefreshTokenTTL time.Duration // default 15m and 168h
+	// SessionMaxLifetime caps a session from login, however often it is
+	// refreshed. Default 30 days; needs Redis.
+	SessionMaxLifetime time.Duration
+	// FailClosedLimiters makes the rate limiters reject requests when Redis
+	// fails instead of letting them through (the default).
+	FailClosedLimiters bool
+	// PhoneLogin lets users sign in with their phone number. Off by default:
+	// phone numbers are not verified.
+	PhoneLogin         bool
+	DefaultRole        string // default "viewer"
+	GoogleClientIDs    []string
+	EmailAppName       string        // default: AppName
+	PermissionCacheTTL time.Duration // default 300s
+	Login              LoginLimit
+	Register           RateLimit
+	OTP                OTPConfig
+	Reset              PasswordResetConfig
+	Flags              FlagKeys
 }
 
 // String reports whether each secret is set but never prints one, so logging a
@@ -69,23 +78,9 @@ func (c Config) String() string {
 // is safe too.
 func (c Config) GoString() string { return c.String() }
 
-// devEnvValues are the normalized AppEnv values that enable the development
-// password-reset fallback. The startup warning and the user handler's
-// DevEnv setting both derive from them.
-var devEnvValues = []string{"development", "local", "test"}
-
-func isDevEnv(appEnv string) bool {
-	n := strings.ToLower(strings.TrimSpace(appEnv))
-	for _, v := range devEnvValues {
-		if n == v {
-			return true
-		}
-	}
-	return false
-}
-
 const (
-	defaultAccessTTL          = 24 * time.Hour
+	defaultAccessTTL          = 15 * time.Minute
+	defaultSessionMaxLifetime = 30 * 24 * time.Hour
 	defaultRefreshTTL         = 168 * time.Hour
 	defaultPermissionCacheTTL = 300 * time.Second
 	defaultLoginLimit         = 5
@@ -114,6 +109,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.RefreshTokenTTL <= 0 {
 		c.RefreshTokenTTL = defaultRefreshTTL
+	}
+	if c.SessionMaxLifetime <= 0 {
+		c.SessionMaxLifetime = defaultSessionMaxLifetime
 	}
 	if strings.TrimSpace(c.DefaultRole) == "" {
 		c.DefaultRole = domainuser.RoleViewer
@@ -224,13 +222,16 @@ func ConfigFromEnv() Config {
 	}
 
 	cfg := Config{
-		AppName:         gokit.GetEnv("APP_NAME", ""),
-		AppEnv:          gokit.GetEnv("APP_ENV", ""),
-		JWTKey:          gokit.GetEnv("JWT_KEY", ""),
-		AccessTokenTTL:  time.Duration(gokit.GetEnv("JWT_EXP", 0)) * time.Hour,
-		RefreshTokenTTL: time.Duration(gokit.GetEnv("REFRESH_TOKEN_EXP_HOURS", 0)) * time.Hour,
-		GoogleClientIDs: googleClientIDsFromEnv(),
-		EmailAppName:    gokit.GetEnv("AUTH_EMAIL_APP_NAME", ""),
+		AppName:            gokit.GetEnv("APP_NAME", ""),
+		AppEnv:             gokit.GetEnv("APP_ENV", ""),
+		JWTKey:             gokit.GetEnv("JWT_KEY", ""),
+		AccessTokenTTL:     accessTTLFromEnv(),
+		RefreshTokenTTL:    time.Duration(gokit.GetEnv("REFRESH_TOKEN_EXP_HOURS", 0)) * time.Hour,
+		SessionMaxLifetime: time.Duration(gokit.GetEnv("SESSION_MAX_LIFETIME_HOURS", 0)) * time.Hour,
+		FailClosedLimiters: gokit.GetEnv("LIMITER_FAIL_CLOSED", false),
+		PhoneLogin:         gokit.GetEnv("LOGIN_WITH_PHONE", false),
+		GoogleClientIDs:    googleClientIDsFromEnv(),
+		EmailAppName:       gokit.GetEnv("AUTH_EMAIL_APP_NAME", ""),
 		PermissionCacheTTL: durationEnv("PERMISSION_CACHE_TTL",
 			time.Duration(gokit.GetEnv("PERMISSION_CACHE_TTL_SECONDS", 0))*time.Second),
 	}
@@ -259,6 +260,14 @@ func ConfigFromEnv() Config {
 	cfg.Flags.PasswordResetEmail = gokit.GetEnv("CONFIG_PASSWORD_RESET_EMAIL", "")
 
 	return cfg.withDefaults()
+}
+
+// accessTTLFromEnv reads JWT_EXP_MINUTES, then the older JWT_EXP in hours.
+func accessTTLFromEnv() time.Duration {
+	if minutes := gokit.GetEnv("JWT_EXP_MINUTES", 0); minutes > 0 {
+		return time.Duration(minutes) * time.Minute
+	}
+	return time.Duration(gokit.GetEnv("JWT_EXP", 0)) * time.Hour
 }
 
 // durationEnv returns the duration-style variable when it holds a positive

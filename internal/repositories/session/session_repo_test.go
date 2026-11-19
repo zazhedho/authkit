@@ -43,8 +43,4 @@ func TestNewSessionRepositoryAndNilRedisMethodPanics(t *testing.T) {
 	expectPanic(t, func() {
 		_ = repo.RotateTokens(ctx, "session-1", "new-access", "new-refresh", time.Now().Add(time.Hour))
 	})
-
-	if err := repo.DeleteExpired(ctx); err != nil {
-		t.Fatalf("expected delete expired no-op, got %v", err)
-	}
 }

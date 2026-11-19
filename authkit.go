@@ -6,7 +6,6 @@ package authkit
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zazhedho/gokit"
@@ -68,15 +67,9 @@ type Kit struct {
 	registerLimiter gin.HandlerFunc
 }
 
-// startupWarnings returns the warnings New logs for risky configuration. They
-// never contain configuration values other than the fixed AppEnv names.
-func startupWarnings(appEnv string, redisNil bool) []string {
+// startupWarnings returns the warnings New logs for risky configuration.
+func startupWarnings(redisNil bool) []string {
 	var out []string
-	if isDevEnv(appEnv) {
-		out = append(out, "authkit: AppEnv is a development value ("+strings.Join(devEnvValues, ", ")+"): "+
-			"when the email password reset flag is disabled, POST /user/forgot-password returns a password reset token "+
-			"directly in the API response for any registered email; never enable this mode on a reachable server")
-	}
 	if redisNil {
 		out = append(out, "authkit: Redis is not configured: login rate limiting, register rate limiting, "+
 			"sessions, OTP and email password reset are inactive")
@@ -92,7 +85,7 @@ func New(cfg Config) (*Kit, error) {
 		return nil, err
 	}
 
-	for _, w := range startupWarnings(cfg.AppEnv, cfg.Redis == nil) {
+	for _, w := range startupWarnings(cfg.Redis == nil) {
 		logus.Log(logus.LevelWarn, w)
 	}
 
@@ -101,7 +94,6 @@ func New(cfg Config) (*Kit, error) {
 		AppName:    cfg.AppName,
 		AccessTTL:  cfg.AccessTokenTTL,
 		RefreshTTL: cfg.RefreshTokenTTL,
-		ResetTTL:   cfg.Reset.TTL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("authkit: tokens: %w", err)
@@ -133,12 +125,14 @@ func New(cfg Config) (*Kit, error) {
 		loginLimiter ratelimit.LoginLimiter
 		sessionSvc   httpuser.SessionService // stays a nil interface without Redis
 		sessionHdlr  *httpsession.Handler
+		sessionRepo  *repositorysession.Repository
 		otpSvc       = serviceotp.NewService(nil, nil, serviceotp.Config(cfg.OTP))
 		resetSvc     = servicereset.NewService(nil, nil, servicereset.Config(cfg.Reset))
 	)
 	if cfg.Redis != nil {
 		loginLimiter = ratelimit.NewRedisLoginLimiter(cfg.Redis, cfg.Login.Limit, cfg.Login.Window, cfg.Login.BlockDuration)
-		sessions := servicesession.NewService(repositorysession.NewRepository(cfg.Redis), cfg.RefreshTokenTTL)
+		sessionRepo = repositorysession.NewRepository(cfg.Redis)
+		sessions := servicesession.NewService(sessionRepo, cfg.RefreshTokenTTL)
 		sessionSvc = sessions
 		sessionHdlr = httpsession.New(sessions, auditSvc)
 		if cfg.Mailer != nil {
@@ -147,10 +141,17 @@ func New(cfg Config) (*Kit, error) {
 		}
 	}
 
+	authMiddleware := middleware.NewMiddleware(blacklistRepo, permissionRepo, cachepermission.NewCache(cfg.Redis), tokens, cfg.PermissionCacheTTL)
+	authMiddleware.Users = userRepo
+	authMiddleware.StateCache = cachepermission.NewCache(cfg.Redis)
+	if sessionRepo != nil {
+		authMiddleware.Sessions = sessionRepo
+	}
+
 	return &Kit{
 		cfg:        cfg,
 		tokens:     tokens,
-		middleware: middleware.NewMiddleware(blacklistRepo, permissionRepo, cachepermission.NewCache(cfg.Redis), tokens, cfg.PermissionCacheTTL),
+		middleware: authMiddleware,
 		users:      userSvc,
 		audit:      auditSvc,
 		appConfig:  appConfigSvc,
@@ -160,14 +161,14 @@ func New(cfg Config) (*Kit, error) {
 			ResetService:     resetSvc,
 			Tokens:           tokens,
 			Settings: httpuser.Settings{
-				AppEnv:        cfg.AppEnv,
-				DevEnv:        isDevEnv(cfg.AppEnv),
-				EmailAppName:  cfg.EmailAppName,
-				AccessTTL:     cfg.AccessTokenTTL,
-				RefreshTTL:    cfg.RefreshTokenTTL,
-				OTPCooldown:   cfg.OTP.Cooldown,
-				ResetCooldown: cfg.Reset.Cooldown,
-				Flags:         httpuser.FlagKeys(cfg.Flags),
+				AppEnv:             cfg.AppEnv,
+				EmailAppName:       cfg.EmailAppName,
+				AccessTTL:          cfg.AccessTokenTTL,
+				RefreshTTL:         cfg.RefreshTokenTTL,
+				SessionMaxLifetime: cfg.SessionMaxLifetime,
+				OTPCooldown:        cfg.OTP.Cooldown,
+				ResetCooldown:      cfg.Reset.Cooldown,
+				Flags:              httpuser.FlagKeys(cfg.Flags),
 			},
 		}),
 		roleHandler:       httprole.New(servicerole.NewService(roleRepo, permissionRepo, menuRepo, invalidator), auditSvc),
@@ -228,10 +229,12 @@ func (k *Kit) Audit() AuditService { return k.audit }
 // flags the kit consults at request time.
 func (k *Kit) AppConfig() AppConfigService { return k.appConfig }
 
-// IssueAccessToken issues an access token that passes Auth like a login one.
-// It does not check the user exists; for tests and tooling.
+// IssueAccessToken issues an access token for tests and tooling. Auth still
+// requires the user to exist, uses the user's current role and honors
+// tokens_valid_after, but the token has no session, so Redis session checks
+// skip it.
 func (k *Kit) IssueAccessToken(userID, name, role string) (string, error) {
-	return k.tokens.Generate(userID, name, role, "authkit-issued")
+	return k.tokens.GenerateWithClaims(userID, name, role, "authkit-issued", &token.AppClaims{NoSession: true})
 }
 
 // ScopeFrom returns the scope on ctx. After Auth alone the permission set is

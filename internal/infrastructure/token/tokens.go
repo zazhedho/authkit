@@ -8,7 +8,11 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
+
+// maxImpersonationTTL caps the life of an impersonation access token.
+const maxImpersonationTTL = 15 * time.Minute
 
 // Config configures Tokens. Key needs 32+ characters. AppName is written
 // to iss and aud and must match on verification. The caller supplies every TTL.
@@ -17,7 +21,6 @@ type Config struct {
 	AppName    string
 	AccessTTL  time.Duration
 	RefreshTTL time.Duration
-	ResetTTL   time.Duration
 }
 
 // Tokens issues and verifies HS256 JWTs with an injected key and TTLs.
@@ -26,7 +29,6 @@ type Tokens struct {
 	appName    string
 	accessTTL  time.Duration
 	refreshTTL time.Duration
-	resetTTL   time.Duration
 }
 
 // NewTokens validates cfg and creates the Tokens issuer.
@@ -49,7 +51,6 @@ func NewTokens(cfg Config) (*Tokens, error) {
 		appName:    appName,
 		accessTTL:  cfg.AccessTTL,
 		refreshTTL: cfg.RefreshTTL,
-		resetTTL:   cfg.ResetTTL,
 	}
 	return t, nil
 }
@@ -77,20 +78,6 @@ func (t *Tokens) Generate(userID, username, role, logID string) (string, error) 
 	return t.GenerateWithClaims(userID, username, role, logID, nil)
 }
 
-// GeneratePasswordReset generates the password reset.
-func (t *Tokens) GeneratePasswordReset(userID, username, role, logID string) (string, error) {
-	if t == nil {
-		return "", ErrJWTKeyNotConfigured
-	}
-	resetExp := time.Now().Add(t.resetTTL)
-	return t.GenerateWithClaims(userID, username, role, logID, &AppClaims{
-		TokenType: TokenTypePasswordReset,
-		RegisteredClaims: &jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(resetExp),
-		},
-	})
-}
-
 // GenerateWithClaims generates the with claims.
 func (t *Tokens) GenerateWithClaims(userID, username, role, logID string, claimsOverride *AppClaims) (string, error) {
 	if t == nil {
@@ -106,7 +93,7 @@ func (t *Tokens) GenerateWithClaims(userID, username, role, logID string, claims
 		RegisteredClaims: &jwt.RegisteredClaims{
 			Issuer:    t.appName,
 			Audience:  jwt.ClaimStrings{t.appName},
-			ID:        logID,
+			ID:        uuid.NewString(),
 			ExpiresAt: jwt.NewNumericDate(accessExp),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
@@ -116,9 +103,13 @@ func (t *Tokens) GenerateWithClaims(userID, username, role, logID string, claims
 			claims.TokenType = claimsOverride.TokenType
 		}
 		claims.IsImpersonated = claimsOverride.IsImpersonated
+		claims.NoSession = claimsOverride.NoSession || claimsOverride.IsImpersonated
 		claims.OriginalUserID = claimsOverride.OriginalUserID
 		claims.OriginalUsername = claimsOverride.OriginalUsername
 		claims.OriginalRole = claimsOverride.OriginalRole
+		if claims.IsImpersonated && t.accessTTL > maxImpersonationTTL {
+			claims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(maxImpersonationTTL))
+		}
 		if claimsOverride.RegisteredClaims != nil && claimsOverride.ExpiresAt != nil {
 			claims.ExpiresAt = claimsOverride.ExpiresAt
 		}
@@ -158,7 +149,7 @@ func (t *Tokens) generateRefresh(userID, username, role, logID string, claimsOve
 		RegisteredClaims: &jwt.RegisteredClaims{
 			Issuer:    t.appName,
 			Audience:  jwt.ClaimStrings{t.appName},
-			ID:        logID,
+			ID:        uuid.NewString(),
 			ExpiresAt: jwt.NewNumericDate(refreshExp),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
@@ -198,7 +189,8 @@ func (t *Tokens) Claims(tokenString string) (map[string]any, error) {
 		}
 
 		return t.key, nil
-	}, jwt.WithIssuer(t.appName), jwt.WithAudience(t.appName))
+	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired(), jwt.WithIssuedAt(),
+		jwt.WithIssuer(t.appName), jwt.WithAudience(t.appName))
 	if err != nil {
 		return nil, err
 	}
@@ -233,11 +225,4 @@ func (t *Tokens) GenerateImpersonated(userID, username, role, logID, originalUse
 		OriginalUsername: originalUsername,
 		OriginalRole:     originalRole,
 	})
-}
-
-// IsPasswordResetClaims reports whether parsed claims belong to a password
-// reset token.
-func (t *Tokens) IsPasswordResetClaims(claims map[string]any) bool {
-	tokenType, _ := claims["token_type"].(string)
-	return tokenType == TokenTypePasswordReset
 }

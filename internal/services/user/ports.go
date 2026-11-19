@@ -48,10 +48,8 @@ type PermissionRepository interface {
 type TokenIssuer interface {
 	Generate(userID, username, role, logID string) (string, error)
 	GenerateImpersonated(userID, username, role, logID, originalUserID, originalUsername, originalRole string) (string, error)
-	GeneratePasswordReset(userID, username, role, logID string) (string, error)
 	Claims(tokenString string) (map[string]any, error)
 	ExpiresAt(tokenString string) (time.Time, error)
-	IsPasswordResetClaims(claims map[string]any) bool
 }
 
 // PermissionCache drops a user's cached permission set when their role changes.

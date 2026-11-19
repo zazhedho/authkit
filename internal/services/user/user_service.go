@@ -460,7 +460,15 @@ func (s *Service) ensurePhoneFree(ctx context.Context, id, phone string) error {
 // revokeTokens invalidates every token issued before now for the user and
 // drops the cached auth state so Auth sees it on the next request.
 func (s *Service) revokeTokens(ctx context.Context, id string) error {
-	if err := s.UserRepo.UpdateFields(ctx, id, map[string]any{"tokens_valid_after": time.Now()}); err != nil {
+	return s.revokeTokensAt(ctx, id, time.Time{})
+}
+
+// revokeTokensAt revokes every token issued before at; a zero at means now.
+func (s *Service) revokeTokensAt(ctx context.Context, id string, at time.Time) error {
+	if at.IsZero() {
+		at = time.Now()
+	}
+	if err := s.UserRepo.UpdateFields(ctx, id, map[string]any{"tokens_valid_after": at}); err != nil {
 		return fmt.Errorf("revoke tokens: %w", err)
 	}
 	s.invalidateUserPermissionCache(ctx, id)
@@ -510,8 +518,10 @@ func (s *Service) ensureNotLastSuperAdmin(ctx context.Context) error {
 	return nil
 }
 
-// ChangePassword changes the password.
-func (s *Service) ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword) (domainuser.Users, error) {
+// ChangePassword changes the password and revokes the user's tokens issued
+// before keepFrom, so the caller's own session (issued at keepFrom) survives
+// while older ones do not. A zero keepFrom revokes everything issued so far.
+func (s *Service) ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword, keepFrom time.Time) (domainuser.Users, error) {
 	if req.CurrentPassword == req.NewPassword {
 		return domainuser.Users{}, errors.New("new password must be different from current password")
 	}
@@ -526,6 +536,9 @@ func (s *Service) ChangePassword(ctx context.Context, id string, req dtouser.Cha
 	}
 
 	if err = bcrypt.CompareHashAndPassword([]byte(data.Password), []byte(req.CurrentPassword)); err != nil {
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			return domainuser.Users{}, domainuser.ErrPasswordIncorrect
+		}
 		return domainuser.Users{}, err
 	}
 
@@ -540,78 +553,11 @@ func (s *Service) ChangePassword(ctx context.Context, id string, req dtouser.Cha
 	if err = s.UserRepo.Update(ctx, data); err != nil {
 		return domainuser.Users{}, err
 	}
-	if err = s.revokeTokens(ctx, id); err != nil {
+	if err = s.revokeTokensAt(ctx, id, keepFrom); err != nil {
 		return domainuser.Users{}, err
 	}
 
 	return data, nil
-}
-
-// ForgotPassword handles forgot the password.
-func (s *Service) ForgotPassword(ctx context.Context, req dtouser.ForgotPasswordRequest) (string, error) {
-	data, err := s.UserRepo.GetByEmail(ctx, domainuser.SanitizeEmail(req.Email))
-	if err != nil {
-		//nolint:nilerr // Avoid disclosing whether an email is registered.
-		return "", nil
-	}
-
-	token, err := s.Tokens.GeneratePasswordReset(data.ID, data.Name, data.Role, "reset_password")
-	if err != nil {
-		return "", err
-	}
-
-	return token, nil
-}
-
-// ResetPassword resets the password.
-func (s *Service) ResetPassword(ctx context.Context, req dtouser.ResetPasswordRequest) error {
-	if err := ValidatePasswordStrength(req.NewPassword); err != nil {
-		return err
-	}
-
-	claims, err := s.Tokens.Claims(req.Token)
-	if err != nil {
-		return errors.New("invalid or expired token")
-	}
-	if !s.Tokens.IsPasswordResetClaims(claims) {
-		return errors.New("invalid or expired token")
-	}
-
-	isUsed, err := s.BlacklistRepo.ExistsByToken(ctx, req.Token)
-	if err != nil {
-		return err
-	}
-	if isUsed {
-		return errors.New("invalid or expired token")
-	}
-
-	userID := strings.TrimSpace(serviceshared.InterfaceString(claims["user_id"]))
-	if userID == "" {
-		return errors.New("invalid or expired token")
-	}
-
-	data, err := s.UserRepo.GetByID(ctx, userID)
-	if err != nil {
-		return errors.New("user not found")
-	}
-
-	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-
-	data.Password = string(hashedPwd)
-	data.PasswordChangedAt = new(time.Now())
-
-	if err = s.LogoutUser(ctx, req.Token); err != nil {
-		return err
-	}
-
-	if err = s.UserRepo.Update(ctx, data); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // ResetPasswordByEmail resets the password by email.
@@ -636,8 +582,7 @@ func (s *Service) ResetPasswordByEmail(ctx context.Context, email, newPassword s
 	if err = s.UserRepo.Update(ctx, data); err != nil {
 		return err
 	}
-
-	return nil
+	return s.revokeTokens(ctx, data.ID)
 }
 
 // Delete removes a user and revokes their tokens. The role rule applies to
@@ -677,4 +622,23 @@ func (s *Service) invalidateUserPermissionCache(ctx context.Context, userIDs ...
 // IsTokenRevoked reports whether an access token was revoked at logout.
 func (s *Service) IsTokenRevoked(ctx context.Context, token string) (bool, error) {
 	return s.BlacklistRepo.ExistsByToken(ctx, token)
+}
+
+// VerifyPassword checks a user's current password. A wrong one is
+// domainuser.ErrPasswordIncorrect.
+func (s *Service) VerifyPassword(ctx context.Context, id, password string) error {
+	if password == "" {
+		return domainuser.ErrPasswordRequired
+	}
+	user, err := s.UserRepo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			return domainuser.ErrPasswordIncorrect
+		}
+		return err
+	}
+	return nil
 }

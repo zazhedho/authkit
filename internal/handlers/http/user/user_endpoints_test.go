@@ -26,13 +26,15 @@ import (
 )
 
 type userServiceTestDouble struct {
-	user        domainuser.Users
-	err         error
-	googleErr   error
-	loginErr    error
-	logoutToken string
-	revoked     bool
-	revokedErr  error
+	user         domainuser.Users
+	err          error
+	googleErr    error
+	loginErr     error
+	logoutToken  string
+	logoutTokens []string
+	logoutErr    error
+	revoked      bool
+	revokedErr   error
 }
 
 func (s *userServiceTestDouble) RegisterUser(ctx context.Context, req dtouser.Register) (domainuser.Users, error) {
@@ -74,6 +76,10 @@ func (s *userServiceTestDouble) LoginWithGoogle(ctx context.Context, req dtouser
 }
 func (s *userServiceTestDouble) LogoutUser(ctx context.Context, token string) error {
 	s.logoutToken = token
+	s.logoutTokens = append(s.logoutTokens, token)
+	if s.logoutErr != nil {
+		return s.logoutErr
+	}
 	return s.err
 }
 func (s *userServiceTestDouble) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason, logID string) (string, error) {
@@ -141,7 +147,7 @@ func (s *userServiceTestDouble) Update(ctx context.Context, actor domainauth.Act
 	}
 	return s.user, nil
 }
-func (s *userServiceTestDouble) ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword) (domainuser.Users, error) {
+func (s *userServiceTestDouble) ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword, keepFrom time.Time) (domainuser.Users, error) {
 	if s.err != nil {
 		return domainuser.Users{}, s.err
 	}
@@ -161,6 +167,9 @@ func (s *userServiceTestDouble) ResetPasswordByEmail(ctx context.Context, email,
 	return s.err
 }
 func (s *userServiceTestDouble) Delete(ctx context.Context, actor domainauth.Actor, id string) error {
+	return s.err
+}
+func (s *userServiceTestDouble) VerifyPassword(ctx context.Context, id, password string) error {
 	return s.err
 }
 func (s *userServiceTestDouble) IsTokenRevoked(ctx context.Context, token string) (bool, error) {
@@ -496,7 +505,7 @@ func TestUserHandlerReadUpdateAndDeleteFlows(t *testing.T) {
 	handler.ChangePassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusOK)
 
-	ctx, rec = newUserHandlerTestContext(t, http.MethodDelete, "/me", "", &scope)
+	ctx, rec = newUserHandlerTestContext(t, http.MethodDelete, "/me", `{"current_password":"secret123"}`, &scope)
 	handler.Delete(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusOK)
 
@@ -508,7 +517,9 @@ func TestUserHandlerReadUpdateAndDeleteFlows(t *testing.T) {
 
 func TestUserHandlerPasswordAndSessionFlows(t *testing.T) {
 	handler := newUserHandlerForTest()
-	handler.Settings.DevEnv = true
+	handler.AppConfigService = &appConfigServiceUserTestDouble{enabled: true}
+	handler.ResetService = &resetServiceUserHandlerTestDouble{}
+	handler.Async = func(fn func()) { fn() }
 	userID := uuid.NewString()
 
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/forgot-password", `{"email":"jane@example.com"}`, nil)
@@ -651,7 +662,6 @@ func TestUserHandlerServiceErrorBranches(t *testing.T) {
 		err: errors.New("database down"),
 	}
 	handler := New(service, nil, nil, nil, testHandlerOptions())
-	handler.Settings.DevEnv = true
 
 	tests := []struct {
 		name   string
@@ -671,10 +681,10 @@ func TestUserHandlerServiceErrorBranches(t *testing.T) {
 		{name: "update self", method: http.MethodPatch, path: "/me", body: `{"name":"Jane"}`, scope: &scope, call: handler.Update, want: http.StatusInternalServerError},
 		{name: "update by id", method: http.MethodPatch, path: "/users/" + userID, body: `{"name":"Jane"}`, params: gin.Params{{Key: "id", Value: userID}}, call: handler.UpdateUserByID, want: http.StatusInternalServerError},
 		{name: "change password", method: http.MethodPatch, path: "/me/password", body: `{"current_password":"secret123","new_password":"secret456"}`, scope: &scope, call: handler.ChangePassword, want: http.StatusInternalServerError},
-		{name: "delete self", method: http.MethodDelete, path: "/me", scope: &scope, call: handler.Delete, want: http.StatusInternalServerError},
+		{name: "delete self", method: http.MethodDelete, path: "/me", body: `{"current_password":"secret123"}`, scope: &scope, call: handler.Delete, want: http.StatusInternalServerError},
 		{name: "delete by id", method: http.MethodDelete, path: "/users/" + userID, params: gin.Params{{Key: "id", Value: userID}}, call: handler.DeleteUserByID, want: http.StatusInternalServerError},
-		{name: "forgot password", method: http.MethodPost, path: "/forgot-password", body: `{"email":"jane@example.com"}`, call: handler.ForgotPassword, want: http.StatusInternalServerError},
-		{name: "reset password", method: http.MethodPost, path: "/reset-password", body: `{"token":"reset-token","new_password":"secret456"}`, call: handler.ResetPassword, want: http.StatusInternalServerError},
+		{name: "forgot password", method: http.MethodPost, path: "/forgot-password", body: `{"email":"jane@example.com"}`, call: handler.ForgotPassword, want: http.StatusOK},
+		{name: "reset password", method: http.MethodPost, path: "/reset-password", body: `{"token":"reset-token","new_password":"secret456"}`, call: handler.ResetPassword, want: http.StatusServiceUnavailable},
 	}
 
 	for _, tt := range tests {
@@ -846,7 +856,7 @@ func TestUserHandlerNotFoundAndValidationErrorBranches(t *testing.T) {
 		{name: "update self", method: http.MethodPatch, path: "/me", body: `{"name":"Jane"}`, scope: &scope, call: handler.Update, want: http.StatusNotFound},
 		{name: "update by id", method: http.MethodPatch, path: "/users/" + userID, body: `{"name":"Jane"}`, params: gin.Params{{Key: "id", Value: userID}}, call: handler.UpdateUserByID, want: http.StatusNotFound},
 		{name: "change password", method: http.MethodPatch, path: "/me/password", body: `{"current_password":"secret123","new_password":"secret456"}`, scope: &scope, call: handler.ChangePassword, want: http.StatusNotFound},
-		{name: "delete self", method: http.MethodDelete, path: "/me", scope: &scope, call: handler.Delete, want: http.StatusNotFound},
+		{name: "delete self", method: http.MethodDelete, path: "/me", body: `{"current_password":"secret123"}`, scope: &scope, call: handler.Delete, want: http.StatusNotFound},
 		{name: "delete by id", method: http.MethodDelete, path: "/users/" + userID, params: gin.Params{{Key: "id", Value: userID}}, call: handler.DeleteUserByID, want: http.StatusNotFound},
 	}
 
@@ -887,10 +897,12 @@ func TestUserHandlerEmailPasswordResetBranches(t *testing.T) {
 	handler := newUserHandlerForTest()
 	handler.Settings.ResetCooldown = 2 * time.Minute
 	handler.AppConfigService = &appConfigServiceUserTestDouble{enabled: true}
+	handler.Async = func(fn func()) { fn() }
 
+	// Every outcome answers the same 200 so the route reveals nothing.
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/forgot-password", `{"email":"jane@example.com"}`, nil)
 	handler.ForgotPassword(ctx)
-	assertUserHandlerStatus(t, rec, http.StatusServiceUnavailable)
+	assertUserHandlerStatus(t, rec, http.StatusOK)
 
 	handler.ResetService = &resetServiceUserHandlerTestDouble{}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/forgot-password", `{"email":"jane@example.com"}`, nil)
@@ -903,12 +915,12 @@ func TestUserHandlerEmailPasswordResetBranches(t *testing.T) {
 	handler.ResetService = &resetServiceUserHandlerTestDouble{err: &domainreset.ThrottleError{Reason: "rate_limit", RetryAfter: time.Second}}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/forgot-password", `{"email":"jane@example.com"}`, nil)
 	handler.ForgotPassword(ctx)
-	assertUserHandlerStatus(t, rec, http.StatusTooManyRequests)
+	assertUserHandlerStatus(t, rec, http.StatusOK)
 
 	handler.ResetService = &resetServiceUserHandlerTestDouble{err: domainreset.ErrDeliveryFailed}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/forgot-password", `{"email":"jane@example.com"}`, nil)
 	handler.ForgotPassword(ctx)
-	assertUserHandlerStatus(t, rec, http.StatusServiceUnavailable)
+	assertUserHandlerStatus(t, rec, http.StatusOK)
 
 	handler.ResetService = nil
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"reset-token","new_password":"secret456"}`, nil)
@@ -949,19 +961,6 @@ func TestUserHandlerResetPasswordRevokesSessions(t *testing.T) {
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"reset-token","new_password":"secret456"}`, nil)
 	handler.ResetPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
-
-	token, err := testHandlerTokens().Generate(user.ID, user.Name, user.Role, "reset_password")
-	if err != nil {
-		t.Fatalf("generate reset token: %v", err)
-	}
-	sessionSvc = &sessionServiceUserHandlerTestDouble{}
-	handler = New(service, sessionSvc, nil, nil, Options{Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: false}})
-	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"`+token+`","new_password":"secret456"}`, nil)
-	handler.ResetPassword(ctx)
-	assertUserHandlerStatus(t, rec, http.StatusOK)
-	if sessionSvc.destroyedUserID != user.ID {
-		t.Fatalf("expected jwt reset to revoke sessions for %q, got %q", user.ID, sessionSvc.destroyedUserID)
-	}
 }
 
 func testHandlerTokens() *token.Tokens {
@@ -970,7 +969,6 @@ func testHandlerTokens() *token.Tokens {
 		AppName:    "test-app",
 		AccessTTL:  time.Hour,
 		RefreshTTL: 2 * time.Hour,
-		ResetTTL:   15 * time.Minute,
 	})
 	if err != nil {
 		panic(err)
@@ -992,7 +990,6 @@ func otherAppTokens() *token.Tokens {
 		AppName:    "other-app",
 		AccessTTL:  time.Hour,
 		RefreshTTL: 2 * time.Hour,
-		ResetTTL:   15 * time.Minute,
 	})
 	if err != nil {
 		panic(err)

@@ -101,7 +101,6 @@ func testTokens(t *testing.T) *token.Tokens {
 		AppName:    "test-app",
 		AccessTTL:  time.Hour,
 		RefreshTTL: 2 * time.Hour,
-		ResetTTL:   15 * time.Minute,
 	})
 	if err != nil {
 		t.Fatalf("failed to build tokens: %v", err)
@@ -129,7 +128,7 @@ func TestAuthMiddlewareAllowsValidAccessToken(t *testing.T) {
 }
 
 func TestAuthMiddlewareRejectsNonAccessToken(t *testing.T) {
-	for _, tokenType := range []string{token.TokenTypeRefresh, token.TokenTypePasswordReset} {
+	for _, tokenType := range []string{token.TokenTypeRefresh, "password_reset", "bogus"} {
 		t.Run(tokenType, func(t *testing.T) {
 			mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
 			rec := performMiddlewareRequest(testToken(t, tokenType, domainuser.RoleViewer), mdw.AuthMiddleware())
@@ -260,7 +259,7 @@ func TestPermissionMiddlewareUsesCachedPermissionsWhenAvailable(t *testing.T) {
 	}
 	mdw := NewMiddleware(&authRepoTestDouble{}, repo, nil, testTokens(t), 2*time.Minute)
 	mdw.PermissionCache = cachepermission.NewCache(client)
-	mock.ExpectGet("permission:user:user-1").SetVal(`["users:list"]`)
+	mock.ExpectGet("permission:v2:user:user-1").SetVal(`["users:list"]`)
 
 	rec := performMiddlewareRequest(
 		testToken(t, "access", domainuser.RoleViewer),
@@ -286,8 +285,8 @@ func TestPermissionMiddlewareFallsBackAndCachesPermissionsOnCacheMiss(t *testing
 	}
 	mdw := NewMiddleware(&authRepoTestDouble{}, repo, nil, testTokens(t), 2*time.Minute)
 	mdw.PermissionCache = cachepermission.NewCache(client)
-	mock.ExpectGet("permission:user:user-1").RedisNil()
-	mock.ExpectSet("permission:user:user-1", `["users:list"]`, 2*time.Minute).SetVal("OK")
+	mock.ExpectGet("permission:v2:user:user-1").RedisNil()
+	mock.ExpectSet("permission:v2:user:user-1", `["users:list"]`, 2*time.Minute).SetVal("OK")
 
 	rec := performMiddlewareRequest(
 		testToken(t, "access", domainuser.RoleViewer),
@@ -411,7 +410,6 @@ func foreignAppToken(t *testing.T, role string) string {
 		AppName:    "other-app",
 		AccessTTL:  time.Hour,
 		RefreshTTL: 2 * time.Hour,
-		ResetTTL:   15 * time.Minute,
 	})
 	if err != nil {
 		t.Fatalf("failed to build tokens: %v", err)

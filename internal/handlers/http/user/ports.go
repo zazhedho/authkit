@@ -27,11 +27,10 @@ type Service interface {
 	GetUserByAuth(ctx context.Context, id string) (map[string]any, error)
 	GetAllUsers(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainuser.Users, int64, error)
 	Update(ctx context.Context, actor domainauth.Actor, id string, req dtouser.Update) (domainuser.Users, error)
-	ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword) (domainuser.Users, error)
-	ForgotPassword(ctx context.Context, req dtouser.ForgotPasswordRequest) (string, error)
-	ResetPassword(ctx context.Context, req dtouser.ResetPasswordRequest) error
+	ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword, keepFrom time.Time) (domainuser.Users, error)
 	ResetPasswordByEmail(ctx context.Context, email, newPassword string) error
 	Delete(ctx context.Context, actor domainauth.Actor, id string) error
+	VerifyPassword(ctx context.Context, id, password string) error
 	// IsTokenRevoked reports whether a token was revoked at logout.
 	IsTokenRevoked(ctx context.Context, token string) (bool, error)
 }
@@ -48,8 +47,11 @@ type LoginLimiter interface {
 // value as "sessions are off".
 type SessionService interface {
 	CreateSession(ctx context.Context, user *domainuser.Users, accessToken string, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error)
+	DestroySession(ctx context.Context, sessionID string) error
 	DestroySessionByToken(ctx context.Context, token string) error
 	DestroyAllUserSessions(ctx context.Context, userID string) error
+	GetSessionByToken(ctx context.Context, token string) (*domainsession.Session, error)
+	DestroyOtherSessions(ctx context.Context, userID string, currentSessionID string) error
 	GetSessionByRefreshToken(ctx context.Context, refreshToken string) (*domainsession.Session, error)
 	RotateSessionTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error
 }

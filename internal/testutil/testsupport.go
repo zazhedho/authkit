@@ -96,6 +96,11 @@ func (d *Driver) answer(query string, args []driver.NamedValue) fakeResult {
 	switch {
 	case strings.Contains(q, "count("):
 		return fakeResult{cols: []string{"count"}, rows: [][]driver.Value{{int64(0)}}}
+	case strings.Contains(q, "select role, tokens_valid_after"):
+		if u, ok := d.users[argStr(0)]; ok {
+			return fakeResult{cols: []string{"role", "tokens_valid_after"}, rows: [][]driver.Value{{u.Role, nil}}}
+		}
+		return fakeResult{}
 	case strings.HasPrefix(q, "select role_id, role from") || strings.Contains(q, "select role_id, role"):
 		if u, ok := d.users[argStr(0)]; ok {
 			return fakeResult{cols: []string{"role_id", "role"}, rows: [][]driver.Value{{"role-" + u.ID, u.Role}}}

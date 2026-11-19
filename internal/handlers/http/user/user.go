@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -32,11 +33,12 @@ type FlagKeys struct {
 
 // Settings carries the values the handler needs at request time.
 type Settings struct {
-	AppEnv, EmailAppName string
-	// DevEnv enables the development password-reset fallback.
-	DevEnv                bool
+	AppEnv, EmailAppName  string
 	AccessTTL, RefreshTTL time.Duration
-	OTPCooldown           time.Duration
+	// SessionMaxLifetime is the absolute cap on a session, counted from login
+	// and not extended by refresh; zero means no cap.
+	SessionMaxLifetime time.Duration
+	OTPCooldown        time.Duration
 	// ResetCooldown is the resend cooldown reported by the forgot-password
 	// email flow.
 	ResetCooldown time.Duration
@@ -54,6 +56,8 @@ type Handler struct {
 	ResetService     ResetService
 	Tokens           TokenIssuer
 	Settings         Settings
+	// Async runs background work; nil starts a goroutine. Tests run it inline.
+	Async func(func())
 }
 
 // Options are the optional dependencies and settings of the user handler.
@@ -582,6 +586,40 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 		return
 	}
 
+	if user.TokensValidAfter != nil {
+		iat, _ := tokenClaims["iat"].(float64)
+		if int64(iat) < user.TokensValidAfter.Unix() {
+			h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
+				ActorUserID:  userID,
+				ActorRole:    user.Role,
+				Message:      failedRenewLoginSessionMessage,
+				ErrorMessage: "The refresh token was issued before the account's tokens were revoked",
+			})
+			return
+		}
+	}
+
+	// Claim the old refresh token first: the blacklist has a unique key, so of
+	// two concurrent refreshes only one gets past this point.
+	if err = h.Service.LogoutUser(reqCtx, req.RefreshToken); err != nil {
+		if errors.Is(err, domainauth.ErrDuplicate) {
+			h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
+				ActorUserID:  userID,
+				ActorRole:    user.Role,
+				Message:      failedRenewLoginSessionMessage,
+				ErrorMessage: "The refresh token was already used",
+			})
+			return
+		}
+		h.failRefresh(ctx, logID, logPrefix, "Service.LogoutUser(refresh)", err, domainaudit.AuditEvent{
+			ActorUserID: userID,
+			ActorRole:   user.Role,
+			ResourceID:  userID,
+			Message:     "Failed to revoke previous login session token",
+		})
+		return
+	}
+
 	imp := impersonationFromClaims(tokenClaims)
 	accessToken, err := h.issueAccessToken(&user, logID.String(), imp)
 	if err != nil {
@@ -608,20 +646,45 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 	if h.SessionSvc != nil {
 		session, sessionErr := h.SessionSvc.GetSessionByRefreshToken(reqCtx, req.RefreshToken)
 		if sessionErr != nil {
+			message := "No active session was found for the refresh token"
+			if errors.Is(sessionErr, domainsession.ErrRefreshReused) {
+				message = "A rotated refresh token was presented again; the session was revoked"
+			}
 			h.auditRefreshFailure(ctx, domainaudit.AuditEvent{
 				ActorUserID:  userID,
 				ActorRole:    user.Role,
 				ResourceID:   userID,
 				Message:      failedRenewLoginSessionMessage,
-				ErrorMessage: "No active session was found for the refresh token",
+				ErrorMessage: message,
 			})
 			logus.LogContextf(ctx, logus.LevelError, "%s; SessionSvc.GetSessionByRefreshToken; ERROR: %s;", logPrefix, sessionErr)
 			respondRefreshUnauthorized(ctx, logID, "session not found for refresh token")
 			return
 		}
 
-		refreshExpAt := time.Now().Add(h.Settings.RefreshTTL)
+		refreshExpAt, withinCap := h.sessionExpiry(session.LoginAt)
+		if !withinCap {
+			if destroyErr := h.SessionSvc.DestroySession(reqCtx, session.SessionID); destroyErr != nil {
+				logus.LogContextf(ctx, logus.LevelError, "%s; SessionSvc.DestroySession; ERROR: %s;", logPrefix, destroyErr)
+			}
+			h.rejectRefresh(ctx, logID, "session has reached its maximum lifetime", domainaudit.AuditEvent{
+				ActorUserID:  userID,
+				ActorRole:    user.Role,
+				Message:      failedRenewLoginSessionMessage,
+				ErrorMessage: "The session exceeded its absolute lifetime",
+			})
+			return
+		}
 		if sessionErr = h.SessionSvc.RotateSessionTokens(reqCtx, session.SessionID, accessToken, refreshToken, refreshExpAt); sessionErr != nil {
+			if errors.Is(sessionErr, domainsession.ErrRefreshReused) {
+				h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
+					ActorUserID:  userID,
+					ActorRole:    user.Role,
+					Message:      failedRenewLoginSessionMessage,
+					ErrorMessage: "The refresh token was used concurrently; the session was revoked",
+				})
+				return
+			}
 			h.failRefresh(ctx, logID, logPrefix, "SessionSvc.RotateSessionTokens", sessionErr, domainaudit.AuditEvent{
 				ActorUserID: userID,
 				ActorRole:   user.Role,
@@ -633,16 +696,6 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 			})
 			return
 		}
-	}
-
-	if err = h.Service.LogoutUser(reqCtx, req.RefreshToken); err != nil {
-		h.failRefresh(ctx, logID, logPrefix, "Service.LogoutUser(refresh)", err, domainaudit.AuditEvent{
-			ActorUserID: userID,
-			ActorRole:   user.Role,
-			ResourceID:  userID,
-			Message:     "Failed to revoke previous login session token",
-		})
-		return
 	}
 
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
@@ -679,12 +732,40 @@ func (h *Handler) Logout(ctx *gin.Context) {
 		return
 	}
 
+	var body dtouser.Logout
+	if err := ctx.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
+		res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgInvalidRequest, logID, "invalid request body")
+		ctx.JSON(http.StatusBadRequest, res)
+		return
+	}
+
 	if h.SessionSvc != nil {
-		errSession := h.SessionSvc.DestroySessionByToken(reqCtx, token.(string))
-		if errSession != nil {
+		if errSession := h.SessionSvc.DestroySessionByToken(reqCtx, token.(string)); errSession != nil && !errors.Is(errSession, domainsession.ErrNotFound) {
+			h.WriteAudit(ctx, domainaudit.AuditEvent{
+				Action:       domainaudit.ActionLogout,
+				Resource:     "auth",
+				Status:       domainaudit.StatusFailed,
+				Message:      "Logout failed to destroy the session",
+				ErrorMessage: errSession.Error(),
+			})
 			logus.LogContextf(ctx, logus.LevelError, "%s; Failed to destroy session: %v", logPrefix, errSession)
-		} else {
-			logus.LogContextf(ctx, logus.LevelInfo, "%s; Session destroyed successfully", logPrefix)
+			httpshared.RespondInternalError(ctx, logID)
+			return
+		}
+	}
+
+	if refresh := strings.TrimSpace(body.RefreshToken); refresh != "" {
+		if err := h.revokeRefreshToken(reqCtx, domainauth.FromContext(reqCtx).UserID, refresh); err != nil {
+			h.WriteAudit(ctx, domainaudit.AuditEvent{
+				Action:       domainaudit.ActionLogout,
+				Resource:     "auth",
+				Status:       domainaudit.StatusFailed,
+				Message:      "Logout failed to revoke the refresh token",
+				ErrorMessage: err.Error(),
+			})
+			logus.LogContextf(ctx, logus.LevelError, "%s; revoke refresh token: %v", logPrefix, err)
+			httpshared.RespondInternalError(ctx, logID)
+			return
 		}
 	}
 
@@ -917,6 +998,9 @@ func (h *Handler) Update(ctx *gin.Context) {
 		httpshared.RespondUnauthorized(ctx, logID)
 		return
 	}
+	if h.denyWhileImpersonating(ctx, logID, scope, "user", "update the profile") {
+		return
+	}
 	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
@@ -954,12 +1038,20 @@ func (h *Handler) ChangePassword(ctx *gin.Context) {
 		httpshared.RespondUnauthorized(ctx, logID)
 		return
 	}
+	if h.denyWhileImpersonating(ctx, logID, scope, "user_password", "change password") {
+		return
+	}
 	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
 
+	limiterKey := "change_password:" + scope.UserID
+	if h.rejectBlockedLogin(ctx, logID, logPrefix, limiterKey, scope.UserID) {
+		return
+	}
+
 	before, _ := h.Service.GetUserByID(reqCtx, scope.UserID)
-	data, err := h.Service.ChangePassword(reqCtx, scope.UserID, req)
+	data, err := h.Service.ChangePassword(reqCtx, scope.UserID, req, h.tokenIssuedAt(ctx))
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionUpdate,
@@ -969,15 +1061,29 @@ func (h *Handler) ChangePassword(ctx *gin.Context) {
 			Message:      "Failed to change password",
 			ErrorMessage: err.Error(),
 			BeforeData:   before,
-			AfterData:    req,
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.ChangePassword; ERROR: %s;", logPrefix, err)
-		if !httpshared.IsNotFound(err) && err.Error() == ErrHashPassword {
-			res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, "current password is incorrect")
-			ctx.JSON(http.StatusBadRequest, res)
-			return
+		if errors.Is(err, domainuser.ErrPasswordIncorrect) {
+			if h.registerLimiterFailure(ctx, logPrefix, limiterKey) {
+				h.respondTooManyLoginAttempts(ctx, logID, 0)
+				return
+			}
 		}
 		respondUserMutationError(ctx, logID, err)
+		return
+	}
+	h.resetLoginLimiter(ctx, logPrefix, limiterKey)
+
+	if err := h.revokeOtherSessions(reqCtx, ctx, scope.UserID); err != nil {
+		h.WriteAudit(ctx, domainaudit.AuditEvent{
+			Action:       domainaudit.ActionUpdate,
+			Resource:     "user_password",
+			ResourceID:   scope.UserID,
+			Status:       domainaudit.StatusFailed,
+			Message:      "Password changed but other sessions could not be revoked",
+			ErrorMessage: err.Error(),
+		})
+		respondStepFailed(ctx, logID, logPrefix, "revokeOtherSessions", err)
 		return
 	}
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
@@ -986,23 +1092,22 @@ func (h *Handler) ChangePassword(ctx *gin.Context) {
 		ResourceID: data.ID,
 		Status:     domainaudit.StatusSuccess,
 		Message:    "Changed user password",
-		BeforeData: before,
 		AfterData: map[string]any{
 			"user_id": data.ID,
 		},
 	})
 
 	res := gokit.Response(http.StatusOK, "User password changed successfully", logID, data)
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(data))
 	ctx.JSON(http.StatusOK, res)
 }
 
-// ForgotPassword handles the forgot password request.
+// ForgotPassword handles the forgot password request. It answers 200 whether
+// or not the email is registered and whether or not mail could be sent, so the
+// route reveals nothing about which emails exist; failures are logged.
 func (h *Handler) ForgotPassword(ctx *gin.Context) {
 	var req dtouser.ForgotPasswordRequest
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][ForgotPassword]"
-	reqCtx := ctx.Request.Context()
 	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
@@ -1016,43 +1121,8 @@ func (h *Handler) ForgotPassword(ctx *gin.Context) {
 		return
 	}
 
-	appEnv := httpshared.NormalizeKey(h.Settings.AppEnv)
-	if !h.Settings.DevEnv {
-		logus.LogContextf(ctx, logus.LevelError, "%s; Development password reset fallback is disabled in APP_ENV=%s", logPrefix, appEnv)
-		res := gokit.ErrorResponse(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logID, "Password reset service is temporarily unavailable.")
-		ctx.JSON(http.StatusServiceUnavailable, res)
-		return
-	}
-
-	token, err := h.Service.ForgotPassword(reqCtx, req)
-	if err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			Action:       domainaudit.ActionUpdate,
-			Resource:     "user_password_reset",
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to request password reset",
-			ErrorMessage: err.Error(),
-			AfterData: map[string]any{
-				"email": req.Email,
-			},
-		})
-		respondStepFailed(ctx, logID, logPrefix, "Service.ForgotPassword", err)
-		return
-	}
-	h.WriteAudit(ctx, domainaudit.AuditEvent{
-		Action:   domainaudit.ActionUpdate,
-		Resource: "user_password_reset",
-		Status:   domainaudit.StatusSuccess,
-		Message:  "Requested password reset",
-		AfterData: map[string]any{
-			"email": req.Email,
-		},
-	})
-
-	logus.LogContextf(ctx, logus.LevelInfo, "%s; Development password reset token generated for %s", logPrefix, domainuser.SanitizeEmail(req.Email))
-
-	res := gokit.Response(http.StatusOK, "Password reset instructions sent to your email", logID, token)
-	ctx.JSON(http.StatusOK, res)
+	logus.LogContextf(ctx, logus.LevelWarn, "%s; password reset by email is disabled; the request was ignored", logPrefix)
+	ctx.JSON(http.StatusOK, gokit.Response(http.StatusOK, forgotPasswordMessage, logID, nil))
 }
 
 // ResetPassword handles the reset password request.
@@ -1060,7 +1130,6 @@ func (h *Handler) ResetPassword(ctx *gin.Context) {
 	var req dtouser.ResetPasswordRequest
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][ResetPassword]"
-	reqCtx := ctx.Request.Context()
 	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
@@ -1069,56 +1138,12 @@ func (h *Handler) ResetPassword(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	if emailResetEnabled {
-		h.resetPasswordByEmail(ctx, req, logID, logPrefix)
+	if !emailResetEnabled {
+		res := gokit.ErrorResponse(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logID, passwordResetEmailNotConfiguredMessage)
+		ctx.JSON(http.StatusServiceUnavailable, res)
 		return
 	}
-
-	if err := h.Service.ResetPassword(reqCtx, req); err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			Action:       domainaudit.ActionUpdate,
-			Resource:     "user_password_reset",
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to reset password",
-			ErrorMessage: err.Error(),
-			AfterData:    req,
-		})
-		logus.LogContextf(ctx, logus.LevelError, "%s; Service.ResetPassword; ERROR: %s;", logPrefix, err)
-		statusCode, res := userMutationErrorResponse(logID, err)
-		ctx.JSON(statusCode, res)
-		return
-	}
-	if h.SessionSvc != nil {
-		claims, err := h.Tokens.Claims(req.Token)
-		if err != nil {
-			respondStepFailed(ctx, logID, logPrefix, "JwtClaim after reset", err)
-			return
-		}
-		if err := h.revokePasswordResetSessions(reqCtx, gokit.InterfaceString(claims["user_id"])); err != nil {
-			h.WriteAudit(ctx, domainaudit.AuditEvent{
-				Action:       domainaudit.ActionUpdate,
-				Resource:     "user_password_reset",
-				Status:       domainaudit.StatusFailed,
-				Message:      "Failed to revoke sessions after password reset",
-				ErrorMessage: err.Error(),
-				AfterData:    req,
-			})
-			respondStepFailed(ctx, logID, logPrefix, "SessionSvc.DestroyAllUserSessions", err)
-			return
-		}
-	}
-	h.WriteAudit(ctx, domainaudit.AuditEvent{
-		Action:   domainaudit.ActionUpdate,
-		Resource: "user_password_reset",
-		Status:   domainaudit.StatusSuccess,
-		Message:  "Reset password success",
-		AfterData: map[string]any{
-			"token": req.Token,
-		},
-	})
-
-	res := gokit.Response(http.StatusOK, "Password reset successfully", logID, nil)
-	ctx.JSON(http.StatusOK, res)
+	h.resetPasswordByEmail(ctx, req, logID, logPrefix)
 }
 
 func (h *Handler) revokePasswordResetSessions(ctx context.Context, userID string) error {
@@ -1142,6 +1167,26 @@ func (h *Handler) Delete(ctx *gin.Context) {
 
 	if scope.UserID == "" {
 		httpshared.RespondUnauthorized(ctx, logID)
+		return
+	}
+
+	if h.denyWhileImpersonating(ctx, logID, scope, "user", "delete the account") {
+		return
+	}
+	var req dtouser.DeleteOwn
+	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
+		return
+	}
+	if err := h.Service.VerifyPassword(reqCtx, scope.UserID, req.CurrentPassword); err != nil {
+		h.WriteAudit(ctx, domainaudit.AuditEvent{
+			Action:       domainaudit.ActionDelete,
+			Resource:     "user",
+			ResourceID:   scope.UserID,
+			Status:       domainaudit.StatusFailed,
+			Message:      "Failed to delete own user: current password check failed",
+			ErrorMessage: err.Error(),
+		})
+		respondUserMutationError(ctx, logID, err)
 		return
 	}
 

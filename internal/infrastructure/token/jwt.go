@@ -16,8 +16,6 @@ const (
 	TokenTypeAccess = "access"
 	// TokenTypeRefresh is the token type refresh constant.
 	TokenTypeRefresh = "refresh"
-	// TokenTypePasswordReset is the token type password reset constant.
-	TokenTypePasswordReset = "password_reset"
 )
 
 var (
@@ -31,11 +29,14 @@ var (
 
 // AppClaims is the app claims.
 type AppClaims struct {
-	UserID           string `json:"user_id"`
-	Username         string `json:"username"`
-	Role             string `json:"role"`
-	TokenType        string `json:"token_type,omitempty"`
-	IsImpersonated   bool   `json:"is_impersonated,omitempty"`
+	UserID         string `json:"user_id"`
+	Username       string `json:"username"`
+	Role           string `json:"role"`
+	TokenType      string `json:"token_type,omitempty"`
+	IsImpersonated bool   `json:"is_impersonated,omitempty"`
+	// NoSession marks a token that has no Redis session: impersonation tokens
+	// and tokens from Kit.IssueAccessToken.
+	NoSession        bool   `json:"no_session,omitempty"`
 	OriginalUserID   string `json:"original_user_id,omitempty"`
 	OriginalUsername string `json:"original_username,omitempty"`
 	OriginalRole     string `json:"original_role,omitempty"`
@@ -47,6 +48,9 @@ func GetAuthToken(request *http.Request) string {
 	if request == nil {
 		return ""
 	}
-	bearerToken := request.Header.Get("Authorization")
-	return strings.ReplaceAll(bearerToken, "Bearer ", "")
+	token, ok := strings.CutPrefix(request.Header.Get("Authorization"), "Bearer ")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(token)
 }

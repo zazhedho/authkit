@@ -2,124 +2,130 @@ package session
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 
+	"github.com/alicebob/miniredis/v2"
 	redismock "github.com/go-redis/redismock/v9"
 	"github.com/redis/go-redis/v9"
 )
 
-func matchRedisCommandKey(expected, actual []any) error {
-	if len(expected) > 1 && expected[1] != actual[1] {
-		return fmt.Errorf("key mismatch: expected %v, got %v", expected[1], actual[1])
-	}
-	if len(expected) > 2 {
-		switch expected[0] {
-		case "sadd", "srem":
-			if expected[2] != actual[2] {
-				return fmt.Errorf("member mismatch: expected %v, got %v", expected[2], actual[2])
-			}
-		}
-	}
-	return nil
+func newMiniRepo(t *testing.T) (*Repository, *miniredis.Miniredis) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	return NewRepository(client), mr
 }
 
-func TestSessionRepositoryWithRedisMock(t *testing.T) {
-	client, mock := redismock.NewClientMock()
-	redisExpect := mock.CustomMatch(matchRedisCommandKey)
-	repo := NewRepository(client)
-	ctx := context.Background()
+func newSession(id, access, refresh string) *domainsession.Session {
 	now := time.Now()
-	expiresAt := now.Add(time.Hour)
-	session := &domainsession.Session{
-		SessionID:    "session-1",
-		UserID:       "user-1",
-		Username:     "Jane",
-		Email:        "jane@example.com",
-		Role:         "viewer",
-		AccessToken:  "access-1",
-		RefreshToken: "refresh-1",
-		DeviceInfo:   "Mac",
-		IP:           "127.0.0.1",
-		LoginAt:      now,
-		LastActivity: now,
-		ExpiresAt:    expiresAt,
+	return &domainsession.Session{
+		SessionID: id, UserID: "user-1", Username: "Jane", Email: "jane@example.com", Role: "viewer",
+		AccessToken: access, RefreshToken: refresh, LoginAt: now, LastActivity: now, ExpiresAt: now.Add(time.Hour),
 	}
-	sessionData, err := json.Marshal(session)
-	if err != nil {
-		t.Fatalf("marshal session: %v", err)
-	}
+}
 
-	redisExpect.ExpectSet("session:session-1", "", time.Hour).SetVal("OK")
-	redisExpect.ExpectSAdd("user_sessions:user-1", "session-1").SetVal(1)
-	redisExpect.ExpectExpire("user_sessions:user-1", time.Hour).SetVal(true)
-	redisExpect.ExpectSet("access_token_session:access-1", "session-1", time.Hour).SetVal("OK")
-	redisExpect.ExpectSet("refresh_token_session:refresh-1", "session-1", time.Hour).SetVal("OK")
-	mock.ExpectGet("session:session-1").SetVal(string(sessionData))
-	mock.ExpectGet("access_token_session:access-1").SetVal("session-1")
-	mock.ExpectGet("session:session-1").SetVal(string(sessionData))
-	mock.ExpectGet("refresh_token_session:refresh-1").SetVal("session-1")
-	mock.ExpectGet("session:session-1").SetVal(string(sessionData))
-	mock.ExpectSMembers("user_sessions:user-1").SetVal([]string{"session-1"})
-	mock.ExpectGet("session:session-1").SetVal(string(sessionData))
-	mock.ExpectGet("session:session-1").SetVal(string(sessionData))
-	mock.ExpectDel("access_token_session:access-1").SetVal(1)
-	mock.ExpectDel("refresh_token_session:refresh-1").SetVal(1)
-	redisExpect.ExpectSet("session:session-1", "", time.Hour).SetVal("OK")
-	redisExpect.ExpectSet("access_token_session:access-2", "session-1", time.Hour).SetVal("OK")
-	redisExpect.ExpectSet("refresh_token_session:refresh-2", "session-1", time.Hour).SetVal("OK")
-	redisExpect.ExpectExpire("user_sessions:user-1", time.Hour).SetVal(true)
-	rotatedSession := *session
-	rotatedSession.AccessToken = "access-2"
-	rotatedSession.RefreshToken = "refresh-2"
-	rotatedSession.ExpiresAt = expiresAt
-	rotatedData, err := json.Marshal(rotatedSession)
-	if err != nil {
-		t.Fatalf("marshal rotated session: %v", err)
+func TestSessionLifecycle(t *testing.T) {
+	repo, _ := newMiniRepo(t)
+	ctx := context.Background()
+	if err := repo.Create(ctx, newSession("s1", "access-1", "refresh-1")); err != nil {
+		t.Fatal(err)
 	}
-	mock.ExpectGet("access_token_session:access-2").SetVal("session-1")
-	mock.ExpectGet("session:session-1").SetVal(string(rotatedData))
-	mock.ExpectGet("session:session-1").SetVal(string(rotatedData))
-	mock.ExpectDel("session:session-1").SetVal(1)
-	mock.ExpectSRem("user_sessions:user-1", "session-1").SetVal(1)
-	mock.ExpectDel("access_token_session:access-2").SetVal(1)
-	mock.ExpectDel("refresh_token_session:refresh-2").SetVal(1)
-	mock.ExpectGet("session:session-1").RedisNil()
+	if got, err := repo.GetByToken(ctx, "access-1"); err != nil || got.SessionID != "s1" {
+		t.Fatalf("by access: %+v %v", got, err)
+	}
+	if got, err := repo.GetByRefreshToken(ctx, "refresh-1"); err != nil || got.SessionID != "s1" {
+		t.Fatalf("by refresh: %+v %v", got, err)
+	}
+	if live, err := repo.HasAccessTokenSession(ctx, "access-1"); err != nil || !live {
+		t.Fatalf("live=%v err=%v", live, err)
+	}
+	if err := repo.RotateTokens(ctx, "s1", "access-2", "refresh-2", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if live, _ := repo.HasAccessTokenSession(ctx, "access-1"); live {
+		t.Fatal("the old access token must stop belonging to a session after rotation")
+	}
+	if live, _ := repo.HasAccessTokenSession(ctx, "access-2"); !live {
+		t.Fatal("the new access token must belong to the session")
+	}
+	if err := repo.Delete(ctx, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	if live, _ := repo.HasAccessTokenSession(ctx, "access-2"); live {
+		t.Fatal("a deleted session must not validate its access token")
+	}
+	if _, err := repo.GetBySessionID(ctx, "s1"); !errors.Is(err, domainsession.ErrNotFound) {
+		t.Fatalf("got %v", err)
+	}
+}
 
-	if err := repo.Create(ctx, session); err != nil {
-		t.Fatalf("create session: %v", err)
+func TestRedisHoldsNoRawTokens(t *testing.T) {
+	repo, mr := newMiniRepo(t)
+	if err := repo.Create(context.Background(), newSession("s1", "raw-access-token", "raw-refresh-token")); err != nil {
+		t.Fatal(err)
 	}
-	if got, err := repo.GetBySessionID(ctx, "session-1"); err != nil || got.UserID != "user-1" {
-		t.Fatalf("get session: got=%+v err=%v", got, err)
+	for _, key := range mr.Keys() {
+		if strings.Contains(key, "raw-access-token") || strings.Contains(key, "raw-refresh-token") {
+			t.Fatalf("raw token in key %q", key)
+		}
+		if v, err := mr.Get(key); err == nil && (strings.Contains(v, "raw-access-token") || strings.Contains(v, "raw-refresh-token")) {
+			t.Fatalf("raw token in value of %q", key)
+		}
 	}
-	if got, err := repo.GetByToken(ctx, "access-1"); err != nil || got.SessionID != "session-1" {
-		t.Fatalf("get by token: got=%+v err=%v", got, err)
+	if !mr.Exists("access_token_session:" + HashToken("raw-access-token")) {
+		t.Fatal("expected the access index to be keyed by the token hash")
 	}
-	if got, err := repo.GetByRefreshToken(ctx, "refresh-1"); err != nil || got.SessionID != "session-1" {
-		t.Fatalf("get by refresh: got=%+v err=%v", got, err)
-	}
-	if sessions, err := repo.GetByUserID(ctx, "user-1"); err != nil || len(sessions) != 1 {
-		t.Fatalf("get by user: sessions=%+v err=%v", sessions, err)
-	}
-	if err := repo.RotateTokens(ctx, "session-1", "access-2", "refresh-2", time.Now().Add(time.Hour)); err != nil {
-		t.Fatalf("rotate tokens: %v", err)
-	}
-	if got, err := repo.GetByToken(ctx, "access-2"); err != nil || got.AccessToken != "access-2" {
-		t.Fatalf("get rotated token: got=%+v err=%v", got, err)
-	}
-	if err := repo.Delete(ctx, "session-1"); err != nil {
-		t.Fatalf("delete session: %v", err)
-	}
-	if _, err := repo.GetBySessionID(ctx, "session-1"); err == nil {
-		t.Fatal("expected deleted session to be missing")
-	}
+}
 
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("redis expectations: %v", err)
+func TestReusingARotatedRefreshTokenRevokesTheSession(t *testing.T) {
+	repo, _ := newMiniRepo(t)
+	ctx := context.Background()
+	if err := repo.Create(ctx, newSession("s1", "access-1", "refresh-1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RotateTokens(ctx, "s1", "access-2", "refresh-2", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.GetByRefreshToken(ctx, "refresh-1"); !errors.Is(err, domainsession.ErrRefreshReused) {
+		t.Fatalf("got %v, want ErrRefreshReused", err)
+	}
+	if live, _ := repo.HasAccessTokenSession(ctx, "access-2"); live {
+		t.Fatal("reuse detection must revoke the whole session")
+	}
+}
+
+func TestConcurrentRotationOfOneRefreshTokenHasOneWinner(t *testing.T) {
+	repo, _ := newMiniRepo(t)
+	ctx := context.Background()
+	if err := repo.Create(ctx, newSession("s1", "access-1", "refresh-1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RotateTokens(ctx, "s1", "access-2", "refresh-2", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	// A second rotation that read the session before the first finished.
+	stale := newSession("s1", "access-1", "refresh-1")
+	stale.AccessTokenHash, stale.RefreshTokenHash = HashToken("access-1"), HashToken("refresh-1")
+	if ok, err := repo.Redis.SetNX(ctx, refreshUsedKey+stale.RefreshTokenHash, "s1", time.Hour).Result(); err != nil || ok {
+		t.Fatalf("the old refresh token must already be claimed (ok=%v err=%v)", ok, err)
+	}
+}
+
+func TestDeleteByUserIDReportsFailures(t *testing.T) {
+	repo, mr := newMiniRepo(t)
+	ctx := context.Background()
+	if err := repo.Create(ctx, newSession("s1", "a1", "r1")); err != nil {
+		t.Fatal(err)
+	}
+	mr.SetError("boom")
+	if err := repo.DeleteByUserID(ctx, "user-1"); err == nil {
+		t.Fatal("DeleteByUserID must return the Redis failure")
 	}
 }
 

@@ -79,3 +79,14 @@ type SendRegisterOTPRequest struct {
 type Impersonate struct {
 	Reason string `json:"reason" binding:"required,min=3,max=500"`
 }
+
+// Logout is the optional request body of logout: the refresh token to revoke
+// together with the access token.
+type Logout struct {
+	RefreshToken string `json:"refresh_token" binding:"omitempty"`
+}
+
+// DeleteOwn is the request body for deleting one's own account.
+type DeleteOwn struct {
+	CurrentPassword string `json:"current_password" binding:"required,max=72"`
+}

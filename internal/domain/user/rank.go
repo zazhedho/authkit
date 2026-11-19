@@ -1,6 +1,9 @@
 package user
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 // Role-rule failures. Services return them wrapped or as is; handlers map them
 // to 403 (above actor, protected) or 409 (last superadmin).
@@ -31,4 +34,11 @@ func CheckRoleCoverage(actorRole string, actorKeys map[string]struct{}, targetRo
 		}
 	}
 	return nil
+}
+
+// AuthState is what request authentication needs about a live user: the
+// current role and the instant before which issued tokens are void.
+type AuthState struct {
+	Role             string
+	TokensValidAfter *time.Time
 }

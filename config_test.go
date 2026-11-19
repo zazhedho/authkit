@@ -156,7 +156,7 @@ func TestValidateAllowsMissingOTPAndResetSecretsWithoutRedisOrMailer(t *testing.
 func TestWithDefaultsMatchesLegacyEnvDefaults(t *testing.T) {
 	cfg := Config{AppName: "test-app"}.withDefaults()
 
-	if cfg.AccessTokenTTL != 24*time.Hour || cfg.RefreshTokenTTL != 168*time.Hour {
+	if cfg.AccessTokenTTL != 15*time.Minute || cfg.RefreshTokenTTL != 168*time.Hour {
 		t.Fatalf("unexpected token TTLs: %v %v", cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 	}
 	if cfg.DefaultRole != "viewer" {
@@ -483,18 +483,6 @@ func TestNoBuiltInSecretLiterals(t *testing.T) {
 			if strings.Contains(src, needle) {
 				t.Errorf("%s contains the built-in secret literal %q", path, needle)
 			}
-		}
-	}
-}
-
-func TestIsDevEnv(t *testing.T) {
-	for in, want := range map[string]bool{
-		"development": true, "local": true, "test": true,
-		" Development ": true, "LOCAL": true, "Test": true,
-		"": false, "production": false, "prod": false, "staging": false, "testing": false,
-	} {
-		if got := isDevEnv(in); got != want {
-			t.Errorf("isDevEnv(%q) = %v, want %v", in, got, want)
 		}
 	}
 }

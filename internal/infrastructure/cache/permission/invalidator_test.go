@@ -17,7 +17,7 @@ func TestRedisInvalidatorDeletesUserKeys(t *testing.T) {
 	client, mock := redismock.NewClientMock()
 	invalidator := NewInvalidator(client)
 
-	mock.ExpectDel("permission:user:user-1").SetVal(1)
+	mock.ExpectDel("permission:v2:user:user-1", "authstate:v2:user:user-1").SetVal(1)
 
 	invalidator.DeleteUser(context.Background(), "user-1")
 
@@ -30,8 +30,8 @@ func TestRedisInvalidatorDeletesAllKeys(t *testing.T) {
 	client, mock := redismock.NewClientMock()
 	invalidator := NewInvalidator(client)
 
-	mock.ExpectScan(0, "permission:user:*", 100).SetVal([]string{"permission:user:user-1"}, 0)
-	mock.ExpectDel("permission:user:user-1").SetVal(1)
+	mock.ExpectScan(0, "permission:v2:user:*", 100).SetVal([]string{"permission:v2:user:user-1"}, 0)
+	mock.ExpectDel("permission:v2:user:user-1").SetVal(1)
 
 	invalidator.DeleteAll(context.Background())
 
