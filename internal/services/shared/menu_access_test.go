@@ -13,7 +13,7 @@ import (
 
 func TestResolveAccessibleMenus_IncludesParentAndPreservesActiveOrder(t *testing.T) {
 	parentID := "education"
-	menus := []domainmenu.MenuItem{
+	menus := []domainmenu.Item{
 		{ID: "dashboard", Name: "dashboard", DisplayName: "Dashboard", OrderIndex: 1, IsActive: true},
 		{ID: "education-stats", Name: "education_stats", DisplayName: "Education Stats", ParentID: &parentID, OrderIndex: 10, IsActive: true},
 		{ID: "education-priority", Name: "education_priority", DisplayName: "Education Priority", ParentID: &parentID, OrderIndex: 11, IsActive: true},
@@ -33,7 +33,7 @@ func TestResolveAccessibleMenus_IncludesParentAndPreservesActiveOrder(t *testing
 }
 
 func TestResolveAccessibleMenuIDs_IgnoresUnknownResources(t *testing.T) {
-	menus := []domainmenu.MenuItem{
+	menus := []domainmenu.Item{
 		{ID: "users", Name: "users", OrderIndex: 1, IsActive: true},
 	}
 

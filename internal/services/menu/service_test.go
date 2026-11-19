@@ -12,22 +12,22 @@ import (
 )
 
 type menuRepoTestDouble struct {
-	menu        domainmenu.MenuItem
-	activeMenus []domainmenu.MenuItem
-	updated     domainmenu.MenuItem
+	menu        domainmenu.Item
+	activeMenus []domainmenu.Item
+	updated     domainmenu.Item
 }
 
-func (m *menuRepoTestDouble) Store(ctx context.Context, data domainmenu.MenuItem) error { return nil }
-func (m *menuRepoTestDouble) GetByID(ctx context.Context, id string) (domainmenu.MenuItem, error) {
+func (m *menuRepoTestDouble) Store(ctx context.Context, data domainmenu.Item) error { return nil }
+func (m *menuRepoTestDouble) GetByID(ctx context.Context, id string) (domainmenu.Item, error) {
 	if m.menu.ID == "" {
-		return domainmenu.MenuItem{}, errors.New("not found")
+		return domainmenu.Item{}, errors.New("not found")
 	}
 	return m.menu, nil
 }
-func (m *menuRepoTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainmenu.MenuItem, int64, error) {
-	return []domainmenu.MenuItem{m.menu}, 1, nil
+func (m *menuRepoTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainmenu.Item, int64, error) {
+	return []domainmenu.Item{m.menu}, 1, nil
 }
-func (m *menuRepoTestDouble) Update(ctx context.Context, data domainmenu.MenuItem) error {
+func (m *menuRepoTestDouble) Update(ctx context.Context, data domainmenu.Item) error {
 	m.updated = data
 	m.menu = data
 	return nil
@@ -36,18 +36,18 @@ func (m *menuRepoTestDouble) Delete(ctx context.Context, id string) error { retu
 func (m *menuRepoTestDouble) SoftDelete(ctx context.Context, id, deletedBy string) error {
 	return nil
 }
-func (m *menuRepoTestDouble) GetByName(ctx context.Context, name string) (domainmenu.MenuItem, error) {
+func (m *menuRepoTestDouble) GetByName(ctx context.Context, name string) (domainmenu.Item, error) {
 	for _, menu := range m.activeMenus {
 		if menu.Name == name {
 			return menu, nil
 		}
 	}
-	return domainmenu.MenuItem{}, errors.New("not found")
+	return domainmenu.Item{}, errors.New("not found")
 }
-func (m *menuRepoTestDouble) GetActiveMenus(ctx context.Context) ([]domainmenu.MenuItem, error) {
-	return append([]domainmenu.MenuItem{}, m.activeMenus...), nil
+func (m *menuRepoTestDouble) GetActiveMenus(ctx context.Context) ([]domainmenu.Item, error) {
+	return append([]domainmenu.Item{}, m.activeMenus...), nil
 }
-func (m *menuRepoTestDouble) GetUserMenus(ctx context.Context, userID string) ([]domainmenu.MenuItem, error) {
+func (m *menuRepoTestDouble) GetUserMenus(ctx context.Context, userID string) ([]domainmenu.Item, error) {
 	return nil, nil
 }
 
@@ -83,7 +83,7 @@ func (m *permissionRepoMenuTestDouble) GetUserPermissions(ctx context.Context, u
 
 func TestGetUserMenusDerivesMenusFromPermissionResources(t *testing.T) {
 	svc := NewService(
-		&menuRepoTestDouble{activeMenus: []domainmenu.MenuItem{
+		&menuRepoTestDouble{activeMenus: []domainmenu.Item{
 			{ID: "dashboard", Name: "dashboard", IsActive: true},
 			{ID: "users", Name: "users", ParentID: new("settings"), IsActive: true},
 			{ID: "settings", Name: "settings", IsActive: true},
@@ -109,7 +109,7 @@ func TestGetUserMenusDerivesMenusFromPermissionResources(t *testing.T) {
 func TestUpdateOnlyAppliesProvidedMenuFields(t *testing.T) {
 	orderIndex := 42
 	parentID := "parent-1"
-	repo := &menuRepoTestDouble{menu: domainmenu.MenuItem{
+	repo := &menuRepoTestDouble{menu: domainmenu.Item{
 		ID:          "menu-1",
 		Name:        "users",
 		DisplayName: "Users",
@@ -119,7 +119,7 @@ func TestUpdateOnlyAppliesProvidedMenuFields(t *testing.T) {
 	}}
 	svc := NewService(repo, &permissionRepoMenuTestDouble{})
 
-	got, err := svc.Update(context.Background(), "menu-1", dtomenu.MenuUpdate{
+	got, err := svc.Update(context.Background(), "menu-1", dtomenu.Update{
 		DisplayName: "User Management",
 		ParentID:    &parentID,
 		OrderIndex:  &orderIndex,
@@ -145,8 +145,8 @@ func TestUpdateOnlyAppliesProvidedMenuFields(t *testing.T) {
 
 func TestMenuServicePassThroughMethods(t *testing.T) {
 	repo := &menuRepoTestDouble{
-		menu: domainmenu.MenuItem{ID: "menu-1", Name: "users", IsActive: true},
-		activeMenus: []domainmenu.MenuItem{
+		menu: domainmenu.Item{ID: "menu-1", Name: "users", IsActive: true},
+		activeMenus: []domainmenu.Item{
 			{ID: "menu-1", Name: "users", IsActive: true},
 		},
 	}

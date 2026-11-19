@@ -13,6 +13,7 @@ import (
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 )
 
+// Service implements the role use cases.
 type Service struct {
 	RoleRepo        Repository
 	PermissionRepo  PermissionRepository
@@ -22,6 +23,7 @@ type Service struct {
 	NewID func() string
 }
 
+// NewService creates the role service.
 func NewService(
 	roleRepo Repository,
 	permissionRepo PermissionRepository,
@@ -40,7 +42,8 @@ func NewService(
 	return service
 }
 
-func (s *Service) Create(ctx context.Context, req dtorole.RoleCreate) (domainrole.Role, error) {
+// Create creates the record.
+func (s *Service) Create(ctx context.Context, req dtorole.Create) (domainrole.Role, error) {
 	existing, _ := s.RoleRepo.GetByName(ctx, req.Name)
 	if existing.ID != "" {
 		return domainrole.Role{}, errors.New("role with this name already exists")
@@ -62,24 +65,26 @@ func (s *Service) Create(ctx context.Context, req dtorole.RoleCreate) (domainrol
 	return data, nil
 }
 
+// GetByID returns one record found by ID.
 func (s *Service) GetByID(ctx context.Context, id string) (domainrole.Role, error) {
 	return s.RoleRepo.GetByID(ctx, id)
 }
 
-func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.RoleWithDetails, error) {
+// GetByIDWithDetails returns one record found by ID with details.
+func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.WithDetails, error) {
 	role, err := s.RoleRepo.GetByID(ctx, id)
 	if err != nil {
-		return dtorole.RoleWithDetails{}, err
+		return dtorole.WithDetails{}, err
 	}
 
 	permissionIDs, err := s.RoleRepo.GetRolePermissions(ctx, id)
 	if err != nil {
-		return dtorole.RoleWithDetails{}, err
+		return dtorole.WithDetails{}, err
 	}
 
 	menuIDs, err := s.deriveMenuIDsFromPermissions(ctx, permissionIDs)
 	if err != nil {
-		return dtorole.RoleWithDetails{}, err
+		return dtorole.WithDetails{}, err
 	}
 
 	updatedAt := ""
@@ -87,7 +92,7 @@ func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.Ro
 		updatedAt = role.UpdatedAt.Format(time.RFC3339)
 	}
 
-	return dtorole.RoleWithDetails{
+	return dtorole.WithDetails{
 		ID:            role.ID,
 		Name:          role.Name,
 		DisplayName:   role.DisplayName,
@@ -100,6 +105,7 @@ func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.Ro
 	}, nil
 }
 
+// GetAll returns a page of records.
 func (s *Service) GetAll(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainrole.Role, int64, error) {
 	roles, total, err := s.RoleRepo.GetAll(ctx, req)
 	return serviceshared.HideSuperAdmin(actor, roles, total, err, func(role domainrole.Role) bool {
@@ -107,7 +113,8 @@ func (s *Service) GetAll(ctx context.Context, actor domainauth.Actor, req dtosha
 	})
 }
 
-func (s *Service) Update(ctx context.Context, id string, req dtorole.RoleUpdate) (domainrole.Role, error) {
+// Update updates the record.
+func (s *Service) Update(ctx context.Context, id string, req dtorole.Update) (domainrole.Role, error) {
 	role, err := s.RoleRepo.GetByID(ctx, id)
 	if err != nil {
 		return domainrole.Role{}, err
@@ -130,6 +137,7 @@ func (s *Service) Update(ctx context.Context, id string, req dtorole.RoleUpdate)
 	return role, nil
 }
 
+// Delete deletes the record.
 func (s *Service) Delete(ctx context.Context, id string) error {
 	role, err := s.RoleRepo.GetByID(ctx, id)
 	if err != nil {
@@ -147,6 +155,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// AssignPermissions assigns the permissions.
 func (s *Service) AssignPermissions(ctx context.Context, actor domainauth.Actor, roleID string, req dtorole.AssignPermissions) error {
 	role, err := s.RoleRepo.GetByID(ctx, roleID)
 	if err != nil {
@@ -185,6 +194,7 @@ func (s *Service) invalidatePermissionCache(ctx context.Context) {
 	}
 }
 
+// GetRolePermissions returns the role permissions.
 func (s *Service) GetRolePermissions(ctx context.Context, roleID string) ([]string, error) {
 	return s.RoleRepo.GetRolePermissions(ctx, roleID)
 }

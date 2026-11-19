@@ -10,8 +10,11 @@ import (
 var ErrNotFound = errors.New("reset token not found")
 
 var (
-	ErrInvalid        = errors.New("reset token invalid or expired")
-	ErrNotConfigured  = errors.New("password reset service not configured")
+	// ErrInvalid is returned for the invalid case.
+	ErrInvalid = errors.New("reset token invalid or expired")
+	// ErrNotConfigured is returned for the not configured case.
+	ErrNotConfigured = errors.New("password reset service not configured")
+	// ErrDeliveryFailed is returned for the delivery failed case.
 	ErrDeliveryFailed = errors.New("password reset delivery failed")
 )
 

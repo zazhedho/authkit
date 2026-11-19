@@ -10,7 +10,7 @@ import (
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 )
 
-func toAuditResponses(items []domainaudit.AuditTrail) []dtoaudit.AuditTrailResponse {
+func toAuditResponses(items []domainaudit.Trail) []dtoaudit.AuditTrailResponse {
 	responses := make([]dtoaudit.AuditTrailResponse, 0, len(items))
 	for _, item := range items {
 		responses = append(responses, toAuditResponse(item))
@@ -18,7 +18,7 @@ func toAuditResponses(items []domainaudit.AuditTrail) []dtoaudit.AuditTrailRespo
 	return responses
 }
 
-func toAuditResponse(item domainaudit.AuditTrail) dtoaudit.AuditTrailResponse {
+func toAuditResponse(item domainaudit.Trail) dtoaudit.AuditTrailResponse {
 	actionLabel := serviceshared.TitleHumanized(item.Action)
 	resourceLabel := serviceshared.TitleHumanized(item.Resource)
 	statusLabel := serviceshared.TitleHumanized(item.Status)

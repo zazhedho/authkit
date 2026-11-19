@@ -8,6 +8,7 @@ import (
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 )
 
+// Service is the audit service the handler calls.
 type Service interface {
 	GetAll(ctx context.Context, req dtoshared.ListRequest) ([]dtoaudit.AuditTrailResponse, int64, error)
 	GetByID(ctx context.Context, id string) (dtoaudit.AuditTrailResponse, error)

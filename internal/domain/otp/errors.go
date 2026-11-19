@@ -10,9 +10,13 @@ import (
 var ErrNotFound = errors.New("otp not found")
 
 var (
-	ErrInvalid        = errors.New("otp invalid or expired")
+	// ErrInvalid is returned for the invalid case.
+	ErrInvalid = errors.New("otp invalid or expired")
+	// ErrTooManyAttempt is returned for the too many attempt case.
 	ErrTooManyAttempt = errors.New("otp too many attempts")
-	ErrNotConfigured  = errors.New("otp service not configured")
+	// ErrNotConfigured is returned for the not configured case.
+	ErrNotConfigured = errors.New("otp service not configured")
+	// ErrDeliveryFailed is returned for the delivery failed case.
 	ErrDeliveryFailed = errors.New("otp delivery failed")
 )
 

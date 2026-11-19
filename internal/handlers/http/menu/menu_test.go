@@ -22,35 +22,35 @@ import (
 )
 
 type menuServiceHandlerTestDouble struct {
-	menu      domainmenu.MenuItem
-	menus     []domainmenu.MenuItem
+	menu      domainmenu.Item
+	menus     []domainmenu.Item
 	total     int64
-	updateReq dtomenu.MenuUpdate
+	updateReq dtomenu.Update
 	err       error
 }
 
-func (m *menuServiceHandlerTestDouble) GetByID(ctx context.Context, id string) (domainmenu.MenuItem, error) {
+func (m *menuServiceHandlerTestDouble) GetByID(ctx context.Context, id string) (domainmenu.Item, error) {
 	if m.err != nil {
-		return domainmenu.MenuItem{}, m.err
+		return domainmenu.Item{}, m.err
 	}
 	return m.menu, nil
 }
-func (m *menuServiceHandlerTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainmenu.MenuItem, int64, error) {
+func (m *menuServiceHandlerTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainmenu.Item, int64, error) {
 	if m.err != nil {
 		return nil, 0, m.err
 	}
 	return m.menus, m.total, nil
 }
-func (m *menuServiceHandlerTestDouble) GetActiveMenus(ctx context.Context) ([]domainmenu.MenuItem, error) {
+func (m *menuServiceHandlerTestDouble) GetActiveMenus(ctx context.Context) ([]domainmenu.Item, error) {
 	return m.menus, m.err
 }
-func (m *menuServiceHandlerTestDouble) GetUserMenus(ctx context.Context, userID string) ([]domainmenu.MenuItem, error) {
+func (m *menuServiceHandlerTestDouble) GetUserMenus(ctx context.Context, userID string) ([]domainmenu.Item, error) {
 	return m.menus, m.err
 }
-func (m *menuServiceHandlerTestDouble) Update(ctx context.Context, id string, req dtomenu.MenuUpdate) (domainmenu.MenuItem, error) {
+func (m *menuServiceHandlerTestDouble) Update(ctx context.Context, id string, req dtomenu.Update) (domainmenu.Item, error) {
 	m.updateReq = req
 	if m.err != nil {
-		return domainmenu.MenuItem{}, m.err
+		return domainmenu.Item{}, m.err
 	}
 	return m.menu, nil
 }
@@ -94,8 +94,8 @@ func performMenuRequest(method, routePath, requestPath string, body any, handler
 
 func TestMenuReadHandlers(t *testing.T) {
 	handler := New(&menuServiceHandlerTestDouble{
-		menu:  domainmenu.MenuItem{ID: "menu-1", Name: "users"},
-		menus: []domainmenu.MenuItem{{ID: "menu-1", Name: "users"}},
+		menu:  domainmenu.Item{ID: "menu-1", Name: "users"},
+		menus: []domainmenu.Item{{ID: "menu-1", Name: "users"}},
 		total: 1,
 	}, &auditServiceMenuTestDouble{})
 
@@ -145,7 +145,7 @@ func TestGetUserMenusRequiresScope(t *testing.T) {
 		t.Fatalf("expected 401, got %d", rec.Code)
 	}
 
-	handler = New(&menuServiceHandlerTestDouble{menus: []domainmenu.MenuItem{{ID: "menu-1", Name: "users"}}}, &auditServiceMenuTestDouble{})
+	handler = New(&menuServiceHandlerTestDouble{menus: []domainmenu.Item{{ID: "menu-1", Name: "users"}}}, &auditServiceMenuTestDouble{})
 	rec = performMenuRequest(http.MethodGet, "/menus/me", "/menus/me", nil, handler.GetUserMenus, domainauth.New("user-1", "Jane", "viewer", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -153,9 +153,9 @@ func TestGetUserMenusRequiresScope(t *testing.T) {
 }
 
 func TestUpdateMenuMapsSuccessAndError(t *testing.T) {
-	service := &menuServiceHandlerTestDouble{menu: domainmenu.MenuItem{ID: "menu-1", Name: "users"}}
+	service := &menuServiceHandlerTestDouble{menu: domainmenu.Item{ID: "menu-1", Name: "users"}}
 	handler := New(service, &auditServiceMenuTestDouble{})
-	rec := performMenuRequest(http.MethodPut, "/menus/:id", "/menus/menu-1", dtomenu.MenuUpdate{DisplayName: "Users"}, handler.Update, domainauth.Scope{})
+	rec := performMenuRequest(http.MethodPut, "/menus/:id", "/menus/menu-1", dtomenu.Update{DisplayName: "Users"}, handler.Update, domainauth.Scope{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -164,7 +164,7 @@ func TestUpdateMenuMapsSuccessAndError(t *testing.T) {
 	}
 
 	handler = New(&menuServiceHandlerTestDouble{err: errors.New("database down")}, &auditServiceMenuTestDouble{})
-	rec = performMenuRequest(http.MethodPut, "/menus/:id", "/menus/menu-1", dtomenu.MenuUpdate{DisplayName: "Users"}, handler.Update, domainauth.Scope{})
+	rec = performMenuRequest(http.MethodPut, "/menus/:id", "/menus/menu-1", dtomenu.Update{DisplayName: "Users"}, handler.Update, domainauth.Scope{})
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
 	}

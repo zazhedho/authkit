@@ -2,12 +2,14 @@ package audit
 
 import "time"
 
-type AuditActor struct {
+// AuditActor is the audit request body for audit actor.
+type AuditActor struct { //nolint:revive // public API type (authkit.AuditActor); renaming it is a breaking change
 	UserID *string `json:"user_id,omitempty"`
 	Role   string  `json:"role,omitempty"`
 }
 
-type AuditTrailResponse struct {
+// AuditTrailResponse is an audit response payload.
+type AuditTrailResponse struct { //nolint:revive // public API type (authkit.AuditTrailResponse); renaming it is a breaking change
 	ID            string     `json:"id"`
 	OccurredAt    time.Time  `json:"occurred_at"`
 	Actor         AuditActor `json:"actor"`

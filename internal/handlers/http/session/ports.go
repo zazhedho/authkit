@@ -6,8 +6,9 @@ import (
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 )
 
+// Service is the session service the handler calls.
 type Service interface {
-	GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.SessionInfo, error)
+	GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.Info, error)
 	DestroySession(ctx context.Context, sessionID string) error
 	DestroyOtherSessions(ctx context.Context, userID string, currentSessionID string) error
 	GetSessionByToken(ctx context.Context, token string) (*domainsession.Session, error)

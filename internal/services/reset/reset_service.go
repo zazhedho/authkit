@@ -22,12 +22,14 @@ type Config struct {
 	URLTemplate string
 }
 
+// Service implements the reset use cases.
 type Service struct {
 	Repo   Repository
 	Sender Mailer
 	Config Config
 }
 
+// NewService creates the reset service.
 func NewService(repo Repository, sender Mailer, cfg Config) *Service {
 	return &Service{Repo: repo, Sender: sender, Config: cfg}
 }
@@ -38,6 +40,7 @@ func (s *Service) missingSecret() bool {
 	return strings.TrimSpace(s.Config.Secret) == ""
 }
 
+// RequestReset implements the request reset operation.
 func (s *Service) RequestReset(ctx context.Context, email, appName string) error {
 	if s == nil || s.Repo == nil || s.Sender == nil || s.missingSecret() {
 		return domainreset.ErrNotConfigured
@@ -93,6 +96,7 @@ func (s *Service) RequestReset(ctx context.Context, email, appName string) error
 	return nil
 }
 
+// VerifyReset verifies the reset.
 func (s *Service) VerifyReset(ctx context.Context, token string) (string, error) {
 	if s == nil || s.Repo == nil || s.missingSecret() {
 		return "", domainreset.ErrNotConfigured

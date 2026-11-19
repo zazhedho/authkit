@@ -25,7 +25,7 @@ import (
 
 type roleServiceHandlerTestDouble struct {
 	role                 domainrole.Role
-	details              dtorole.RoleWithDetails
+	details              dtorole.WithDetails
 	roles                []domainrole.Role
 	total                int64
 	assigned             []string
@@ -37,7 +37,7 @@ type roleServiceHandlerTestDouble struct {
 	assignPermissionsErr error
 }
 
-func (m *roleServiceHandlerTestDouble) Create(ctx context.Context, req dtorole.RoleCreate) (domainrole.Role, error) {
+func (m *roleServiceHandlerTestDouble) Create(ctx context.Context, req dtorole.Create) (domainrole.Role, error) {
 	return m.role, m.err
 }
 func (m *roleServiceHandlerTestDouble) GetByID(ctx context.Context, id string) (domainrole.Role, error) {
@@ -46,7 +46,7 @@ func (m *roleServiceHandlerTestDouble) GetByID(ctx context.Context, id string) (
 	}
 	return m.role, nil
 }
-func (m *roleServiceHandlerTestDouble) GetByIDWithDetails(ctx context.Context, id string) (dtorole.RoleWithDetails, error) {
+func (m *roleServiceHandlerTestDouble) GetByIDWithDetails(ctx context.Context, id string) (dtorole.WithDetails, error) {
 	return m.details, m.err
 }
 func (m *roleServiceHandlerTestDouble) GetAll(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainrole.Role, int64, error) {
@@ -55,7 +55,7 @@ func (m *roleServiceHandlerTestDouble) GetAll(ctx context.Context, actor domaina
 	}
 	return m.roles, m.total, m.err
 }
-func (m *roleServiceHandlerTestDouble) Update(ctx context.Context, id string, req dtorole.RoleUpdate) (domainrole.Role, error) {
+func (m *roleServiceHandlerTestDouble) Update(ctx context.Context, id string, req dtorole.Update) (domainrole.Role, error) {
 	return m.role, m.err
 }
 func (m *roleServiceHandlerTestDouble) Delete(ctx context.Context, id string) error {
@@ -122,12 +122,12 @@ func performRoleRawRequest(method, routePath, requestPath, body string, handler 
 func TestRoleCRUDHandlers(t *testing.T) {
 	handler := New(&roleServiceHandlerTestDouble{
 		role:    domainrole.Role{ID: "role-1", Name: "staff"},
-		details: dtorole.RoleWithDetails{ID: "role-1", Name: "staff"},
+		details: dtorole.WithDetails{ID: "role-1", Name: "staff"},
 		roles:   []domainrole.Role{{ID: "role-1", Name: "staff"}},
 		total:   1,
 	}, &auditServiceRoleTestDouble{})
 
-	if rec := performRoleRequest(http.MethodPost, "/roles", "/roles", dtorole.RoleCreate{Name: "staff", DisplayName: "Staff"}, handler.Create); rec.Code != http.StatusCreated {
+	if rec := performRoleRequest(http.MethodPost, "/roles", "/roles", dtorole.Create{Name: "staff", DisplayName: "Staff"}, handler.Create); rec.Code != http.StatusCreated {
 		t.Fatalf("expected create 201, got %d", rec.Code)
 	}
 	if rec := performRoleRequest(http.MethodGet, "/roles/:id", "/roles/role-1", nil, handler.GetByID); rec.Code != http.StatusOK {
@@ -136,7 +136,7 @@ func TestRoleCRUDHandlers(t *testing.T) {
 	if rec := performRoleRequest(http.MethodGet, "/roles", "/roles", nil, handler.GetAll); rec.Code != http.StatusOK {
 		t.Fatalf("expected get all 200, got %d", rec.Code)
 	}
-	if rec := performRoleRequest(http.MethodPut, "/roles/:id", "/roles/role-1", dtorole.RoleUpdate{DisplayName: "Staff"}, handler.Update); rec.Code != http.StatusOK {
+	if rec := performRoleRequest(http.MethodPut, "/roles/:id", "/roles/role-1", dtorole.Update{DisplayName: "Staff"}, handler.Update); rec.Code != http.StatusOK {
 		t.Fatalf("expected update 200, got %d", rec.Code)
 	}
 	if rec := performRoleRequest(http.MethodDelete, "/roles/:id", "/roles/role-1", nil, handler.Delete); rec.Code != http.StatusOK {
@@ -146,7 +146,7 @@ func TestRoleCRUDHandlers(t *testing.T) {
 
 func TestRoleMutationErrorsAndAssignments(t *testing.T) {
 	handler := New(&roleServiceHandlerTestDouble{err: errors.New("role with this name already exists")}, &auditServiceRoleTestDouble{})
-	rec := performRoleRequest(http.MethodPost, "/roles", "/roles", dtorole.RoleCreate{Name: "staff", DisplayName: "Staff"}, handler.Create)
+	rec := performRoleRequest(http.MethodPost, "/roles", "/roles", dtorole.Create{Name: "staff", DisplayName: "Staff"}, handler.Create)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected duplicate create 400, got %d", rec.Code)
 	}
@@ -204,7 +204,7 @@ func TestRoleHandlersServiceErrorBranches(t *testing.T) {
 	}
 
 	handler = New(&roleServiceHandlerTestDouble{err: errors.New("cannot update system role")}, &auditServiceRoleTestDouble{})
-	rec = performRoleRequest(http.MethodPut, "/roles/:id", "/roles/role-1", dtorole.RoleUpdate{DisplayName: "System"}, handler.Update)
+	rec = performRoleRequest(http.MethodPut, "/roles/:id", "/roles/role-1", dtorole.Update{DisplayName: "System"}, handler.Update)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected update forbidden, got %d: %s", rec.Code, rec.Body.String())
 	}

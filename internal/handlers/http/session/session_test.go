@@ -21,7 +21,7 @@ import (
 
 type sessionServiceHandlerTestDouble struct {
 	session      *domainsession.Session
-	infos        []*domainsession.SessionInfo
+	infos        []*domainsession.Info
 	destroyedID  string
 	destroyOther string
 	err          error
@@ -32,7 +32,7 @@ type sessionServiceHandlerTestDouble struct {
 func (m *sessionServiceHandlerTestDouble) CreateSession(ctx context.Context, user *domainuser.Users, accessToken string, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error) {
 	return nil, nil
 }
-func (m *sessionServiceHandlerTestDouble) GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.SessionInfo, error) {
+func (m *sessionServiceHandlerTestDouble) GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.Info, error) {
 	return m.infos, m.err
 }
 func (m *sessionServiceHandlerTestDouble) DestroySession(ctx context.Context, sessionID string) error {
@@ -111,7 +111,7 @@ func TestGetActiveSessionsRequiresAuthAndReturnsSessions(t *testing.T) {
 
 	handler = New(&sessionServiceHandlerTestDouble{
 		session: &domainsession.Session{SessionID: "current"},
-		infos:   []*domainsession.SessionInfo{{SessionID: "current", IsCurrentSession: true}},
+		infos:   []*domainsession.Info{{SessionID: "current", IsCurrentSession: true}},
 	}, &auditServiceSessionTestDouble{})
 	rec = performSessionRequest(http.MethodGet, "/sessions", "/sessions", handler.GetActiveSessions, domainauth.New("user-1", "Jane", "viewer", nil))
 	if rec.Code != http.StatusOK {

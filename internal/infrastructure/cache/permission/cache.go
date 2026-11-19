@@ -14,10 +14,12 @@ const (
 	scanCount = int64(100)
 )
 
+// Key implements the key operation.
 func Key(userID string) string {
 	return keyPrefix + userID
 }
 
+// GetUserPermissionKeys returns the user permission keys.
 func GetUserPermissionKeys(ctx context.Context, client *redis.Client, userID string) ([]string, bool) {
 	if client == nil {
 		return nil, false
@@ -49,6 +51,7 @@ func SetUserPermissionKeys(ctx context.Context, client *redis.Client, userID str
 	_ = client.Set(ctx, Key(userID), string(raw), ttl).Err()
 }
 
+// DeleteUserPermissionKeys deletes the user permission keys.
 func DeleteUserPermissionKeys(ctx context.Context, client *redis.Client, userIDs ...string) {
 	if client == nil {
 		return
@@ -69,6 +72,7 @@ func DeleteUserPermissionKeys(ctx context.Context, client *redis.Client, userIDs
 	_ = client.Del(ctx, keys...).Err()
 }
 
+// DeleteAllUserPermissionKeys deletes the all user permission keys.
 func DeleteAllUserPermissionKeys(ctx context.Context, client *redis.Client) {
 	if client == nil {
 		return
@@ -96,10 +100,12 @@ type Cache struct {
 	client *redis.Client
 }
 
+// NewCache creates a new cache.
 func NewCache(client *redis.Client) *Cache {
 	return &Cache{client: client}
 }
 
+// Get returns the record.
 func (c *Cache) Get(ctx context.Context, userID string) ([]string, bool) {
 	if c == nil {
 		return nil, false

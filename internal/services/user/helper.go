@@ -8,6 +8,7 @@ import (
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
+// ValidatePasswordStrength validates the password strength.
 func ValidatePasswordStrength(password string) error {
 	if len(password) < 8 {
 		return errors.New("password must be at least 8 characters long")

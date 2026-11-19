@@ -64,7 +64,7 @@ func TestCreateRejectsDuplicatePermissionName(t *testing.T) {
 		},
 	})
 
-	_, err := svc.Create(context.Background(), dtopermission.PermissionCreate{Name: "list_users"})
+	_, err := svc.Create(context.Background(), dtopermission.Create{Name: "list_users"})
 	if err == nil || err.Error() != "permission with this name already exists" {
 		t.Fatalf("expected duplicate error, got %v", err)
 	}
@@ -74,7 +74,7 @@ func TestCreateStoresPermission(t *testing.T) {
 	repo := &permissionRepoTestDouble{}
 	svc := NewService(repo)
 
-	got, err := svc.Create(context.Background(), dtopermission.PermissionCreate{
+	got, err := svc.Create(context.Background(), dtopermission.Create{
 		Name:        "list_users",
 		DisplayName: "List Users",
 		Description: "Can list users",
@@ -104,7 +104,7 @@ func TestUpdatePreservesEmptyFieldsAndSetsUpdatedAt(t *testing.T) {
 	}}
 	svc := NewService(repo)
 
-	got, err := svc.Update(context.Background(), "perm-1", dtopermission.PermissionUpdate{
+	got, err := svc.Update(context.Background(), "perm-1", dtopermission.Update{
 		Description: "new",
 		Action:      "view",
 	})

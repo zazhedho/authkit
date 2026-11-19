@@ -10,12 +10,13 @@ import (
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
 )
 
+// Service is the role service the handler calls.
 type Service interface {
-	Create(ctx context.Context, req dtorole.RoleCreate) (domainrole.Role, error)
+	Create(ctx context.Context, req dtorole.Create) (domainrole.Role, error)
 	GetByID(ctx context.Context, id string) (domainrole.Role, error)
-	GetByIDWithDetails(ctx context.Context, id string) (dtorole.RoleWithDetails, error)
+	GetByIDWithDetails(ctx context.Context, id string) (dtorole.WithDetails, error)
 	GetAll(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainrole.Role, int64, error)
-	Update(ctx context.Context, id string, req dtorole.RoleUpdate) (domainrole.Role, error)
+	Update(ctx context.Context, id string, req dtorole.Update) (domainrole.Role, error)
 	Delete(ctx context.Context, id string) error
 	AssignPermissions(ctx context.Context, actor domainauth.Actor, roleID string, req dtorole.AssignPermissions) error
 	GetRolePermissions(ctx context.Context, roleID string) ([]string, error)

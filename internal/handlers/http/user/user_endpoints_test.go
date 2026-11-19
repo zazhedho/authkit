@@ -35,7 +35,7 @@ type userServiceTestDouble struct {
 	revokedErr  error
 }
 
-func (s *userServiceTestDouble) RegisterUser(ctx context.Context, req dtouser.UserRegister) (domainuser.Users, error) {
+func (s *userServiceTestDouble) RegisterUser(ctx context.Context, req dtouser.Register) (domainuser.Users, error) {
 	if s.err != nil {
 		return domainuser.Users{}, s.err
 	}
@@ -122,7 +122,7 @@ func (s *userServiceTestDouble) GetAllUsers(ctx context.Context, actor domainaut
 	}
 	return []domainuser.Users{s.user}, 1, nil
 }
-func (s *userServiceTestDouble) Update(ctx context.Context, actor domainauth.Actor, id string, req dtouser.UserUpdate) (domainuser.Users, error) {
+func (s *userServiceTestDouble) Update(ctx context.Context, actor domainauth.Actor, id string, req dtouser.Update) (domainuser.Users, error) {
 	if s.err != nil {
 		return domainuser.Users{}, s.err
 	}
@@ -213,7 +213,7 @@ func (m *sessionServiceUserHandlerTestDouble) CreateSession(ctx context.Context,
 	m.sessionID = "session-1"
 	return &domainsession.Session{SessionID: m.sessionID, UserID: user.ID, AccessToken: accessToken, RefreshToken: refreshToken, ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
-func (m *sessionServiceUserHandlerTestDouble) GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.SessionInfo, error) {
+func (m *sessionServiceUserHandlerTestDouble) GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.Info, error) {
 	return nil, nil
 }
 func (m *sessionServiceUserHandlerTestDouble) DestroySession(ctx context.Context, sessionID string) error {
@@ -489,7 +489,7 @@ func TestUserHandlerReadUpdateAndDeleteFlows(t *testing.T) {
 
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPatch, "/users/"+userID, `{"role":"admin"}`, nil)
 	ctx.Params = gin.Params{{Key: "id", Value: userID}}
-	handler.UpdateUserById(ctx)
+	handler.UpdateUserByID(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusOK)
 
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPatch, "/me/password", `{"current_password":"secret123","new_password":"secret456"}`, &scope)
@@ -502,7 +502,7 @@ func TestUserHandlerReadUpdateAndDeleteFlows(t *testing.T) {
 
 	ctx, rec = newUserHandlerTestContext(t, http.MethodDelete, "/users/"+userID, "", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: userID}}
-	handler.DeleteUserById(ctx)
+	handler.DeleteUserByID(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusOK)
 }
 
@@ -570,7 +570,7 @@ func TestUserHandlerBadJSONBranches(t *testing.T) {
 		{name: "google login", method: http.MethodPost, path: "/google/login", call: handler.GoogleLogin},
 		{name: "refresh token", method: http.MethodPost, path: "/refresh-token", call: handler.RefreshToken},
 		{name: "update self", method: http.MethodPatch, path: "/me", scope: &scope, call: handler.Update},
-		{name: "update by id", method: http.MethodPatch, path: "/users/" + userID, call: handler.UpdateUserById},
+		{name: "update by id", method: http.MethodPatch, path: "/users/" + userID, call: handler.UpdateUserByID},
 		{name: "change password", method: http.MethodPatch, path: "/me/password", scope: &scope, call: handler.ChangePassword},
 		{name: "forgot password", method: http.MethodPost, path: "/forgot-password", call: handler.ForgotPassword},
 		{name: "reset password", method: http.MethodPost, path: "/reset-password", call: handler.ResetPassword},
@@ -596,8 +596,8 @@ func TestUserHandlerInvalidIDBranches(t *testing.T) {
 		call func(*gin.Context)
 	}{
 		{name: "get by id", call: handler.GetUserByID},
-		{name: "update by id", call: handler.UpdateUserById},
-		{name: "delete by id", call: handler.DeleteUserById},
+		{name: "update by id", call: handler.UpdateUserByID},
+		{name: "delete by id", call: handler.DeleteUserByID},
 		{name: "impersonate", call: handler.ImpersonateUser},
 	}
 
@@ -669,10 +669,10 @@ func TestUserHandlerServiceErrorBranches(t *testing.T) {
 		{name: "get user by id", method: http.MethodGet, path: "/users/" + userID, params: gin.Params{{Key: "id", Value: userID}}, call: handler.GetUserByID, want: http.StatusInternalServerError},
 		{name: "get user by auth", method: http.MethodGet, path: "/me", scope: &scope, call: handler.GetUserByAuth, want: http.StatusInternalServerError},
 		{name: "update self", method: http.MethodPatch, path: "/me", body: `{"name":"Jane"}`, scope: &scope, call: handler.Update, want: http.StatusInternalServerError},
-		{name: "update by id", method: http.MethodPatch, path: "/users/" + userID, body: `{"name":"Jane"}`, params: gin.Params{{Key: "id", Value: userID}}, call: handler.UpdateUserById, want: http.StatusInternalServerError},
+		{name: "update by id", method: http.MethodPatch, path: "/users/" + userID, body: `{"name":"Jane"}`, params: gin.Params{{Key: "id", Value: userID}}, call: handler.UpdateUserByID, want: http.StatusInternalServerError},
 		{name: "change password", method: http.MethodPatch, path: "/me/password", body: `{"current_password":"secret123","new_password":"secret456"}`, scope: &scope, call: handler.ChangePassword, want: http.StatusInternalServerError},
 		{name: "delete self", method: http.MethodDelete, path: "/me", scope: &scope, call: handler.Delete, want: http.StatusInternalServerError},
-		{name: "delete by id", method: http.MethodDelete, path: "/users/" + userID, params: gin.Params{{Key: "id", Value: userID}}, call: handler.DeleteUserById, want: http.StatusInternalServerError},
+		{name: "delete by id", method: http.MethodDelete, path: "/users/" + userID, params: gin.Params{{Key: "id", Value: userID}}, call: handler.DeleteUserByID, want: http.StatusInternalServerError},
 		{name: "forgot password", method: http.MethodPost, path: "/forgot-password", body: `{"email":"jane@example.com"}`, call: handler.ForgotPassword, want: http.StatusInternalServerError},
 		{name: "reset password", method: http.MethodPost, path: "/reset-password", body: `{"token":"reset-token","new_password":"secret456"}`, call: handler.ResetPassword, want: http.StatusInternalServerError},
 	}
@@ -844,10 +844,10 @@ func TestUserHandlerNotFoundAndValidationErrorBranches(t *testing.T) {
 		{name: "get user by id", method: http.MethodGet, path: "/users/" + userID, params: gin.Params{{Key: "id", Value: userID}}, call: handler.GetUserByID, want: http.StatusNotFound},
 		{name: "get user by auth", method: http.MethodGet, path: "/me", scope: &scope, call: handler.GetUserByAuth, want: http.StatusNotFound},
 		{name: "update self", method: http.MethodPatch, path: "/me", body: `{"name":"Jane"}`, scope: &scope, call: handler.Update, want: http.StatusNotFound},
-		{name: "update by id", method: http.MethodPatch, path: "/users/" + userID, body: `{"name":"Jane"}`, params: gin.Params{{Key: "id", Value: userID}}, call: handler.UpdateUserById, want: http.StatusNotFound},
+		{name: "update by id", method: http.MethodPatch, path: "/users/" + userID, body: `{"name":"Jane"}`, params: gin.Params{{Key: "id", Value: userID}}, call: handler.UpdateUserByID, want: http.StatusNotFound},
 		{name: "change password", method: http.MethodPatch, path: "/me/password", body: `{"current_password":"secret123","new_password":"secret456"}`, scope: &scope, call: handler.ChangePassword, want: http.StatusNotFound},
 		{name: "delete self", method: http.MethodDelete, path: "/me", scope: &scope, call: handler.Delete, want: http.StatusNotFound},
-		{name: "delete by id", method: http.MethodDelete, path: "/users/" + userID, params: gin.Params{{Key: "id", Value: userID}}, call: handler.DeleteUserById, want: http.StatusNotFound},
+		{name: "delete by id", method: http.MethodDelete, path: "/users/" + userID, params: gin.Params{{Key: "id", Value: userID}}, call: handler.DeleteUserByID, want: http.StatusNotFound},
 	}
 
 	for _, tt := range tests {

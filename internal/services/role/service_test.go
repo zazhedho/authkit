@@ -99,28 +99,28 @@ func (m *permissionRepoMock) GetUserPermissions(ctx context.Context, userID stri
 }
 
 type menuRepoMock struct {
-	activeMenus []domainmenu.MenuItem
+	activeMenus []domainmenu.Item
 }
 
-func (m *menuRepoMock) Store(ctx context.Context, data domainmenu.MenuItem) error { return nil }
-func (m *menuRepoMock) GetByID(ctx context.Context, id string) (domainmenu.MenuItem, error) {
-	return domainmenu.MenuItem{}, errors.New("not implemented")
+func (m *menuRepoMock) Store(ctx context.Context, data domainmenu.Item) error { return nil }
+func (m *menuRepoMock) GetByID(ctx context.Context, id string) (domainmenu.Item, error) {
+	return domainmenu.Item{}, errors.New("not implemented")
 }
-func (m *menuRepoMock) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainmenu.MenuItem, int64, error) {
+func (m *menuRepoMock) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainmenu.Item, int64, error) {
 	return nil, 0, nil
 }
-func (m *menuRepoMock) Update(ctx context.Context, data domainmenu.MenuItem) error { return nil }
-func (m *menuRepoMock) Delete(ctx context.Context, id string) error                { return nil }
+func (m *menuRepoMock) Update(ctx context.Context, data domainmenu.Item) error { return nil }
+func (m *menuRepoMock) Delete(ctx context.Context, id string) error            { return nil }
 func (m *menuRepoMock) SoftDelete(ctx context.Context, id, deletedBy string) error {
 	return nil
 }
-func (m *menuRepoMock) GetByName(ctx context.Context, name string) (domainmenu.MenuItem, error) {
-	return domainmenu.MenuItem{}, errors.New("not implemented")
+func (m *menuRepoMock) GetByName(ctx context.Context, name string) (domainmenu.Item, error) {
+	return domainmenu.Item{}, errors.New("not implemented")
 }
-func (m *menuRepoMock) GetActiveMenus(ctx context.Context) ([]domainmenu.MenuItem, error) {
-	return append([]domainmenu.MenuItem{}, m.activeMenus...), nil
+func (m *menuRepoMock) GetActiveMenus(ctx context.Context) ([]domainmenu.Item, error) {
+	return append([]domainmenu.Item{}, m.activeMenus...), nil
 }
-func (m *menuRepoMock) GetUserMenus(ctx context.Context, userID string) ([]domainmenu.MenuItem, error) {
+func (m *menuRepoMock) GetUserMenus(ctx context.Context, userID string) ([]domainmenu.Item, error) {
 	return nil, nil
 }
 
@@ -195,12 +195,12 @@ func TestRoleServiceCRUDAndDetails(t *testing.T) {
 		permissionsByID: map[string]domainpermission.Permission{
 			"perm-1": {ID: "perm-1", Resource: "users", Action: "view"},
 		},
-	}, &menuRepoMock{activeMenus: []domainmenu.MenuItem{
+	}, &menuRepoMock{activeMenus: []domainmenu.Item{
 		{ID: parentID, Name: "root", DisplayName: "Root", IsActive: true},
 		{ID: "menu-users", Name: "users", DisplayName: "Users", ParentID: &parentID, IsActive: true},
 	}})
 
-	created, err := service.Create(context.Background(), dtorole.RoleCreate{Name: "manager", DisplayName: "Manager", Description: "Can manage users"})
+	created, err := service.Create(context.Background(), dtorole.Create{Name: "manager", DisplayName: "Manager", Description: "Can manage users"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestRoleServiceCRUDAndDetails(t *testing.T) {
 		t.Fatalf("expected superadmin filtered for non-superadmin, roles=%+v total=%d", roles, total)
 	}
 
-	updated, err := service.Update(context.Background(), "role-1", dtorole.RoleUpdate{DisplayName: "Updated", Description: "Updated desc"})
+	updated, err := service.Update(context.Background(), "role-1", dtorole.Update{DisplayName: "Updated", Description: "Updated desc"})
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestRoleServiceSystemRoleProtections(t *testing.T) {
 	systemRepo := &roleRepoMock{role: domainrole.Role{ID: "role-1", Name: domainuser.RoleAdmin, IsSystem: true}}
 	service := NewService(systemRepo, &permissionRepoMock{}, &menuRepoMock{})
 
-	if _, err := service.Update(context.Background(), "role-1", dtorole.RoleUpdate{DisplayName: "Updated"}); err == nil {
+	if _, err := service.Update(context.Background(), "role-1", dtorole.Update{DisplayName: "Updated"}); err == nil {
 		t.Fatal("expected system role update to be rejected")
 	}
 	if err := service.Delete(context.Background(), "role-1"); err == nil {
@@ -264,7 +264,7 @@ func TestRoleServiceSystemRoleProtections(t *testing.T) {
 
 func TestRoleServiceCreateRejectsDuplicateAndInvalidPermission(t *testing.T) {
 	duplicateService := NewService(&roleRepoMock{existingByName: domainrole.Role{ID: "role-1", Name: "manager"}}, &permissionRepoMock{}, &menuRepoMock{})
-	if _, err := duplicateService.Create(context.Background(), dtorole.RoleCreate{Name: "manager"}); err == nil {
+	if _, err := duplicateService.Create(context.Background(), dtorole.Create{Name: "manager"}); err == nil {
 		t.Fatal("expected duplicate role error")
 	}
 
@@ -283,7 +283,7 @@ func TestRoleServiceCreateDoesNotTurnEntitiesIntoMarkup(t *testing.T) {
 	service := NewService(roleRepo, &permissionRepoMock{}, &menuRepoMock{})
 
 	payload := "&lt;script&gt;alert(1)&lt;/script&gt;"
-	_, err := service.Create(context.Background(), dtorole.RoleCreate{Name: "  " + payload + " ", DisplayName: payload, Description: " " + payload})
+	_, err := service.Create(context.Background(), dtorole.Create{Name: "  " + payload + " ", DisplayName: payload, Description: " " + payload})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}

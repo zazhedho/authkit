@@ -10,6 +10,7 @@ import (
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 )
 
+// Repository is the persistence port of the role service.
 type Repository interface {
 	Store(ctx context.Context, data domainrole.Role) error
 	GetByID(ctx context.Context, id string) (domainrole.Role, error)
@@ -29,7 +30,7 @@ type PermissionRepository interface {
 
 // MenuRepository lists the menus a role's permissions can reach.
 type MenuRepository interface {
-	GetActiveMenus(ctx context.Context) ([]domainmenu.MenuItem, error)
+	GetActiveMenus(ctx context.Context) ([]domainmenu.Item, error)
 }
 
 // PermissionCache drops cached permission sets when grants change.

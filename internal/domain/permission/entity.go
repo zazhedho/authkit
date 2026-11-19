@@ -6,10 +6,12 @@ import (
 	"gorm.io/gorm"
 )
 
+// TableName returns the database table name GORM uses for Permission.
 func (Permission) TableName() string {
 	return "permissions"
 }
 
+// Permission is the permission domain type: permission.
 type Permission struct {
 	ID          string         `json:"id" gorm:"column:id;primaryKey"`
 	Name        string         `json:"name" gorm:"column:name;unique"`

@@ -2,6 +2,7 @@ package session
 
 import "time"
 
+// Session is the session domain type: session.
 type Session struct {
 	SessionID    string    `json:"session_id"`
 	UserID       string    `json:"user_id"`
@@ -18,7 +19,8 @@ type Session struct {
 	ExpiresAt    time.Time `json:"expires_at"`
 }
 
-type SessionInfo struct {
+// Info is the session domain type: session info.
+type Info struct {
 	SessionID        string    `json:"session_id"`
 	DeviceInfo       string    `json:"device_info"`
 	IP               string    `json:"ip"`
@@ -27,6 +29,7 @@ type SessionInfo struct {
 	IsCurrentSession bool      `json:"is_current_session"`
 }
 
+// RequestMeta is the session domain type: request meta.
 type RequestMeta struct {
 	IP         string `json:"ip,omitempty"`
 	UserAgent  string `json:"user_agent,omitempty"`

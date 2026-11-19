@@ -14,11 +14,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// Handler serves the appconfig HTTP endpoints.
 type Handler struct {
 	Service Service
 	httpshared.AuditWriter
 }
 
+// New creates the appconfig handler.
 func New(s Service, auditService httpshared.AuditService) *Handler {
 	return &Handler{
 		Service:     s,
@@ -41,6 +43,7 @@ func configMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIRes
 	return httpshared.InternalErrorResponse(logID, err)
 }
 
+// GetAll handles the get all request.
 func (h *Handler) GetAll(ctx *gin.Context) {
 	f := httpshared.NewQuietFlow(ctx, "[AppConfigHandler][GetAll]")
 	httpshared.List(f, httpshared.ListOptions{
@@ -48,6 +51,7 @@ func (h *Handler) GetAll(ctx *gin.Context) {
 	}, h.Service.GetAll)
 }
 
+// GetByID handles the get by ID request.
 func (h *Handler) GetByID(ctx *gin.Context) {
 	f := httpshared.NewQuietFlow(ctx, "[AppConfigHandler][GetByID]")
 	id, ok := f.UUIDParam()
@@ -57,6 +61,7 @@ func (h *Handler) GetByID(ctx *gin.Context) {
 	httpshared.GetByID(f, "configuration", "Service.GetByID", id, h.Service.GetByID)
 }
 
+// Update handles the update request.
 func (h *Handler) Update(ctx *gin.Context) {
 	f := httpshared.NewQuietFlow(ctx, "[AppConfigHandler][Update]")
 	id, ok := f.UUIDParam()

@@ -12,8 +12,9 @@ import (
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 )
 
+// Service is the user service the handler calls.
 type Service interface {
-	RegisterUser(ctx context.Context, req dtouser.UserRegister) (domainuser.Users, error)
+	RegisterUser(ctx context.Context, req dtouser.Register) (domainuser.Users, error)
 	AdminCreateUser(ctx context.Context, actor domainauth.Actor, req dtouser.AdminCreateUser) (domainuser.Users, error)
 	LoginUser(ctx context.Context, req dtouser.Login, logID string, metadata dtouser.LoginMetadata) (string, error)
 	LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, metadata dtouser.LoginMetadata, allowRegistration bool) (domainuser.Users, bool, error)
@@ -25,7 +26,7 @@ type Service interface {
 	GetUserByPhone(ctx context.Context, phone string) (domainuser.Users, error)
 	GetUserByAuth(ctx context.Context, id string) (map[string]any, error)
 	GetAllUsers(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainuser.Users, int64, error)
-	Update(ctx context.Context, actor domainauth.Actor, id string, req dtouser.UserUpdate) (domainuser.Users, error)
+	Update(ctx context.Context, actor domainauth.Actor, id string, req dtouser.Update) (domainuser.Users, error)
 	ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword) (domainuser.Users, error)
 	ForgotPassword(ctx context.Context, req dtouser.ForgotPasswordRequest) (string, error)
 	ResetPassword(ctx context.Context, req dtouser.ResetPasswordRequest) error

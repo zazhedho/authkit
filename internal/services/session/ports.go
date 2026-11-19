@@ -7,6 +7,7 @@ import (
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 )
 
+// Repository is the persistence port of the session service.
 type Repository interface {
 	Create(ctx context.Context, session *domainsession.Session) error
 	GetBySessionID(ctx context.Context, sessionID string) (*domainsession.Session, error)

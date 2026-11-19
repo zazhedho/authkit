@@ -28,6 +28,7 @@ type googleTokenInfo struct {
 
 var googleIDTokenVerifier = verifyGoogleIDToken
 
+// LoginWithGoogle implements the login with google operation.
 func (s *Service) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, metadata dtouser.LoginMetadata, allowRegistration bool) (domainuser.Users, bool, error) {
 	identity, err := googleIDTokenVerifier(ctx, req.IDToken, s.GoogleClientIDs)
 	if err != nil {

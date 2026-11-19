@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// Repository is the persistence port of the otp service.
 type Repository interface {
 	SetOTP(ctx context.Context, email, hashed string, ttl time.Duration) error
 	GetOTP(ctx context.Context, email string) (string, error)

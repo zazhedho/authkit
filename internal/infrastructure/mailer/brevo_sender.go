@@ -11,6 +11,7 @@ import (
 
 const defaultSMTPPort = 587
 
+// BrevoSender is the brevo sender.
 type BrevoSender struct {
 	Host         string
 	Port         int
@@ -92,6 +93,7 @@ func (s *BrevoSender) otpMessage(to, code, appName string, ttl time.Duration) []
 	return buildOTPMessage(s.From, to, s.Subject, appName, code, ttl)
 }
 
+// SendPasswordReset sends the password reset.
 func (s *BrevoSender) SendPasswordReset(to, token, appName, resetURL string, ttl time.Duration) error {
 	if strings.TrimSpace(appName) == "" {
 		appName = s.AppName

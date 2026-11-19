@@ -6,6 +6,7 @@ import (
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 )
 
+// CtxKeyAuthData is the ctx key auth data constant.
 const CtxKeyAuthData = "auth_data"
 
 type authDataContextKey struct{}
@@ -17,6 +18,7 @@ type (
 	anyKeyGetter    interface{ Get(key any) (any, bool) }
 )
 
+// WithAuthData returns a copy of ctx carrying the auth data.
 func WithAuthData(ctx context.Context, data map[string]any) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -24,6 +26,7 @@ func WithAuthData(ctx context.Context, data map[string]any) context.Context {
 	return context.WithValue(ctx, authDataContextKey{}, data)
 }
 
+// GetAuthData returns the auth data.
 func GetAuthData(ctx context.Context) map[string]any {
 	jwtClaims, _ := contextValue(ctx, CtxKeyAuthData)
 	if data, ok := jwtClaims.(map[string]any); ok {

@@ -12,10 +12,12 @@ import (
 	"gorm.io/gorm"
 )
 
+// Repository stores user data.
 type Repository struct {
 	*gokit.Repository[domainuser.Users]
 }
 
+// NewRepository creates the user repository on db.
 func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{Repository: gokit.NewRepository[domainuser.Users](db)}
 }
@@ -24,6 +26,7 @@ func translateErr(err error) error {
 	return repositoryshared.Gorm(err, domainuser.ErrNotFound, domainuser.ErrDuplicate)
 }
 
+// Store stores the record.
 func (r *Repository) Store(ctx context.Context, user domainuser.Users) error {
 	if user.Phone == "" {
 		return translateErr(r.DB.WithContext(ctx).Omit("phone").Create(&user).Error)
@@ -31,29 +34,35 @@ func (r *Repository) Store(ctx context.Context, user domainuser.Users) error {
 	return translateErr(r.Repository.Store(ctx, &user))
 }
 
+// GetByID returns one record found by ID.
 func (r *Repository) GetByID(ctx context.Context, id string) (domainuser.Users, error) {
 	ret, err := r.Repository.GetByID(ctx, id)
 	return ret, translateErr(err)
 }
 
+// Update updates the record.
 func (r *Repository) Update(ctx context.Context, user domainuser.Users) error {
 	return translateErr(r.Repository.Update(ctx, &user))
 }
 
+// Delete deletes the record.
 func (r *Repository) Delete(ctx context.Context, id string) error {
 	return translateErr(r.Repository.Delete(ctx, id))
 }
 
+// GetByEmail returns one record found by email.
 func (r *Repository) GetByEmail(ctx context.Context, email string) (ret domainuser.Users, err error) {
 	ret, err = r.GetOneByField(ctx, "email", email)
 	return ret, translateErr(err)
 }
 
+// GetByPhone returns one record found by phone.
 func (r *Repository) GetByPhone(ctx context.Context, phone string) (ret domainuser.Users, err error) {
 	ret, err = r.GetOneByField(ctx, "phone", phone)
 	return ret, translateErr(err)
 }
 
+// GetAll returns a page of records.
 func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainuser.Users, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
 		MaxLimit:       dtoshared.PagedList.MaxLimit,

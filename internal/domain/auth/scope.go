@@ -10,6 +10,7 @@ type contextKey string
 
 const scopeContextKey contextKey = "auth_scope"
 
+// Scope is the auth domain type: scope.
 type Scope struct {
 	UserID           string
 	Username         string
@@ -21,6 +22,7 @@ type Scope struct {
 	OriginalRole     string
 }
 
+// New creates a new auth.
 func New(userID, username, role string, permissions []string) Scope {
 	permissionSet := make(map[string]struct{}, len(permissions))
 	for _, permission := range permissions {
@@ -39,6 +41,7 @@ func New(userID, username, role string, permissions []string) Scope {
 	}
 }
 
+// NewFromClaims creates a new from claims.
 func NewFromClaims(claims map[string]any, permissions []string) Scope {
 	scope := New(
 		interfaceString(claims["user_id"]),
@@ -55,10 +58,12 @@ func NewFromClaims(claims map[string]any, permissions []string) Scope {
 	return scope
 }
 
+// WithContext returns a copy of ctx carrying the context.
 func WithContext(ctx context.Context, scope Scope) context.Context {
 	return context.WithValue(ctx, scopeContextKey, scope)
 }
 
+// FromContext returns the Scope stored in ctx, or an empty Scope.
 func FromContext(ctx context.Context) Scope {
 	if ctx == nil {
 		return Scope{Permissions: map[string]struct{}{}}
@@ -72,6 +77,7 @@ func FromContext(ctx context.Context) Scope {
 	return scope
 }
 
+// PermissionKey implements the permission key operation.
 func PermissionKey(resource, action string) string {
 	resourcePart := normalizeKey(resource)
 	actionPart := normalizeKey(action)
@@ -82,6 +88,7 @@ func PermissionKey(resource, action string) string {
 	return resourcePart + ":" + actionPart
 }
 
+// Has reports whether has.
 func (s Scope) Has(resource, action string) bool {
 	if strings.TrimSpace(s.Role) == roleSuperAdmin {
 		return true
@@ -91,6 +98,7 @@ func (s Scope) Has(resource, action string) bool {
 	return ok
 }
 
+// ActorUserID implements the actor user ID operation.
 func (s Scope) ActorUserID() string {
 	if s.IsImpersonated && strings.TrimSpace(s.OriginalUserID) != "" {
 		return strings.TrimSpace(s.OriginalUserID)
@@ -98,6 +106,7 @@ func (s Scope) ActorUserID() string {
 	return strings.TrimSpace(s.UserID)
 }
 
+// ActorRole implements the actor role operation.
 func (s Scope) ActorRole() string {
 	if s.IsImpersonated && strings.TrimSpace(s.OriginalRole) != "" {
 		return strings.TrimSpace(s.OriginalRole)

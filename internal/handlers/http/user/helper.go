@@ -477,7 +477,7 @@ func (h *Handler) failRefresh(ctx *gin.Context, logID uuid.UUID, logPrefix, step
 
 // updateUser updates a user's profile and audits the change. The caller has
 // already resolved the target id.
-func (h *Handler) updateUser(ctx *gin.Context, logID uuid.UUID, logPrefix, id string, req dtouser.UserUpdate, failedMessage, successMessage string) {
+func (h *Handler) updateUser(ctx *gin.Context, logID uuid.UUID, logPrefix, id string, req dtouser.Update, failedMessage, successMessage string) {
 	reqCtx := ctx.Request.Context()
 	before, _ := h.Service.GetUserByID(reqCtx, id)
 	data, err := h.Service.Update(reqCtx, httpshared.ActorFrom(reqCtx), id, req)

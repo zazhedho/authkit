@@ -13,11 +13,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Handler serves the menu HTTP endpoints.
 type Handler struct {
 	Service Service
 	httpshared.AuditWriter
 }
 
+// New creates the menu handler.
 func New(s Service, auditService httpshared.AuditService) *Handler {
 	return &Handler{
 		Service:     s,
@@ -25,23 +27,26 @@ func New(s Service, auditService httpshared.AuditService) *Handler {
 	}
 }
 
-var menuResource = httpshared.Resource[domainmenu.MenuItem]{
+var menuResource = httpshared.Resource[domainmenu.Item]{
 	Name:          "menu",
 	Audit:         "menu",
-	ID:            func(m domainmenu.MenuItem) string { return m.ID },
+	ID:            func(m domainmenu.Item) string { return m.ID },
 	MutationError: httpshared.InternalErrorResponse,
 }
 
+// GetByID handles the get by ID request.
 func (h *Handler) GetByID(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[MenuHandler][GetByID]")
 	httpshared.GetByID(f, "menu", "Service.GetByID", f.ID(), h.Service.GetByID)
 }
 
+// GetAll handles the get all request.
 func (h *Handler) GetAll(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[MenuHandler][GetAll]")
 	httpshared.List(f, httpshared.ListOptions{OrderBy: "order_index", Direction: "asc", Limit: 100, Policy: dtoshared.ReferenceList}, h.Service.GetAll)
 }
 
+// GetActiveMenus handles the get active menus request.
 func (h *Handler) GetActiveMenus(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[MenuHandler][GetActiveMenus]")
 
@@ -57,14 +62,16 @@ func (h *Handler) GetActiveMenus(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
+// GetUserMenus handles the get user menus request.
 func (h *Handler) GetUserMenus(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[MenuHandler][GetUserMenus]")
 	httpshared.ForCurrentUser(f, "Service.GetUserMenus", "Get user menus successfully", h.Service.GetUserMenus)
 }
 
+// Update handles the update request.
 func (h *Handler) Update(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[MenuHandler][Update]")
-	req, ok := httpshared.Bind[dtomenu.MenuUpdate](f)
+	req, ok := httpshared.Bind[dtomenu.Update](f)
 	if !ok {
 		return
 	}

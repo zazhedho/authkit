@@ -223,7 +223,7 @@ func TestUpdateRequiresAssignRolePermissionWhenChangingRole(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	_, err := service.Update(context.Background(), authActor("editor-1", "Editor User", domainuser.RoleAdmin), "user-1", dtouser.UserUpdate{Role: domainuser.RoleStaff})
+	_, err := service.Update(context.Background(), authActor("editor-1", "Editor User", domainuser.RoleAdmin), "user-1", dtouser.Update{Role: domainuser.RoleStaff})
 	if err == nil || err.Error() != "access denied: missing permission users:assign_role" {
 		t.Fatalf("expected assign_role access error, got %v", err)
 	}
@@ -244,7 +244,7 @@ func TestUpdateRejectsSuperadminAssignmentForNonSuperadmin(t *testing.T) {
 		},
 	}
 
-	_, err := service.Update(context.Background(), authActor("editor-1", "Editor User", domainuser.RoleAdmin, "users:assign_role"), "user-1", dtouser.UserUpdate{Role: domainuser.RoleSuperAdmin})
+	_, err := service.Update(context.Background(), authActor("editor-1", "Editor User", domainuser.RoleAdmin, "users:assign_role"), "user-1", dtouser.Update{Role: domainuser.RoleSuperAdmin})
 	if err == nil || err.Error() != "cannot assign superadmin role" {
 		t.Fatalf("expected superadmin assignment error, got %v", err)
 	}
@@ -261,7 +261,7 @@ func TestRegisterUserNormalizesEmailToLowercase(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	user, err := service.RegisterUser(context.Background(), dtouser.UserRegister{
+	user, err := service.RegisterUser(context.Background(), dtouser.Register{
 		Name:     "Jane Doe",
 		Email:    "Jane.Doe@Example.COM",
 		Phone:    "08123456789",
@@ -316,7 +316,7 @@ func TestUpdateNormalizesEmailToLowercase(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	user, err := service.Update(context.Background(), authActor("user-1", "Jane Doe", domainuser.RoleViewer), "user-1", dtouser.UserUpdate{
+	user, err := service.Update(context.Background(), authActor("user-1", "Jane Doe", domainuser.RoleViewer), "user-1", dtouser.Update{
 		Email: "Jane.Doe@Example.COM",
 	})
 	if err != nil {
@@ -786,7 +786,7 @@ func TestRegisterUserValidationAndRepositoryErrors(t *testing.T) {
 	service := newTestUserService(t, &userRepoMock{
 		emailUser: domainuser.Users{ID: "existing-email"},
 	}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err := service.RegisterUser(context.Background(), dtouser.UserRegister{
+	_, err := service.RegisterUser(context.Background(), dtouser.Register{
 		Name:     "Jane Doe",
 		Email:    "jane@example.com",
 		Phone:    "08123456789",
@@ -799,7 +799,7 @@ func TestRegisterUserValidationAndRepositoryErrors(t *testing.T) {
 	service = newTestUserService(t, &userRepoMock{
 		phoneUser: domainuser.Users{ID: "existing-phone"},
 	}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err = service.RegisterUser(context.Background(), dtouser.UserRegister{
+	_, err = service.RegisterUser(context.Background(), dtouser.Register{
 		Name:     "Jane Doe",
 		Email:    "jane@example.com",
 		Phone:    "08123456789",
@@ -810,7 +810,7 @@ func TestRegisterUserValidationAndRepositoryErrors(t *testing.T) {
 	}
 
 	service = newTestUserService(t, &userRepoMock{}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err = service.RegisterUser(context.Background(), dtouser.UserRegister{
+	_, err = service.RegisterUser(context.Background(), dtouser.Register{
 		Name:     "Jane Doe",
 		Email:    "jane@example.com",
 		Phone:    "08123456789",
@@ -823,7 +823,7 @@ func TestRegisterUserValidationAndRepositoryErrors(t *testing.T) {
 	service = newTestUserService(t, &userRepoMock{storeErr: errors.New("insert failed")}, &authRepoMock{}, &roleRepoUserMock{roles: map[string]domainrole.Role{
 		domainuser.RoleViewer: {ID: "role-viewer", Name: domainuser.RoleViewer},
 	}}, &permissionRepoUserMock{})
-	_, err = service.RegisterUser(context.Background(), dtouser.UserRegister{
+	_, err = service.RegisterUser(context.Background(), dtouser.Register{
 		Name:          "Jane Doe",
 		Email:         "jane@example.com",
 		Phone:         "08123456789",
@@ -923,19 +923,19 @@ func TestUserServiceLoginAndChangePasswordErrors(t *testing.T) {
 
 func TestUserServiceUpdateErrorBranches(t *testing.T) {
 	service := newTestUserService(t, &userRepoMock{user: domainuser.Users{ID: "root", Role: domainuser.RoleSuperAdmin}}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err := service.Update(context.Background(), authActor("admin-1", "Admin", domainuser.RoleAdmin), "root", dtouser.UserUpdate{Name: "Root"})
+	_, err := service.Update(context.Background(), authActor("admin-1", "Admin", domainuser.RoleAdmin), "root", dtouser.Update{Name: "Root"})
 	if err == nil || err.Error() != "cannot modify superadmin users" {
 		t.Fatalf("expected superadmin modify guard, got %v", err)
 	}
 
 	service = newTestUserService(t, &userRepoMock{user: domainuser.Users{ID: "user-1", Role: domainuser.RoleViewer}}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err = service.Update(context.Background(), authActor("admin-1", "Admin", domainuser.RoleAdmin), "user-1", dtouser.UserUpdate{Role: domainuser.RoleStaff})
+	_, err = service.Update(context.Background(), authActor("admin-1", "Admin", domainuser.RoleAdmin), "user-1", dtouser.Update{Role: domainuser.RoleStaff})
 	if err == nil || err.Error() != "access denied: missing permission users:assign_role" {
 		t.Fatalf("expected role assignment permission guard, got %v", err)
 	}
 
 	service = newTestUserService(t, &userRepoMock{user: domainuser.Users{ID: "user-1", Role: domainuser.RoleViewer}, updateErr: errors.New("update failed")}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err = service.Update(context.Background(), authActor("user-1", "Jane", domainuser.RoleViewer), "user-1", dtouser.UserUpdate{Name: "Jane Updated"})
+	_, err = service.Update(context.Background(), authActor("user-1", "Jane", domainuser.RoleViewer), "user-1", dtouser.Update{Name: "Jane Updated"})
 	if err == nil || err.Error() != "update failed" {
 		t.Fatalf("expected update error, got %v", err)
 	}
@@ -1055,7 +1055,7 @@ func TestRegisterUserUsesConfiguredDefaultRole(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	user, err := service.RegisterUser(context.Background(), dtouser.UserRegister{
+	user, err := service.RegisterUser(context.Background(), dtouser.Register{
 		Name: "Jane Doe", Email: "jane@example.com", Phone: "08123456789", Password: "Password1!",
 	})
 	if err != nil {
@@ -1140,7 +1140,7 @@ func TestRegisterUserTreatsPrivilegedDefaultRoleAsViewer(t *testing.T) {
 			PermissionRepo: &permissionRepoUserMock{},
 		}
 
-		user, err := service.RegisterUser(context.Background(), dtouser.UserRegister{
+		user, err := service.RegisterUser(context.Background(), dtouser.Register{
 			Name: "Jane Doe", Email: "jane@example.com", Phone: "08123456789", Password: "Password1!",
 		})
 		if err != nil {
@@ -1182,7 +1182,7 @@ func TestRegisterUserFailsWhenDefaultRoleDoesNotExist(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	_, err := service.RegisterUser(context.Background(), dtouser.UserRegister{
+	_, err := service.RegisterUser(context.Background(), dtouser.Register{
 		Name: "Jane Doe", Email: "jane@example.com", Phone: "08123456789", Password: "Password1!",
 	})
 	if err == nil || err.Error() != "role ghost is not configured" {
@@ -1262,7 +1262,7 @@ func TestRegisterUserUsesInjectedIDGenerator(t *testing.T) {
 		"viewer": {ID: "role-viewer", Name: "viewer"},
 	}}, &permissionRepoUserMock{}, Options{Tokens: testUserTokens(t), NewID: func() string { return "user-fixed" }})
 
-	user, err := service.RegisterUser(context.Background(), dtouser.UserRegister{
+	user, err := service.RegisterUser(context.Background(), dtouser.Register{
 		Name: "Jane Doe", Email: "jane@example.com", Phone: "08123456789", Password: "Password1!",
 	})
 	if err != nil {
@@ -1285,7 +1285,7 @@ func TestRegisterUserDoesNotTurnEntitiesIntoMarkup(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	user, err := service.RegisterUser(context.Background(), dtouser.UserRegister{
+	user, err := service.RegisterUser(context.Background(), dtouser.Register{
 		Name:     "  &lt;script&gt;alert(1)&lt;/script&gt; ",
 		Email:    "xss@example.com",
 		Phone:    "08123456780",

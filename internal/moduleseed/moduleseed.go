@@ -11,6 +11,7 @@ import (
 
 var defaultActions = []string{"list", "view", "create", "update", "delete"}
 
+// Definition describes one module to seed: its menu entry, permissions and role grants.
 type Definition struct {
 	Name        string
 	DisplayName string
@@ -23,6 +24,7 @@ type Definition struct {
 	GrantRoles  []string
 }
 
+// Normalize implements the normalize operation.
 func (d Definition) Normalize() Definition {
 	d.Name = serviceshared.NormalizeKey(d.Name)
 	d.DisplayName = strings.TrimSpace(d.DisplayName)
@@ -61,6 +63,7 @@ func (d Definition) Normalize() Definition {
 	return d
 }
 
+// Validate validates the record.
 func (d Definition) Validate() error {
 	if d.Name == "" {
 		return errors.New("name is required")
@@ -87,6 +90,7 @@ func (d Definition) Validate() error {
 	return nil
 }
 
+// RenderSQL renders the SQL.
 func RenderSQL(input Definition) (string, error) {
 	def := input.Normalize()
 	if err := def.Validate(); err != nil {

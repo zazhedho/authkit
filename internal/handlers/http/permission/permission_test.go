@@ -26,14 +26,14 @@ type permissionServiceTestDouble struct {
 	permission      domainpermission.Permission
 	permissions     []domainpermission.Permission
 	total           int64
-	createReq       dtopermission.PermissionCreate
-	updateReq       dtopermission.PermissionUpdate
+	createReq       dtopermission.Create
+	updateReq       dtopermission.Update
 	deleteID        string
 	userPermissions []domainpermission.Permission
 	err             error
 }
 
-func (m *permissionServiceTestDouble) Create(ctx context.Context, req dtopermission.PermissionCreate) (domainpermission.Permission, error) {
+func (m *permissionServiceTestDouble) Create(ctx context.Context, req dtopermission.Create) (domainpermission.Permission, error) {
 	m.createReq = req
 	if m.err != nil {
 		return domainpermission.Permission{}, m.err
@@ -61,7 +61,7 @@ func (m *permissionServiceTestDouble) GetUserPermissions(ctx context.Context, us
 	}
 	return m.userPermissions, nil
 }
-func (m *permissionServiceTestDouble) Update(ctx context.Context, id string, req dtopermission.PermissionUpdate) (domainpermission.Permission, error) {
+func (m *permissionServiceTestDouble) Update(ctx context.Context, id string, req dtopermission.Update) (domainpermission.Permission, error) {
 	m.updateReq = req
 	if m.err != nil {
 		return domainpermission.Permission{}, m.err
@@ -145,7 +145,7 @@ func TestCreatePermissionReturnsCreatedAndWritesAudit(t *testing.T) {
 	}}
 	handler := New(service, auditSvc)
 
-	rec := performPermissionRequest(http.MethodPost, "/permissions", dtopermission.PermissionCreate{
+	rec := performPermissionRequest(http.MethodPost, "/permissions", dtopermission.Create{
 		Name:        "list_users",
 		DisplayName: "List Users",
 		Resource:    "users",
@@ -219,7 +219,7 @@ func TestUpdatePermissionMapsDuplicateError(t *testing.T) {
 		&auditServicePermissionTestDouble{},
 	)
 
-	rec := performPermissionRequest(http.MethodPut, "/permissions/:id", dtopermission.PermissionUpdate{
+	rec := performPermissionRequest(http.MethodPut, "/permissions/:id", dtopermission.Update{
 		DisplayName: "List Users",
 	}, handler.Update, domainauth.Scope{})
 	if rec.Code != http.StatusBadRequest {

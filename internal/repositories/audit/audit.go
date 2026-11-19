@@ -12,15 +12,18 @@ import (
 	"gorm.io/gorm"
 )
 
+// Repository stores audit data.
 type Repository struct {
-	*gokit.Repository[domainaudit.AuditTrail]
+	*gokit.Repository[domainaudit.Trail]
 }
 
+// NewRepository creates the audit repository on db.
 func NewRepository(db *gorm.DB) *Repository {
-	return &Repository{Repository: gokit.NewRepository[domainaudit.AuditTrail](db)}
+	return &Repository{Repository: gokit.NewRepository[domainaudit.Trail](db)}
 }
 
-func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainaudit.AuditTrail, totalData int64, err error) {
+// GetAll returns a page of records.
+func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainaudit.Trail, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
 		MaxLimit:       dtoshared.PagedList.MaxLimit,
 		AllowAll:       dtoshared.PagedList.AllowAll,
@@ -38,13 +41,14 @@ func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret
 	})
 }
 
-func (r *Repository) GetByID(ctx context.Context, id string) (domainaudit.AuditTrail, error) {
+// GetByID returns one record found by ID.
+func (r *Repository) GetByID(ctx context.Context, id string) (domainaudit.Trail, error) {
 	ret, err := r.Repository.GetByID(ctx, id)
 	return ret, repositoryshared.Gorm(err, domainaudit.ErrNotFound, nil)
 }
 
 // Store writes one audit trail. gokit's Store takes a pointer; the service
 // port passes the trail by value.
-func (r *Repository) Store(ctx context.Context, trail domainaudit.AuditTrail) error {
+func (r *Repository) Store(ctx context.Context, trail domainaudit.Trail) error {
 	return r.Repository.Store(ctx, &trail)
 }

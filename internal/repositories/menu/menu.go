@@ -14,33 +14,39 @@ import (
 	"gorm.io/gorm"
 )
 
+// Repository stores menu data.
 type Repository struct {
-	*gokit.Repository[domainmenu.MenuItem]
+	*gokit.Repository[domainmenu.Item]
 }
 
+// NewRepository creates the menu repository on db.
 func NewRepository(db *gorm.DB) *Repository {
-	return &Repository{Repository: gokit.NewRepository[domainmenu.MenuItem](db)}
+	return &Repository{Repository: gokit.NewRepository[domainmenu.Item](db)}
 }
 
 func translateErr(err error) error {
 	return repositoryshared.Gorm(err, domainmenu.ErrNotFound, nil)
 }
 
-func (r *Repository) GetByID(ctx context.Context, id string) (domainmenu.MenuItem, error) {
+// GetByID returns one record found by ID.
+func (r *Repository) GetByID(ctx context.Context, id string) (domainmenu.Item, error) {
 	ret, err := r.Repository.GetByID(ctx, id)
 	return ret, translateErr(err)
 }
 
-func (r *Repository) Update(ctx context.Context, item domainmenu.MenuItem) error {
+// Update updates the record.
+func (r *Repository) Update(ctx context.Context, item domainmenu.Item) error {
 	return translateErr(r.Repository.Update(ctx, &item))
 }
 
-func (r *Repository) GetByName(ctx context.Context, name string) (ret domainmenu.MenuItem, err error) {
+// GetByName returns one record found by name.
+func (r *Repository) GetByName(ctx context.Context, name string) (ret domainmenu.Item, err error) {
 	ret, err = r.GetOneByField(ctx, "name", name)
 	return ret, translateErr(err)
 }
 
-func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainmenu.MenuItem, totalData int64, err error) {
+// GetAll returns a page of records.
+func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainmenu.Item, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
 		MaxLimit:       dtoshared.ReferenceList.MaxLimit,
 		AllowAll:       dtoshared.ReferenceList.AllowAll,
@@ -57,14 +63,16 @@ func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret
 	})
 }
 
-func (r *Repository) GetActiveMenus(ctx context.Context) (ret []domainmenu.MenuItem, err error) {
+// GetActiveMenus returns the active menus.
+func (r *Repository) GetActiveMenus(ctx context.Context) (ret []domainmenu.Item, err error) {
 	if err = r.DB.WithContext(ctx).Where("is_active = ?", true).Order("order_index ASC").Find(&ret).Error; err != nil {
 		return nil, err
 	}
 	return ret, nil
 }
 
-func (r *Repository) GetUserMenus(ctx context.Context, userID string) (ret []domainmenu.MenuItem, err error) {
+// GetUserMenus returns the user menus.
+func (r *Repository) GetUserMenus(ctx context.Context, userID string) (ret []domainmenu.Item, err error) {
 	var user struct {
 		RoleID *string
 		Role   string
@@ -78,7 +86,7 @@ func (r *Repository) GetUserMenus(ctx context.Context, userID string) (ret []dom
 	}
 
 	if user.RoleID == nil || *user.RoleID == "" {
-		return []domainmenu.MenuItem{}, nil
+		return []domainmenu.Item{}, nil
 	}
 
 	query := `
@@ -111,11 +119,11 @@ func (r *Repository) GetUserMenus(ctx context.Context, userID string) (ret []dom
 	return ret, nil
 }
 
-func (r *Repository) includeActiveParents(ctx context.Context, menus []domainmenu.MenuItem) ([]domainmenu.MenuItem, error) {
-	menuByID := make(map[string]domainmenu.MenuItem, len(menus))
+func (r *Repository) includeActiveParents(ctx context.Context, menus []domainmenu.Item) ([]domainmenu.Item, error) {
+	menuByID := make(map[string]domainmenu.Item, len(menus))
 	pendingParentIDs := collectMenuParentIDs(menus, menuByID)
 	for len(pendingParentIDs) > 0 {
-		var parents []domainmenu.MenuItem
+		var parents []domainmenu.Item
 		if err := r.DB.WithContext(ctx).
 			Where("id IN ? AND is_active = ? AND deleted_at IS NULL", pendingParentIDs, true).
 			Find(&parents).Error; err != nil {
@@ -126,7 +134,7 @@ func (r *Repository) includeActiveParents(ctx context.Context, menus []domainmen
 	return menus, nil
 }
 
-func collectMenuParentIDs(menus []domainmenu.MenuItem, menuByID map[string]domainmenu.MenuItem) []string {
+func collectMenuParentIDs(menus []domainmenu.Item, menuByID map[string]domainmenu.Item) []string {
 	parentIDs := make([]string, 0)
 	for _, menu := range menus {
 		menuByID[menu.ID] = menu
@@ -139,7 +147,7 @@ func collectMenuParentIDs(menus []domainmenu.MenuItem, menuByID map[string]domai
 	return parentIDs
 }
 
-func appendActiveMenuParents(parents []domainmenu.MenuItem, menuByID map[string]domainmenu.MenuItem, menus *[]domainmenu.MenuItem) []string {
+func appendActiveMenuParents(parents []domainmenu.Item, menuByID map[string]domainmenu.Item, menus *[]domainmenu.Item) []string {
 	nextParentIDs := make([]string, 0)
 	for _, menu := range parents {
 		if _, exists := menuByID[menu.ID]; exists {

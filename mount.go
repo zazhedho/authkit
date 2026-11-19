@@ -36,10 +36,10 @@ func (k *Kit) mountUsers(r gin.IRouter) {
 			userPriv.POST("/:id/impersonate", mdw.PermissionMiddleware("users", "impersonate"), h.ImpersonateUser)
 			userPriv.POST("/stop-impersonation", h.StopImpersonation)
 			userPriv.PUT("", h.Update)
-			userPriv.PUT("/:id", mdw.PermissionMiddleware("users", "update"), h.UpdateUserById)
+			userPriv.PUT("/:id", mdw.PermissionMiddleware("users", "update"), h.UpdateUserByID)
 			userPriv.PUT("/change/password", h.ChangePassword)
 			userPriv.DELETE("", h.Delete)
-			userPriv.DELETE("/:id", mdw.PermissionMiddleware("users", "delete"), h.DeleteUserById)
+			userPriv.DELETE("/:id", mdw.PermissionMiddleware("users", "delete"), h.DeleteUserByID)
 
 			// Admin create user endpoint (with role selection)
 			userPriv.POST("", mdw.PermissionMiddleware("users", "create"), h.AdminCreateUser)

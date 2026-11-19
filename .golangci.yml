@@ -24,12 +24,17 @@ linters:
     - nilerr
     - noctx
     - prealloc
+    - revive
     - rowserrcheck
     - sqlclosecheck
     - staticcheck
     - unconvert
     - unused
   settings:
+    revive:
+      rules:
+        - name: var-naming
+        - name: exported
     dupl:
       threshold: 80
     misspell:
