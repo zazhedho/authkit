@@ -17,14 +17,14 @@ type Repository interface {
 	Update(ctx context.Context, data domainrole.Role) error
 	Delete(ctx context.Context, id string) error
 	GetByName(ctx context.Context, name string) (domainrole.Role, error)
-	AssignPermissions(ctx context.Context, roleId string, permissionIds []string) error
-	GetRolePermissions(ctx context.Context, roleId string) ([]string, error)
+	AssignPermissions(ctx context.Context, roleID string, permissionIDs []string) error
+	GetRolePermissions(ctx context.Context, roleID string) ([]string, error)
 }
 
 // PermissionRepository validates permission ids and resolves a user's grants.
 type PermissionRepository interface {
 	GetByID(ctx context.Context, id string) (domainpermission.Permission, error)
-	GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error)
+	GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error)
 }
 
 // MenuRepository lists the menus a role's permissions can reach.

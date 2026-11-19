@@ -23,7 +23,7 @@ func (m *permissionRepoTestDouble) Store(ctx context.Context, data domainpermiss
 	return nil
 }
 func (m *permissionRepoTestDouble) GetByID(ctx context.Context, id string) (domainpermission.Permission, error) {
-	if m.permission.Id == "" {
+	if m.permission.ID == "" {
 		return domainpermission.Permission{}, errors.New("not found")
 	}
 	return m.permission, nil
@@ -53,14 +53,14 @@ func (m *permissionRepoTestDouble) GetByName(ctx context.Context, name string) (
 func (m *permissionRepoTestDouble) GetByResource(ctx context.Context, resource string) ([]domainpermission.Permission, error) {
 	return []domainpermission.Permission{m.permission}, nil
 }
-func (m *permissionRepoTestDouble) GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error) {
+func (m *permissionRepoTestDouble) GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error) {
 	return []domainpermission.Permission{m.permission}, nil
 }
 
 func TestCreateRejectsDuplicatePermissionName(t *testing.T) {
 	svc := NewService(&permissionRepoTestDouble{
 		permissionByKey: map[string]domainpermission.Permission{
-			"list_users": {Id: "perm-1", Name: "list_users"},
+			"list_users": {ID: "perm-1", Name: "list_users"},
 		},
 	})
 
@@ -85,7 +85,7 @@ func TestCreateStoresPermission(t *testing.T) {
 		t.Fatalf("expected success, got %v", err)
 	}
 
-	if got.Id == "" || repo.stored.Id != got.Id {
+	if got.ID == "" || repo.stored.ID != got.ID {
 		t.Fatalf("expected generated id to be stored, got result=%+v stored=%+v", got, repo.stored)
 	}
 	if repo.stored.Resource != "users" || repo.stored.Action != "list" {
@@ -95,7 +95,7 @@ func TestCreateStoresPermission(t *testing.T) {
 
 func TestUpdatePreservesEmptyFieldsAndSetsUpdatedAt(t *testing.T) {
 	repo := &permissionRepoTestDouble{permission: domainpermission.Permission{
-		Id:          "perm-1",
+		ID:          "perm-1",
 		Name:        "list_users",
 		DisplayName: "List Users",
 		Description: "old",
@@ -134,14 +134,14 @@ func TestDeleteDelegatesToRepository(t *testing.T) {
 
 func TestPermissionServicePassThroughMethods(t *testing.T) {
 	repo := &permissionRepoTestDouble{permission: domainpermission.Permission{
-		Id:       "perm-1",
+		ID:       "perm-1",
 		Name:     "list_users",
 		Resource: "users",
 		Action:   "list",
 	}}
 	svc := NewService(repo)
 
-	if got, err := svc.GetByID(context.Background(), "perm-1"); err != nil || got.Id != "perm-1" {
+	if got, err := svc.GetByID(context.Background(), "perm-1"); err != nil || got.ID != "perm-1" {
 		t.Fatalf("get by id: permission=%+v err=%v", got, err)
 	}
 	if got, total, err := svc.GetAll(context.Background(), dtoshared.ListRequest{}); err != nil || total != 1 || len(got) != 1 {

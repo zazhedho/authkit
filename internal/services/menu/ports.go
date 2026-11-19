@@ -18,5 +18,5 @@ type Repository interface {
 
 // PermissionRepository resolves a user's permissions for menu filtering.
 type PermissionRepository interface {
-	GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error)
+	GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error)
 }

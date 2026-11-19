@@ -68,12 +68,12 @@ func (r *Repository) GetByResource(ctx context.Context, resource string) (ret []
 	return r.GetManyByField(ctx, "resource", resource, gokit.DefaultMaxLimit, "action asc")
 }
 
-func (r *Repository) GetUserPermissions(ctx context.Context, userId string) (ret []domainpermission.Permission, err error) {
+func (r *Repository) GetUserPermissions(ctx context.Context, userID string) (ret []domainpermission.Permission, err error) {
 	var user struct {
-		RoleId *string
+		RoleID *string
 		Role   string
 	}
-	if err = r.DB.WithContext(ctx).Table("users").Select("role_id, role").Where("id = ?", userId).First(&user).Error; err != nil {
+	if err = r.DB.WithContext(ctx).Table("users").Select("role_id, role").Where("id = ?", userID).First(&user).Error; err != nil {
 		return nil, repositoryshared.Gorm(err, domainuser.ErrNotFound, nil)
 	}
 
@@ -84,7 +84,7 @@ func (r *Repository) GetUserPermissions(ctx context.Context, userId string) (ret
 		return ret, nil
 	}
 
-	if user.RoleId == nil || *user.RoleId == "" {
+	if user.RoleID == nil || *user.RoleID == "" {
 		return []domainpermission.Permission{}, nil
 	}
 
@@ -95,7 +95,7 @@ func (r *Repository) GetUserPermissions(ctx context.Context, userId string) (ret
 		WHERE rp.role_id = ? AND p.deleted_at IS NULL
 		ORDER BY p.resource, p.action
 	`
-	if err = r.DB.WithContext(ctx).Raw(query, *user.RoleId).Scan(&ret).Error; err != nil {
+	if err = r.DB.WithContext(ctx).Raw(query, *user.RoleID).Scan(&ret).Error; err != nil {
 		return nil, err
 	}
 

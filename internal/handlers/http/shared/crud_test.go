@@ -20,7 +20,7 @@ import (
 )
 
 type widget struct {
-	Id   string `json:"id"`
+	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
@@ -31,7 +31,7 @@ type widgetRequest struct {
 var widgetResource = Resource[widget]{
 	Name:          "widget",
 	Audit:         "widget_audit",
-	ID:            func(w widget) string { return w.Id },
+	ID:            func(w widget) string { return w.ID },
 	MutationError: InternalErrorResponse,
 }
 
@@ -87,7 +87,7 @@ func TestBindDecodesAndRejectsInvalidBodies(t *testing.T) {
 func TestGetByIDAnswersFoundAndNotFound(t *testing.T) {
 	f, rec := newTestFlow(http.MethodGet, "/widgets/w-1", "")
 	GetByID(f, "widget", "Service.GetByID", f.ID(), func(_ context.Context, id string) (widget, error) {
-		return widget{Id: id, Name: "gear"}, nil
+		return widget{ID: id, Name: "gear"}, nil
 	})
 	body := decode(t, rec)
 	if rec.Code != http.StatusOK || body["message"] != "Get widget successfully" {
@@ -114,7 +114,7 @@ func TestListWritesPaginatedResponseAndMapsFailures(t *testing.T) {
 	var got dtoshared.ListRequest
 	List(f, opts, func(_ context.Context, req dtoshared.ListRequest) ([]widget, int64, error) {
 		got = req
-		return []widget{{Id: "w-1"}}, 7, nil
+		return []widget{{ID: "w-1"}}, 7, nil
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -160,7 +160,7 @@ func TestCreateAuditsSuccessAndFailure(t *testing.T) {
 
 	f, rec := newTestFlow(http.MethodPost, "/widgets", "")
 	Create(f, w, widgetResource, req, func(_ context.Context, r widgetRequest) (widget, error) {
-		return widget{Id: "w-9", Name: r.Name}, nil
+		return widget{ID: "w-9", Name: r.Name}, nil
 	})
 	body := decode(t, rec)
 	if rec.Code != http.StatusCreated || body["message"] != "Widget created successfully" {
@@ -193,11 +193,11 @@ func TestUpdateAuditsBeforeAndAfter(t *testing.T) {
 	audit := &auditServiceMock{}
 	w := NewAuditWriter(audit, "WidgetHandler")
 	req := widgetRequest{Name: "new"}
-	before := func(_ context.Context, id string) (widget, error) { return widget{Id: id, Name: "old"}, nil }
+	before := func(_ context.Context, id string) (widget, error) { return widget{ID: id, Name: "old"}, nil }
 
 	f, rec := newTestFlow(http.MethodPut, "/widgets/w-1", "")
 	Update(f, w, widgetResource, f.ID(), req, before, func(_ context.Context, id string, r widgetRequest) (widget, error) {
-		return widget{Id: id, Name: r.Name}, nil
+		return widget{ID: id, Name: r.Name}, nil
 	})
 	body := decode(t, rec)
 	if rec.Code != http.StatusOK || body["message"] != "Widget updated successfully" {
@@ -234,7 +234,7 @@ func TestUpdateAuditsBeforeAndAfter(t *testing.T) {
 func TestDeleteAuditsBeforeStateAndUsesResourceErrorMapping(t *testing.T) {
 	audit := &auditServiceMock{}
 	w := NewAuditWriter(audit, "WidgetHandler")
-	before := func(_ context.Context, id string) (widget, error) { return widget{Id: id, Name: "old"}, nil }
+	before := func(_ context.Context, id string) (widget, error) { return widget{ID: id, Name: "old"}, nil }
 
 	f, rec := newTestFlow(http.MethodDelete, "/widgets/w-1", "")
 	Delete(f, w, widgetResource, f.ID(), before, func(context.Context, string) error { return nil })
@@ -305,7 +305,7 @@ func TestInternalErrorResponseHidesTheCause(t *testing.T) {
 
 func TestListReportsTheEffectiveLimit(t *testing.T) {
 	fetch := func(context.Context, dtoshared.ListRequest) ([]widget, int64, error) {
-		return []widget{{Id: "w-1"}}, 250, nil
+		return []widget{{ID: "w-1"}}, 250, nil
 	}
 	cases := []struct {
 		name   string

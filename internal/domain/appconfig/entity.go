@@ -11,7 +11,7 @@ func (AppConfig) TableName() string {
 }
 
 type AppConfig struct {
-	Id          string         `json:"id" gorm:"column:id;primaryKey"`
+	Id          string         `json:"id" gorm:"column:id;primaryKey"` //nolint:revive // public API field (authkit.AppConfig); renaming it is a breaking change
 	ConfigKey   string         `json:"config_key" gorm:"column:config_key"`
 	DisplayName string         `json:"display_name" gorm:"column:display_name"`
 	Category    string         `json:"category" gorm:"column:category"`

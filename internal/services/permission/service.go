@@ -13,12 +13,12 @@ import (
 
 type Service struct {
 	PermissionRepo  Repository
-	PermissionCache PermissionCache
+	PermissionCache Cache
 	// NewID makes record ids; nil uses a UUID v7.
 	NewID func() string
 }
 
-func NewService(permissionRepo Repository, invalidators ...PermissionCache) *Service {
+func NewService(permissionRepo Repository, invalidators ...Cache) *Service {
 	service := &Service{
 		PermissionRepo: permissionRepo,
 		NewID:          serviceshared.NewID,
@@ -31,12 +31,12 @@ func NewService(permissionRepo Repository, invalidators ...PermissionCache) *Ser
 
 func (s *Service) Create(ctx context.Context, req dtopermission.PermissionCreate) (domainpermission.Permission, error) {
 	existing, _ := s.PermissionRepo.GetByName(ctx, req.Name)
-	if existing.Id != "" {
+	if existing.ID != "" {
 		return domainpermission.Permission{}, errors.New("permission with this name already exists")
 	}
 
 	data := domainpermission.Permission{
-		Id:          s.newID(),
+		ID:          s.newID(),
 		Name:        req.Name,
 		DisplayName: req.DisplayName,
 		Description: req.Description,
@@ -65,8 +65,8 @@ func (s *Service) GetByResource(ctx context.Context, resource string) ([]domainp
 	return s.PermissionRepo.GetByResource(ctx, resource)
 }
 
-func (s *Service) GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error) {
-	return s.PermissionRepo.GetUserPermissions(ctx, userId)
+func (s *Service) GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error) {
+	return s.PermissionRepo.GetUserPermissions(ctx, userID)
 }
 
 func (s *Service) Update(ctx context.Context, id string, req dtopermission.PermissionUpdate) (domainpermission.Permission, error) {

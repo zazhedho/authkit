@@ -90,7 +90,7 @@ func TestPermissionRepositoryGetUserPermissionsSuperadmin(t *testing.T) {
 		}).AddRow("perm-1", "users.read", "Read users", "", "users", "read", now, nil, nil))
 
 	permissions, err := repo.GetUserPermissions(context.Background(), "user-1")
-	if err != nil || len(permissions) != 1 || permissions[0].Id != "perm-1" {
+	if err != nil || len(permissions) != 1 || permissions[0].ID != "perm-1" {
 		t.Fatalf("unexpected permissions=%#v err=%v", permissions, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

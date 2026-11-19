@@ -64,12 +64,12 @@ func (r *Repository) GetActiveMenus(ctx context.Context) (ret []domainmenu.MenuI
 	return ret, nil
 }
 
-func (r *Repository) GetUserMenus(ctx context.Context, userId string) (ret []domainmenu.MenuItem, err error) {
+func (r *Repository) GetUserMenus(ctx context.Context, userID string) (ret []domainmenu.MenuItem, err error) {
 	var user struct {
-		RoleId *string
+		RoleID *string
 		Role   string
 	}
-	if err = r.DB.WithContext(ctx).Table("users").Select("role_id, role").Where("id = ?", userId).First(&user).Error; err != nil {
+	if err = r.DB.WithContext(ctx).Table("users").Select("role_id, role").Where("id = ?", userID).First(&user).Error; err != nil {
 		return nil, repositoryshared.Gorm(err, domainuser.ErrNotFound, nil)
 	}
 
@@ -77,7 +77,7 @@ func (r *Repository) GetUserMenus(ctx context.Context, userId string) (ret []dom
 		return r.GetActiveMenus(ctx)
 	}
 
-	if user.RoleId == nil || *user.RoleId == "" {
+	if user.RoleID == nil || *user.RoleID == "" {
 		return []domainmenu.MenuItem{}, nil
 	}
 
@@ -92,7 +92,7 @@ func (r *Repository) GetUserMenus(ctx context.Context, userId string) (ret []dom
 		  AND p.deleted_at IS NULL
 		ORDER BY m.order_index ASC
 	`
-	if err = r.DB.WithContext(ctx).Raw(query, *user.RoleId).Scan(&ret).Error; err != nil {
+	if err = r.DB.WithContext(ctx).Raw(query, *user.RoleID).Scan(&ret).Error; err != nil {
 		return nil, err
 	}
 
@@ -129,10 +129,10 @@ func (r *Repository) includeActiveParents(ctx context.Context, menus []domainmen
 func collectMenuParentIDs(menus []domainmenu.MenuItem, menuByID map[string]domainmenu.MenuItem) []string {
 	parentIDs := make([]string, 0)
 	for _, menu := range menus {
-		menuByID[menu.Id] = menu
-		if menu.ParentId != nil && *menu.ParentId != "" {
-			if _, exists := menuByID[*menu.ParentId]; !exists {
-				parentIDs = append(parentIDs, *menu.ParentId)
+		menuByID[menu.ID] = menu
+		if menu.ParentID != nil && *menu.ParentID != "" {
+			if _, exists := menuByID[*menu.ParentID]; !exists {
+				parentIDs = append(parentIDs, *menu.ParentID)
 			}
 		}
 	}
@@ -142,14 +142,14 @@ func collectMenuParentIDs(menus []domainmenu.MenuItem, menuByID map[string]domai
 func appendActiveMenuParents(parents []domainmenu.MenuItem, menuByID map[string]domainmenu.MenuItem, menus *[]domainmenu.MenuItem) []string {
 	nextParentIDs := make([]string, 0)
 	for _, menu := range parents {
-		if _, exists := menuByID[menu.Id]; exists {
+		if _, exists := menuByID[menu.ID]; exists {
 			continue
 		}
-		menuByID[menu.Id] = menu
+		menuByID[menu.ID] = menu
 		*menus = append(*menus, menu)
-		if menu.ParentId != nil && *menu.ParentId != "" {
-			if _, exists := menuByID[*menu.ParentId]; !exists {
-				nextParentIDs = append(nextParentIDs, *menu.ParentId)
+		if menu.ParentID != nil && *menu.ParentID != "" {
+			if _, exists := menuByID[*menu.ParentID]; !exists {
+				nextParentIDs = append(nextParentIDs, *menu.ParentID)
 			}
 		}
 	}

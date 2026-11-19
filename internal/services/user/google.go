@@ -40,7 +40,7 @@ func (s *Service) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, 
 	}
 
 	existing, err := s.UserRepo.GetByEmail(ctx, email)
-	if err == nil && existing.Id != "" {
+	if err == nil && existing.ID != "" {
 		existing.EmailVerifiedAt = new(time.Now())
 		existing.LastLoginAt = new(time.Now())
 		existing.LastLoginIP = metadata.IP
@@ -62,7 +62,7 @@ func (s *Service) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, 
 	}
 
 	roleName := s.defaultRole()
-	roleId, ok := findRoleIDByName(ctx, s.RoleRepo, roleName)
+	roleID, ok := findRoleIDByName(ctx, s.RoleRepo, roleName)
 	if !ok {
 		return domainuser.Users{}, false, fmt.Errorf("role %s is not configured", roleName)
 	}
@@ -79,13 +79,13 @@ func (s *Service) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, 
 	}
 
 	user := domainuser.Users{
-		Id:                 s.newID(),
+		ID:                 s.newID(),
 		Name:               serviceshared.TitleCase(name),
 		Email:              email,
 		Phone:              "",
 		Password:           string(hashedPwd),
 		Role:               roleName,
-		RoleId:             roleId,
+		RoleID:             roleID,
 		EmailVerifiedAt:    new(time.Now()),
 		LastLoginAt:        new(time.Now()),
 		LastLoginIP:        metadata.IP,

@@ -28,4 +28,4 @@ func TestClaimsFromRequestReadsAuthorizationHeader(t *testing.T) {
 
 const roleViewer = "viewer"
 
-type testUser struct{ Id, Name, Role string }
+type testUser struct{ ID, Name, Role string }

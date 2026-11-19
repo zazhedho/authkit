@@ -24,12 +24,12 @@ var (
 )
 
 type AppClaims struct {
-	UserId           string `json:"user_id"`
+	UserID           string `json:"user_id"`
 	Username         string `json:"username"`
 	Role             string `json:"role"`
 	TokenType        string `json:"token_type,omitempty"`
 	IsImpersonated   bool   `json:"is_impersonated,omitempty"`
-	OriginalUserId   string `json:"original_user_id,omitempty"`
+	OriginalUserID   string `json:"original_user_id,omitempty"`
 	OriginalUsername string `json:"original_username,omitempty"`
 	OriginalRole     string `json:"original_role,omitempty"`
 	*jwt.RegisteredClaims

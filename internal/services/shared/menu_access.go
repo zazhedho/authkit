@@ -17,7 +17,7 @@ func ResolveAccessibleMenus(activeMenus []domainmenu.MenuItem, resources []strin
 	menuByID := make(map[string]domainmenu.MenuItem, len(activeMenus))
 	menuByName := make(map[string]domainmenu.MenuItem, len(activeMenus))
 	for _, menu := range activeMenus {
-		menuByID[menu.Id] = menu
+		menuByID[menu.ID] = menu
 		menuByName[menu.Name] = menu
 	}
 
@@ -32,7 +32,7 @@ func ResolveAccessibleMenus(activeMenus []domainmenu.MenuItem, resources []strin
 
 	ret := make([]domainmenu.MenuItem, 0, len(allowedIDs))
 	for _, menu := range activeMenus {
-		if _, exists := allowedIDs[menu.Id]; exists {
+		if _, exists := allowedIDs[menu.ID]; exists {
 			ret = append(ret, menu)
 		}
 	}
@@ -41,15 +41,15 @@ func ResolveAccessibleMenus(activeMenus []domainmenu.MenuItem, resources []strin
 }
 
 func addMenuAncestors(menu domainmenu.MenuItem, menuByID map[string]domainmenu.MenuItem, allowedIDs map[string]struct{}) {
-	allowedIDs[menu.Id] = struct{}{}
-	parentID := menu.ParentId
+	allowedIDs[menu.ID] = struct{}{}
+	parentID := menu.ParentID
 	for parentID != nil && *parentID != "" {
 		parentMenu, exists := menuByID[*parentID]
 		if !exists || !parentMenu.IsActive || parentMenu.DeletedAt.Valid {
 			return
 		}
-		allowedIDs[parentMenu.Id] = struct{}{}
-		parentID = parentMenu.ParentId
+		allowedIDs[parentMenu.ID] = struct{}{}
+		parentID = parentMenu.ParentID
 	}
 }
 
@@ -57,7 +57,7 @@ func ResolveAccessibleMenuIDs(activeMenus []domainmenu.MenuItem, resources []str
 	menus := ResolveAccessibleMenus(activeMenus, resources)
 	ids := make([]string, 0, len(menus))
 	for _, menu := range menus {
-		ids = append(ids, menu.Id)
+		ids = append(ids, menu.ID)
 	}
 
 	return ids

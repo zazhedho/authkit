@@ -48,7 +48,7 @@ type permissionRepoTestDouble struct {
 	calls       int
 }
 
-func (m *permissionRepoTestDouble) GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error) {
+func (m *permissionRepoTestDouble) GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error) {
 	m.calls++
 	if m.err != nil {
 		return nil, m.err
@@ -96,7 +96,7 @@ func performMiddlewareRequestWithSetup(handlers []gin.HandlerFunc, setup func(*g
 
 func testTokens(t *testing.T) *token.Tokens {
 	t.Helper()
-	tokens, err := token.NewTokens(token.TokenConfig{
+	tokens, err := token.NewTokens(token.Config{
 		Key:        "test-secret-must-be-at-least-32-bytes",
 		AppName:    "test-app",
 		AccessTTL:  time.Hour,
@@ -406,7 +406,7 @@ func TestPermissionMiddlewareHandlesRepositoryErrors(t *testing.T) {
 
 func foreignAppToken(t *testing.T, role string) string {
 	t.Helper()
-	other, err := token.NewTokens(token.TokenConfig{
+	other, err := token.NewTokens(token.Config{
 		Key:        "test-secret-must-be-at-least-32-bytes",
 		AppName:    "other-app",
 		AccessTTL:  time.Hour,

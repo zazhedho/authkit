@@ -24,7 +24,7 @@ func New(s Service, auditService httpshared.AuditService) *Handler {
 var permissionResource = httpshared.Resource[domainpermission.Permission]{
 	Name:          "permission",
 	Audit:         "permission",
-	ID:            func(p domainpermission.Permission) string { return p.Id },
+	ID:            func(p domainpermission.Permission) string { return p.ID },
 	MutationError: permissionMutationErrorResponse,
 }
 

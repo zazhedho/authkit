@@ -19,7 +19,7 @@ type menuRepoTestDouble struct {
 
 func (m *menuRepoTestDouble) Store(ctx context.Context, data domainmenu.MenuItem) error { return nil }
 func (m *menuRepoTestDouble) GetByID(ctx context.Context, id string) (domainmenu.MenuItem, error) {
-	if m.menu.Id == "" {
+	if m.menu.ID == "" {
 		return domainmenu.MenuItem{}, errors.New("not found")
 	}
 	return m.menu, nil
@@ -47,7 +47,7 @@ func (m *menuRepoTestDouble) GetByName(ctx context.Context, name string) (domain
 func (m *menuRepoTestDouble) GetActiveMenus(ctx context.Context) ([]domainmenu.MenuItem, error) {
 	return append([]domainmenu.MenuItem{}, m.activeMenus...), nil
 }
-func (m *menuRepoTestDouble) GetUserMenus(ctx context.Context, userId string) ([]domainmenu.MenuItem, error) {
+func (m *menuRepoTestDouble) GetUserMenus(ctx context.Context, userID string) ([]domainmenu.MenuItem, error) {
 	return nil, nil
 }
 
@@ -77,16 +77,16 @@ func (m *permissionRepoMenuTestDouble) GetByName(ctx context.Context, name strin
 func (m *permissionRepoMenuTestDouble) GetByResource(ctx context.Context, resource string) ([]domainpermission.Permission, error) {
 	return nil, nil
 }
-func (m *permissionRepoMenuTestDouble) GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error) {
+func (m *permissionRepoMenuTestDouble) GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error) {
 	return append([]domainpermission.Permission{}, m.userPermissions...), nil
 }
 
 func TestGetUserMenusDerivesMenusFromPermissionResources(t *testing.T) {
 	svc := NewService(
 		&menuRepoTestDouble{activeMenus: []domainmenu.MenuItem{
-			{Id: "dashboard", Name: "dashboard", IsActive: true},
-			{Id: "users", Name: "users", ParentId: new("settings"), IsActive: true},
-			{Id: "settings", Name: "settings", IsActive: true},
+			{ID: "dashboard", Name: "dashboard", IsActive: true},
+			{ID: "users", Name: "users", ParentID: new("settings"), IsActive: true},
+			{ID: "settings", Name: "settings", IsActive: true},
 		}},
 		&permissionRepoMenuTestDouble{
 			userPermissions: []domainpermission.Permission{{Resource: "users", Action: "list"}},
@@ -101,7 +101,7 @@ func TestGetUserMenusDerivesMenusFromPermissionResources(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected child and parent menus, got %+v", got)
 	}
-	if got[0].Id != "users" || got[1].Id != "settings" {
+	if got[0].ID != "users" || got[1].ID != "settings" {
 		t.Fatalf("unexpected menus: %+v", got)
 	}
 }
@@ -110,7 +110,7 @@ func TestUpdateOnlyAppliesProvidedMenuFields(t *testing.T) {
 	orderIndex := 42
 	parentID := "parent-1"
 	repo := &menuRepoTestDouble{menu: domainmenu.MenuItem{
-		Id:          "menu-1",
+		ID:          "menu-1",
 		Name:        "users",
 		DisplayName: "Users",
 		Path:        "/users",
@@ -121,7 +121,7 @@ func TestUpdateOnlyAppliesProvidedMenuFields(t *testing.T) {
 
 	got, err := svc.Update(context.Background(), "menu-1", dtomenu.MenuUpdate{
 		DisplayName: "User Management",
-		ParentId:    &parentID,
+		ParentID:    &parentID,
 		OrderIndex:  &orderIndex,
 		IsActive:    new(false),
 	})
@@ -135,7 +135,7 @@ func TestUpdateOnlyAppliesProvidedMenuFields(t *testing.T) {
 	if got.Path != "/users" || got.Icon != "old-icon" {
 		t.Fatalf("expected empty request fields to preserve old values, got %+v", got)
 	}
-	if got.ParentId == nil || *got.ParentId != parentID || got.OrderIndex != orderIndex || got.IsActive {
+	if got.ParentID == nil || *got.ParentID != parentID || got.OrderIndex != orderIndex || got.IsActive {
 		t.Fatalf("expected pointer fields to update, got %+v", got)
 	}
 	if got.UpdatedAt == nil {
@@ -145,14 +145,14 @@ func TestUpdateOnlyAppliesProvidedMenuFields(t *testing.T) {
 
 func TestMenuServicePassThroughMethods(t *testing.T) {
 	repo := &menuRepoTestDouble{
-		menu: domainmenu.MenuItem{Id: "menu-1", Name: "users", IsActive: true},
+		menu: domainmenu.MenuItem{ID: "menu-1", Name: "users", IsActive: true},
 		activeMenus: []domainmenu.MenuItem{
-			{Id: "menu-1", Name: "users", IsActive: true},
+			{ID: "menu-1", Name: "users", IsActive: true},
 		},
 	}
 	svc := NewService(repo, &permissionRepoMenuTestDouble{})
 
-	if got, err := svc.GetByID(context.Background(), "menu-1"); err != nil || got.Id != "menu-1" {
+	if got, err := svc.GetByID(context.Background(), "menu-1"); err != nil || got.ID != "menu-1" {
 		t.Fatalf("get by id: menu=%+v err=%v", got, err)
 	}
 	if got, total, err := svc.GetAll(context.Background(), dtoshared.ListRequest{}); err != nil || total != 1 || len(got) != 1 {

@@ -191,7 +191,7 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.AppName) == "" {
 		return errors.New("authkit: AppName is required")
 	}
-	if _, err := token.NewTokens(token.TokenConfig{Key: c.JWTKey, AppName: c.AppName}); err != nil {
+	if _, err := token.NewTokens(token.Config{Key: c.JWTKey, AppName: c.AppName}); err != nil {
 		return fmt.Errorf("authkit: JWTKey: %w", err)
 	}
 	switch role := strings.ToLower(strings.TrimSpace(c.DefaultRole)); role {

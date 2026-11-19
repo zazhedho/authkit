@@ -13,18 +13,18 @@ import (
 	"github.com/google/uuid"
 )
 
-func permissionMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.APIResponse) {
+func permissionMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIResponse) {
 	if httpshared.IsNotFound(err) {
-		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, "permission not found")
+		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logID, "permission not found")
 	}
 	if errors.Is(err, domainpermission.ErrDuplicate) {
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logId, "permission with this name already exists")
+		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logID, "permission with this name already exists")
 	}
 
 	errMsg := err.Error()
 	if strings.Contains(errMsg, "already exists") {
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logId, errMsg)
+		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logID, errMsg)
 	}
 
-	return http.StatusInternalServerError, gokit.InternalServerError(logId)
+	return http.StatusInternalServerError, gokit.InternalServerError(logID)
 }

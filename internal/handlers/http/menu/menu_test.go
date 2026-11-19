@@ -44,7 +44,7 @@ func (m *menuServiceHandlerTestDouble) GetAll(ctx context.Context, req dtoshared
 func (m *menuServiceHandlerTestDouble) GetActiveMenus(ctx context.Context) ([]domainmenu.MenuItem, error) {
 	return m.menus, m.err
 }
-func (m *menuServiceHandlerTestDouble) GetUserMenus(ctx context.Context, userId string) ([]domainmenu.MenuItem, error) {
+func (m *menuServiceHandlerTestDouble) GetUserMenus(ctx context.Context, userID string) ([]domainmenu.MenuItem, error) {
 	return m.menus, m.err
 }
 func (m *menuServiceHandlerTestDouble) Update(ctx context.Context, id string, req dtomenu.MenuUpdate) (domainmenu.MenuItem, error) {
@@ -94,8 +94,8 @@ func performMenuRequest(method, routePath, requestPath string, body any, handler
 
 func TestMenuReadHandlers(t *testing.T) {
 	handler := New(&menuServiceHandlerTestDouble{
-		menu:  domainmenu.MenuItem{Id: "menu-1", Name: "users"},
-		menus: []domainmenu.MenuItem{{Id: "menu-1", Name: "users"}},
+		menu:  domainmenu.MenuItem{ID: "menu-1", Name: "users"},
+		menus: []domainmenu.MenuItem{{ID: "menu-1", Name: "users"}},
 		total: 1,
 	}, &auditServiceMenuTestDouble{})
 
@@ -145,7 +145,7 @@ func TestGetUserMenusRequiresScope(t *testing.T) {
 		t.Fatalf("expected 401, got %d", rec.Code)
 	}
 
-	handler = New(&menuServiceHandlerTestDouble{menus: []domainmenu.MenuItem{{Id: "menu-1", Name: "users"}}}, &auditServiceMenuTestDouble{})
+	handler = New(&menuServiceHandlerTestDouble{menus: []domainmenu.MenuItem{{ID: "menu-1", Name: "users"}}}, &auditServiceMenuTestDouble{})
 	rec = performMenuRequest(http.MethodGet, "/menus/me", "/menus/me", nil, handler.GetUserMenus, domainauth.New("user-1", "Jane", "viewer", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
@@ -153,7 +153,7 @@ func TestGetUserMenusRequiresScope(t *testing.T) {
 }
 
 func TestUpdateMenuMapsSuccessAndError(t *testing.T) {
-	service := &menuServiceHandlerTestDouble{menu: domainmenu.MenuItem{Id: "menu-1", Name: "users"}}
+	service := &menuServiceHandlerTestDouble{menu: domainmenu.MenuItem{ID: "menu-1", Name: "users"}}
 	handler := New(service, &auditServiceMenuTestDouble{})
 	rec := performMenuRequest(http.MethodPut, "/menus/:id", "/menus/menu-1", dtomenu.MenuUpdate{DisplayName: "Users"}, handler.Update, domainauth.Scope{})
 	if rec.Code != http.StatusOK {

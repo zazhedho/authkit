@@ -62,7 +62,7 @@ func TestCreateSessionStoresSessionWithDerivedDeviceInfo(t *testing.T) {
 	svc := NewService(repo, time.Hour)
 
 	session, err := svc.CreateSession(context.Background(), &domainuser.Users{
-		Id:    "user-1",
+		ID:    "user-1",
 		Name:  "Jane",
 		Email: "jane@example.com",
 		Role:  "viewer",

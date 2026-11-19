@@ -54,7 +54,7 @@ func (s *userServiceTestDouble) AdminCreateUser(ctx context.Context, actor domai
 	s.user.Role = req.Role
 	return s.user, nil
 }
-func (s *userServiceTestDouble) LoginUser(ctx context.Context, req dtouser.Login, logId string, metadata dtouser.LoginMetadata) (string, error) {
+func (s *userServiceTestDouble) LoginUser(ctx context.Context, req dtouser.Login, logID string, metadata dtouser.LoginMetadata) (string, error) {
 	if s.loginErr != nil {
 		return "", s.loginErr
 	}
@@ -76,23 +76,23 @@ func (s *userServiceTestDouble) LogoutUser(ctx context.Context, token string) er
 	s.logoutToken = token
 	return s.err
 }
-func (s *userServiceTestDouble) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserId string, logId string) (string, error) {
+func (s *userServiceTestDouble) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID string, logID string) (string, error) {
 	if s.err != nil {
 		return "", s.err
 	}
 	return "impersonation-token", nil
 }
-func (s *userServiceTestDouble) StopImpersonation(ctx context.Context, actor domainauth.Actor, logId string) (string, error) {
+func (s *userServiceTestDouble) StopImpersonation(ctx context.Context, actor domainauth.Actor, logID string) (string, error) {
 	if s.err != nil {
 		return "", s.err
 	}
 	return "restored-token", nil
 }
-func (s *userServiceTestDouble) GetUserById(ctx context.Context, id string) (domainuser.Users, error) {
+func (s *userServiceTestDouble) GetUserByID(ctx context.Context, id string) (domainuser.Users, error) {
 	if s.err != nil {
 		return domainuser.Users{}, s.err
 	}
-	s.user.Id = id
+	s.user.ID = id
 	return s.user, nil
 }
 func (s *userServiceTestDouble) GetUserByEmail(ctx context.Context, email string) (domainuser.Users, error) {
@@ -126,7 +126,7 @@ func (s *userServiceTestDouble) Update(ctx context.Context, actor domainauth.Act
 	if s.err != nil {
 		return domainuser.Users{}, s.err
 	}
-	s.user.Id = id
+	s.user.ID = id
 	if req.Name != "" {
 		s.user.Name = req.Name
 	}
@@ -145,7 +145,7 @@ func (s *userServiceTestDouble) ChangePassword(ctx context.Context, id string, r
 	if s.err != nil {
 		return domainuser.Users{}, s.err
 	}
-	s.user.Id = id
+	s.user.ID = id
 	return s.user, nil
 }
 func (s *userServiceTestDouble) ForgotPassword(ctx context.Context, req dtouser.ForgotPasswordRequest) (string, error) {
@@ -211,7 +211,7 @@ func (m *sessionServiceUserHandlerTestDouble) CreateSession(ctx context.Context,
 		return nil, m.createErr
 	}
 	m.sessionID = "session-1"
-	return &domainsession.Session{SessionID: m.sessionID, UserID: user.Id, AccessToken: accessToken, RefreshToken: refreshToken, ExpiresAt: time.Now().Add(time.Hour)}, nil
+	return &domainsession.Session{SessionID: m.sessionID, UserID: user.ID, AccessToken: accessToken, RefreshToken: refreshToken, ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
 func (m *sessionServiceUserHandlerTestDouble) GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.SessionInfo, error) {
 	return nil, nil
@@ -319,7 +319,7 @@ func newUserHandlerTestContext(t *testing.T, method, path, body string, scope *d
 
 func newUserHandlerForTest() *Handler {
 	service := &userServiceTestDouble{user: domainuser.Users{
-		Id:    "user-1",
+		ID:    "user-1",
 		Name:  "Jane Doe",
 		Email: "jane@example.com",
 		Phone: "628123456789",
@@ -422,8 +422,8 @@ func TestUserHandlerAuthTokenFlows(t *testing.T) {
 	handler.GoogleLogin(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusOK)
 
-	user := domainuser.Users{Id: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
-	refreshToken, err := testHandlerTokens().GenerateRefresh(user.Id, user.Name, user.Role, "log-1")
+	user := domainuser.Users{ID: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
+	refreshToken, err := testHandlerTokens().GenerateRefresh(user.ID, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("generate refresh token: %v", err)
 	}
@@ -476,7 +476,7 @@ func TestUserHandlerReadUpdateAndDeleteFlows(t *testing.T) {
 
 	ctx, rec := newUserHandlerTestContext(t, http.MethodGet, "/users/"+userID, "", nil)
 	ctx.Params = gin.Params{{Key: "id", Value: userID}}
-	handler.GetUserById(ctx)
+	handler.GetUserByID(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusOK)
 
 	ctx, rec = newUserHandlerTestContext(t, http.MethodGet, "/me", "", &scope)
@@ -595,7 +595,7 @@ func TestUserHandlerInvalidIDBranches(t *testing.T) {
 		name string
 		call func(*gin.Context)
 	}{
-		{name: "get by id", call: handler.GetUserById},
+		{name: "get by id", call: handler.GetUserByID},
 		{name: "update by id", call: handler.UpdateUserById},
 		{name: "delete by id", call: handler.DeleteUserById},
 		{name: "impersonate", call: handler.ImpersonateUser},
@@ -642,7 +642,7 @@ func TestUserHandlerServiceErrorBranches(t *testing.T) {
 	scope := domainauth.New(userID, "Jane Doe", "user", nil)
 	service := &userServiceTestDouble{
 		user: domainuser.Users{
-			Id:    userID,
+			ID:    userID,
 			Name:  "Jane Doe",
 			Email: "jane@example.com",
 			Phone: "628123456789",
@@ -666,7 +666,7 @@ func TestUserHandlerServiceErrorBranches(t *testing.T) {
 		{name: "register", method: http.MethodPost, path: "/register", body: `{"name":"Jane Doe","email":"new@example.com","phone":"628123456789","password":"secret123"}`, call: handler.Register, want: http.StatusInternalServerError},
 		{name: "admin create", method: http.MethodPost, path: "/admin/users", body: `{"name":"Jane Doe","email":"new@example.com","phone":"628123456789","password":"secret123","role":"user"}`, call: handler.AdminCreateUser, want: http.StatusInternalServerError},
 		{name: "get all users", method: http.MethodGet, path: "/users", call: handler.GetAllUsers, want: http.StatusInternalServerError},
-		{name: "get user by id", method: http.MethodGet, path: "/users/" + userID, params: gin.Params{{Key: "id", Value: userID}}, call: handler.GetUserById, want: http.StatusInternalServerError},
+		{name: "get user by id", method: http.MethodGet, path: "/users/" + userID, params: gin.Params{{Key: "id", Value: userID}}, call: handler.GetUserByID, want: http.StatusInternalServerError},
 		{name: "get user by auth", method: http.MethodGet, path: "/me", scope: &scope, call: handler.GetUserByAuth, want: http.StatusInternalServerError},
 		{name: "update self", method: http.MethodPatch, path: "/me", body: `{"name":"Jane"}`, scope: &scope, call: handler.Update, want: http.StatusInternalServerError},
 		{name: "update by id", method: http.MethodPatch, path: "/users/" + userID, body: `{"name":"Jane"}`, params: gin.Params{{Key: "id", Value: userID}}, call: handler.UpdateUserById, want: http.StatusInternalServerError},
@@ -729,8 +729,8 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 
 	handler = newUserHandlerForTest()
 	handler.Service.(*userServiceTestDouble).revoked = true
-	user := domainuser.Users{Id: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
-	refreshToken, err := testHandlerTokens().GenerateRefresh(user.Id, user.Name, user.Role, "log-1")
+	user := domainuser.Users{ID: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
+	refreshToken, err := testHandlerTokens().GenerateRefresh(user.ID, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("generate refresh token: %v", err)
 	}
@@ -738,7 +738,7 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 	handler.RefreshToken(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusUnauthorized)
 
-	accessToken, err := testHandlerTokens().Generate(user.Id, user.Name, user.Role, "log-1")
+	accessToken, err := testHandlerTokens().Generate(user.ID, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("generate access token: %v", err)
 	}
@@ -841,7 +841,7 @@ func TestUserHandlerNotFoundAndValidationErrorBranches(t *testing.T) {
 		call   func(*gin.Context)
 		want   int
 	}{
-		{name: "get user by id", method: http.MethodGet, path: "/users/" + userID, params: gin.Params{{Key: "id", Value: userID}}, call: handler.GetUserById, want: http.StatusNotFound},
+		{name: "get user by id", method: http.MethodGet, path: "/users/" + userID, params: gin.Params{{Key: "id", Value: userID}}, call: handler.GetUserByID, want: http.StatusNotFound},
 		{name: "get user by auth", method: http.MethodGet, path: "/me", scope: &scope, call: handler.GetUserByAuth, want: http.StatusNotFound},
 		{name: "update self", method: http.MethodPatch, path: "/me", body: `{"name":"Jane"}`, scope: &scope, call: handler.Update, want: http.StatusNotFound},
 		{name: "update by id", method: http.MethodPatch, path: "/users/" + userID, body: `{"name":"Jane"}`, params: gin.Params{{Key: "id", Value: userID}}, call: handler.UpdateUserById, want: http.StatusNotFound},
@@ -933,7 +933,7 @@ func TestUserHandlerEmailPasswordResetBranches(t *testing.T) {
 
 func TestUserHandlerResetPasswordRevokesSessions(t *testing.T) {
 
-	user := domainuser.Users{Id: "user-1", Email: "jane@example.com", Role: domainuser.RoleViewer}
+	user := domainuser.Users{ID: "user-1", Email: "jane@example.com", Role: domainuser.RoleViewer}
 	service := &userServiceTestDouble{user: user}
 	sessionSvc := &sessionServiceUserHandlerTestDouble{}
 	handler := New(service, sessionSvc, nil, nil, Options{Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: &resetServiceUserHandlerTestDouble{email: user.Email}})
@@ -941,8 +941,8 @@ func TestUserHandlerResetPasswordRevokesSessions(t *testing.T) {
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"reset-token","new_password":"secret456"}`, nil)
 	handler.ResetPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusOK)
-	if sessionSvc.destroyedUserID != user.Id {
-		t.Fatalf("expected email reset to revoke sessions for %q, got %q", user.Id, sessionSvc.destroyedUserID)
+	if sessionSvc.destroyedUserID != user.ID {
+		t.Fatalf("expected email reset to revoke sessions for %q, got %q", user.ID, sessionSvc.destroyedUserID)
 	}
 
 	handler = New(service, &sessionServiceUserHandlerTestDouble{destroyAllErr: errors.New("session revoke failed")}, nil, nil, Options{Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: &resetServiceUserHandlerTestDouble{email: user.Email}})
@@ -950,7 +950,7 @@ func TestUserHandlerResetPasswordRevokesSessions(t *testing.T) {
 	handler.ResetPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
 
-	token, err := testHandlerTokens().Generate(user.Id, user.Name, user.Role, "reset_password")
+	token, err := testHandlerTokens().Generate(user.ID, user.Name, user.Role, "reset_password")
 	if err != nil {
 		t.Fatalf("generate reset token: %v", err)
 	}
@@ -959,13 +959,13 @@ func TestUserHandlerResetPasswordRevokesSessions(t *testing.T) {
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"`+token+`","new_password":"secret456"}`, nil)
 	handler.ResetPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusOK)
-	if sessionSvc.destroyedUserID != user.Id {
-		t.Fatalf("expected jwt reset to revoke sessions for %q, got %q", user.Id, sessionSvc.destroyedUserID)
+	if sessionSvc.destroyedUserID != user.ID {
+		t.Fatalf("expected jwt reset to revoke sessions for %q, got %q", user.ID, sessionSvc.destroyedUserID)
 	}
 }
 
 func testHandlerTokens() *token.Tokens {
-	tokens, err := token.NewTokens(token.TokenConfig{
+	tokens, err := token.NewTokens(token.Config{
 		Key:        "test-secret-must-be-at-least-32-bytes",
 		AppName:    "test-app",
 		AccessTTL:  time.Hour,
@@ -987,7 +987,7 @@ func testHandlerOptions() Options {
 }
 
 func otherAppTokens() *token.Tokens {
-	tokens, err := token.NewTokens(token.TokenConfig{
+	tokens, err := token.NewTokens(token.Config{
 		Key:        "test-secret-must-be-at-least-32-bytes",
 		AppName:    "other-app",
 		AccessTTL:  time.Hour,
@@ -1013,12 +1013,12 @@ func errorBodyWithoutLogID(t *testing.T, rec *httptest.ResponseRecorder) map[str
 }
 
 func TestRefreshTokenRejectsTokenFromOtherApp(t *testing.T) {
-	user := domainuser.Users{Id: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
-	foreign, err := otherAppTokens().GenerateRefresh(user.Id, user.Name, user.Role, "log-1")
+	user := domainuser.Users{ID: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
+	foreign, err := otherAppTokens().GenerateRefresh(user.ID, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("generate refresh token: %v", err)
 	}
-	badSignature, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": user.Id}).SignedString([]byte("a-different-secret-of-at-least-32-bytes"))
+	badSignature, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": user.ID}).SignedString([]byte("a-different-secret-of-at-least-32-bytes"))
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}

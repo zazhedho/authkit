@@ -38,7 +38,7 @@ func (s *Service) CreateSession(ctx context.Context, user *domainuser.Users, acc
 
 	session := &domainsession.Session{
 		SessionID:    sessionID,
-		UserID:       user.Id,
+		UserID:       user.ID,
 		Username:     user.Name,
 		Email:        user.Email,
 		Role:         user.Role,

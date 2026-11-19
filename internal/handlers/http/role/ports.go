@@ -17,6 +17,6 @@ type Service interface {
 	GetAll(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainrole.Role, int64, error)
 	Update(ctx context.Context, id string, req dtorole.RoleUpdate) (domainrole.Role, error)
 	Delete(ctx context.Context, id string) error
-	AssignPermissions(ctx context.Context, actor domainauth.Actor, roleId string, req dtorole.AssignPermissions) error
-	GetRolePermissions(ctx context.Context, roleId string) ([]string, error)
+	AssignPermissions(ctx context.Context, actor domainauth.Actor, roleID string, req dtorole.AssignPermissions) error
+	GetRolePermissions(ctx context.Context, roleID string) ([]string, error)
 }

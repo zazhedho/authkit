@@ -74,7 +74,7 @@ func TestUserRepositoryStoreOmitsEmptyPhone(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = repo.Store(context.Background(), domainuser.Users{
-		Id:       "user-1",
+		ID:       "user-1",
 		Name:     "Google User",
 		Email:    "google@example.com",
 		Phone:    "",

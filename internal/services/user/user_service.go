@@ -76,12 +76,12 @@ func (s *Service) RegisterUser(ctx context.Context, req dtouser.UserRegister) (d
 	email := domainuser.SanitizeEmail(req.Email)
 
 	data, _ := s.UserRepo.GetByEmail(ctx, email)
-	if data.Id != "" {
+	if data.ID != "" {
 		return domainuser.Users{}, errors.New("email already exists")
 	}
 
 	phoneData, _ := s.UserRepo.GetByPhone(ctx, phone)
-	if phoneData.Id != "" {
+	if phoneData.ID != "" {
 		return domainuser.Users{}, errors.New("phone number already exists")
 	}
 
@@ -98,7 +98,7 @@ func (s *Service) RegisterUser(ctx context.Context, req dtouser.UserRegister) (d
 	// allow privilege escalation.
 	roleName := s.defaultRole()
 
-	roleId, ok := findRoleIDByName(ctx, s.RoleRepo, roleName)
+	roleID, ok := findRoleIDByName(ctx, s.RoleRepo, roleName)
 	if !ok {
 		return domainuser.Users{}, fmt.Errorf("role %s is not configured", roleName)
 	}
@@ -108,13 +108,13 @@ func (s *Service) RegisterUser(ctx context.Context, req dtouser.UserRegister) (d
 	}
 
 	data = domainuser.Users{
-		Id:                s.newID(),
+		ID:                s.newID(),
 		Name:              serviceshared.TitleCase(serviceshared.CleanText(req.Name)),
 		Phone:             phone,
 		Email:             email,
 		Password:          string(hashedPwd),
 		Role:              roleName,
-		RoleId:            roleId,
+		RoleID:            roleID,
 		EmailVerifiedAt:   emailVerifiedAt,
 		PasswordChangedAt: new(time.Now()),
 		LoginProvider:     "local",
@@ -134,13 +134,13 @@ func (s *Service) AdminCreateUser(ctx context.Context, actor domainauth.Actor, r
 	email := domainuser.SanitizeEmail(req.Email)
 
 	data, _ := s.UserRepo.GetByEmail(ctx, email)
-	if data.Id != "" {
+	if data.ID != "" {
 		return domainuser.Users{}, errors.New("email already exists")
 	}
 
 	if phone != "" {
 		phoneData, _ := s.UserRepo.GetByPhone(ctx, phone)
-		if phoneData.Id != "" {
+		if phoneData.ID != "" {
 			return domainuser.Users{}, errors.New("phone number already exists")
 		}
 	}
@@ -168,19 +168,19 @@ func (s *Service) AdminCreateUser(ctx context.Context, actor domainauth.Actor, r
 		return domainuser.Users{}, errors.New("only superadmin can create superadmin users")
 	}
 
-	roleId, ok := findRoleIDByName(ctx, s.RoleRepo, roleName)
+	roleID, ok := findRoleIDByName(ctx, s.RoleRepo, roleName)
 	if !ok {
 		return domainuser.Users{}, errors.New("invalid role: " + roleName)
 	}
 
 	data = domainuser.Users{
-		Id:                s.newID(),
+		ID:                s.newID(),
 		Name:              serviceshared.TitleCase(serviceshared.CleanText(req.Name)),
 		Phone:             phone,
 		Email:             email,
 		Password:          string(hashedPwd),
 		Role:              roleName,
-		RoleId:            roleId,
+		RoleID:            roleID,
 		PasswordChangedAt: new(time.Now()),
 		LoginProvider:     "local",
 		Metadata:          map[string]any{},
@@ -194,7 +194,7 @@ func (s *Service) AdminCreateUser(ctx context.Context, actor domainauth.Actor, r
 	return data, nil
 }
 
-func (s *Service) LoginUser(ctx context.Context, req dtouser.Login, logId string, metadata dtouser.LoginMetadata) (string, error) {
+func (s *Service) LoginUser(ctx context.Context, req dtouser.Login, logID string, metadata dtouser.LoginMetadata) (string, error) {
 	identifier, err := domainuser.ResolveLoginIdentifier(req.Identifier, req.Email)
 	if err != nil {
 		return "", err
@@ -227,7 +227,7 @@ func (s *Service) LoginUser(ctx context.Context, req dtouser.Login, logId string
 		return "", err
 	}
 
-	token, err := s.Tokens.Generate(data.Id, data.Name, data.Role, logId)
+	token, err := s.Tokens.Generate(data.ID, data.Name, data.Role, logID)
 	if err != nil {
 		return "", err
 	}
@@ -256,18 +256,18 @@ func (s *Service) LogoutUser(ctx context.Context, token string) error {
 	return nil
 }
 
-func (s *Service) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserId string, logId string) (string, error) {
+func (s *Service) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID string, logID string) (string, error) {
 	if actor.IsImpersonated {
 		return "", errors.New("cannot start nested impersonation")
 	}
-	if strings.TrimSpace(targetUserId) == "" {
+	if strings.TrimSpace(targetUserID) == "" {
 		return "", errors.New("target user id is required")
 	}
-	if targetUserId == actor.UserID {
+	if targetUserID == actor.UserID {
 		return "", errors.New("cannot impersonate your own account")
 	}
 
-	targetUser, err := s.UserRepo.GetByID(ctx, targetUserId)
+	targetUser, err := s.UserRepo.GetByID(ctx, targetUserID)
 	if err != nil {
 		return "", err
 	}
@@ -276,29 +276,29 @@ func (s *Service) ImpersonateUser(ctx context.Context, actor domainauth.Actor, t
 		return "", errors.New("cannot impersonate superadmin users")
 	}
 
-	return s.Tokens.GenerateImpersonated(targetUser.Id, targetUser.Name, targetUser.Role, logId, actor.UserID, actor.Username, actor.Role)
+	return s.Tokens.GenerateImpersonated(targetUser.ID, targetUser.Name, targetUser.Role, logID, actor.UserID, actor.Username, actor.Role)
 }
 
-func (s *Service) StopImpersonation(ctx context.Context, actor domainauth.Actor, logId string) (string, error) {
-	originalUserId := actor.OriginalUserID
-	currentUserId := actor.UserID
+func (s *Service) StopImpersonation(ctx context.Context, actor domainauth.Actor, logID string) (string, error) {
+	originalUserID := actor.OriginalUserID
+	currentUserID := actor.UserID
 
-	if strings.TrimSpace(originalUserId) == "" {
+	if strings.TrimSpace(originalUserID) == "" {
 		return "", errors.New("original user id is required")
 	}
-	if originalUserId == currentUserId {
+	if originalUserID == currentUserID {
 		return "", errors.New("current session is not impersonated")
 	}
 
-	originalUser, err := s.UserRepo.GetByID(ctx, originalUserId)
+	originalUser, err := s.UserRepo.GetByID(ctx, originalUserID)
 	if err != nil {
 		return "", err
 	}
 
-	return s.Tokens.Generate(originalUser.Id, originalUser.Name, originalUser.Role, logId)
+	return s.Tokens.Generate(originalUser.ID, originalUser.Name, originalUser.Role, logID)
 }
 
-func (s *Service) GetUserById(ctx context.Context, id string) (domainuser.Users, error) {
+func (s *Service) GetUserByID(ctx context.Context, id string) (domainuser.Users, error) {
 	return s.UserRepo.GetByID(ctx, id)
 }
 
@@ -316,7 +316,7 @@ func (s *Service) GetUserByAuth(ctx context.Context, id string) (map[string]any,
 		return nil, err
 	}
 
-	permissions, err := s.PermissionRepo.GetUserPermissions(ctx, user.Id)
+	permissions, err := s.PermissionRepo.GetUserPermissions(ctx, user.ID)
 	if err != nil {
 		//nolint:nilerr // Keep auth response available even if permission enrichment fails.
 		return buildUserAuthResponse(user, nil), nil
@@ -394,7 +394,7 @@ func (s *Service) applyRoleUpdate(ctx context.Context, actor domainauth.Actor, r
 		return errors.New("invalid role: " + newRoleName)
 	}
 	user.Role = newRoleName
-	user.RoleId = roleID
+	user.RoleID = roleID
 	return nil
 }
 
@@ -438,7 +438,7 @@ func (s *Service) ForgotPassword(ctx context.Context, req dtouser.ForgotPassword
 		return "", nil
 	}
 
-	token, err := s.Tokens.GeneratePasswordReset(data.Id, data.Name, data.Role, "reset_password")
+	token, err := s.Tokens.GeneratePasswordReset(data.ID, data.Name, data.Role, "reset_password")
 	if err != nil {
 		return "", err
 	}
@@ -467,12 +467,12 @@ func (s *Service) ResetPassword(ctx context.Context, req dtouser.ResetPasswordRe
 		return errors.New("invalid or expired token")
 	}
 
-	userId := strings.TrimSpace(serviceshared.InterfaceString(claims["user_id"]))
-	if userId == "" {
+	userID := strings.TrimSpace(serviceshared.InterfaceString(claims["user_id"]))
+	if userID == "" {
 		return errors.New("invalid or expired token")
 	}
 
-	data, err := s.UserRepo.GetByID(ctx, userId)
+	data, err := s.UserRepo.GetByID(ctx, userID)
 	if err != nil {
 		return errors.New("user not found")
 	}

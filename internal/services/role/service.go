@@ -42,12 +42,12 @@ func NewService(
 
 func (s *Service) Create(ctx context.Context, req dtorole.RoleCreate) (domainrole.Role, error) {
 	existing, _ := s.RoleRepo.GetByName(ctx, req.Name)
-	if existing.Id != "" {
+	if existing.ID != "" {
 		return domainrole.Role{}, errors.New("role with this name already exists")
 	}
 
 	data := domainrole.Role{
-		Id:          s.newID(),
+		ID:          s.newID(),
 		Name:        serviceshared.CleanText(req.Name),
 		DisplayName: serviceshared.CleanText(req.DisplayName),
 		Description: serviceshared.CleanText(req.Description),
@@ -72,12 +72,12 @@ func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.Ro
 		return dtorole.RoleWithDetails{}, err
 	}
 
-	permissionIds, err := s.RoleRepo.GetRolePermissions(ctx, id)
+	permissionIDs, err := s.RoleRepo.GetRolePermissions(ctx, id)
 	if err != nil {
 		return dtorole.RoleWithDetails{}, err
 	}
 
-	menuIds, err := s.deriveMenuIDsFromPermissions(ctx, permissionIds)
+	menuIDs, err := s.deriveMenuIDsFromPermissions(ctx, permissionIDs)
 	if err != nil {
 		return dtorole.RoleWithDetails{}, err
 	}
@@ -88,13 +88,13 @@ func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.Ro
 	}
 
 	return dtorole.RoleWithDetails{
-		Id:            role.Id,
+		ID:            role.ID,
 		Name:          role.Name,
 		DisplayName:   role.DisplayName,
 		Description:   role.Description,
 		IsSystem:      role.IsSystem,
-		PermissionIds: permissionIds,
-		MenuIds:       menuIds,
+		PermissionIDs: permissionIDs,
+		MenuIDs:       menuIDs,
 		CreatedAt:     role.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:     updatedAt,
 	}, nil
@@ -147,8 +147,8 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Service) AssignPermissions(ctx context.Context, actor domainauth.Actor, roleId string, req dtorole.AssignPermissions) error {
-	role, err := s.RoleRepo.GetByID(ctx, roleId)
+func (s *Service) AssignPermissions(ctx context.Context, actor domainauth.Actor, roleID string, req dtorole.AssignPermissions) error {
+	role, err := s.RoleRepo.GetByID(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -166,13 +166,13 @@ func (s *Service) AssignPermissions(ctx context.Context, actor domainauth.Actor,
 		}
 	}
 
-	for _, permId := range req.PermissionIds {
-		if _, err := s.PermissionRepo.GetByID(ctx, permId); err != nil {
-			return errors.New("invalid permission ID: " + permId)
+	for _, permID := range req.PermissionIDs {
+		if _, err := s.PermissionRepo.GetByID(ctx, permID); err != nil {
+			return errors.New("invalid permission ID: " + permID)
 		}
 	}
 
-	if err := s.RoleRepo.AssignPermissions(ctx, roleId, req.PermissionIds); err != nil {
+	if err := s.RoleRepo.AssignPermissions(ctx, roleID, req.PermissionIDs); err != nil {
 		return err
 	}
 	s.invalidatePermissionCache(ctx)
@@ -185,15 +185,15 @@ func (s *Service) invalidatePermissionCache(ctx context.Context) {
 	}
 }
 
-func (s *Service) GetRolePermissions(ctx context.Context, roleId string) ([]string, error) {
-	return s.RoleRepo.GetRolePermissions(ctx, roleId)
+func (s *Service) GetRolePermissions(ctx context.Context, roleID string) ([]string, error) {
+	return s.RoleRepo.GetRolePermissions(ctx, roleID)
 }
 
-func (s *Service) deriveMenuIDsFromPermissions(ctx context.Context, permissionIds []string) ([]string, error) {
-	resources := make([]string, 0, len(permissionIds))
+func (s *Service) deriveMenuIDsFromPermissions(ctx context.Context, permissionIDs []string) ([]string, error) {
+	resources := make([]string, 0, len(permissionIDs))
 
-	for _, permissionId := range permissionIds {
-		permission, err := s.PermissionRepo.GetByID(ctx, permissionId)
+	for _, permissionID := range permissionIDs {
+		permission, err := s.PermissionRepo.GetByID(ctx, permissionID)
 		if err != nil {
 			return nil, err
 		}

@@ -338,14 +338,14 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 		if got := kit.tokens.RefreshTTL(); got != 50*time.Hour {
 			t.Errorf("RefreshTTL = %v", got)
 		}
-		u := &domainuser.Users{Id: "ttl-user", Role: "viewer"}
+		u := &domainuser.Users{ID: "ttl-user", Role: "viewer"}
 		for name, tc := range map[string]struct {
 			issue func() (string, error)
 			want  time.Duration
 		}{
-			"access":         {func() (string, error) { return kit.tokens.Generate(u.Id, u.Name, u.Role, "log") }, 7 * time.Hour},
-			"refresh":        {func() (string, error) { return kit.tokens.GenerateRefresh(u.Id, u.Name, u.Role, "log") }, 50 * time.Hour},
-			"password reset": {func() (string, error) { return kit.tokens.GeneratePasswordReset(u.Id, u.Name, u.Role, "log") }, 333 * time.Second},
+			"access":         {func() (string, error) { return kit.tokens.Generate(u.ID, u.Name, u.Role, "log") }, 7 * time.Hour},
+			"refresh":        {func() (string, error) { return kit.tokens.GenerateRefresh(u.ID, u.Name, u.Role, "log") }, 50 * time.Hour},
+			"password reset": {func() (string, error) { return kit.tokens.GeneratePasswordReset(u.ID, u.Name, u.Role, "log") }, 333 * time.Second},
 		} {
 			tok, err := tc.issue()
 			if err != nil {
@@ -359,7 +359,7 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 				t.Errorf("%s token expires in %v, want about %v", name, d, tc.want)
 			}
 		}
-		foreign, err := token.NewTokens(token.TokenConfig{Key: testJWTKey, AppName: "other-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
+		foreign, err := token.NewTokens(token.Config{Key: testJWTKey, AppName: "other-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
 		if err != nil {
 			t.Fatal(err)
 		}

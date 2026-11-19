@@ -15,7 +15,7 @@ const testJWTKey = "test-secret-must-be-at-least-32-bytes"
 
 func newTestTokens(t *testing.T) *Tokens {
 	t.Helper()
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
+	tokens, err := NewTokens(Config{Key: testJWTKey, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
 	if err != nil {
 		t.Fatalf("NewTokens: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestNewTokensRejectsMissingOrShortKey(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := NewTokens(TokenConfig{Key: tc.key, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
+			tokens, err := NewTokens(Config{Key: tc.key, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("expected %v, got %v", tc.want, err)
 			}
@@ -47,7 +47,7 @@ func TestNewTokensRejectsMissingOrShortKey(t *testing.T) {
 }
 
 func TestNewTokensAcceptsMinimumLengthKey(t *testing.T) {
-	if _, err := NewTokens(TokenConfig{Key: strings.Repeat("k", 32), AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute}); err != nil {
+	if _, err := NewTokens(Config{Key: strings.Repeat("k", 32), AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute}); err != nil {
 		t.Fatalf("expected 32 character key to be valid, got %v", err)
 	}
 }
@@ -99,7 +99,7 @@ func TestGenerateIncludesAccessClaims(t *testing.T) {
 }
 
 func TestGenerateExpiryFollowsAccessTTL(t *testing.T) {
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", AccessTTL: 2 * time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
+	tokens, err := NewTokens(Config{Key: testJWTKey, AppName: "test-app", AccessTTL: 2 * time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
 	if err != nil {
 		t.Fatalf("NewTokens: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestGenerateExpiryFollowsAccessTTL(t *testing.T) {
 }
 
 func TestGenerateRefreshIncludesRefreshTokenType(t *testing.T) {
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", RefreshTTL: 48 * time.Hour, AccessTTL: time.Hour, ResetTTL: 15 * time.Minute})
+	tokens, err := NewTokens(Config{Key: testJWTKey, AppName: "test-app", RefreshTTL: 48 * time.Hour, AccessTTL: time.Hour, ResetTTL: 15 * time.Minute})
 	if err != nil {
 		t.Fatalf("NewTokens: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestGenerateWithClaimsAppliesOverride(t *testing.T) {
 	tokens := newTestTokens(t)
 	override := &AppClaims{
 		IsImpersonated: true,
-		OriginalUserId: "admin-1",
+		OriginalUserID: "admin-1",
 		RegisteredClaims: &jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
@@ -175,7 +175,7 @@ func TestGenerateWithClaimsAppliesOverride(t *testing.T) {
 }
 
 func TestGeneratePasswordResetIncludesDedicatedTokenType(t *testing.T) {
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", ResetTTL: 10 * time.Minute, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
+	tokens, err := NewTokens(Config{Key: testJWTKey, AppName: "test-app", ResetTTL: 10 * time.Minute, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 	if err != nil {
 		t.Fatalf("NewTokens: %v", err)
 	}
@@ -284,15 +284,15 @@ func TestClaimsFromRequestReadsBearerToken(t *testing.T) {
 
 func TestNilTokensReportKeyNotConfigured(t *testing.T) {
 	var tokens *Tokens
-	user := &testUser{Id: "user-1"}
+	user := &testUser{ID: "user-1"}
 
-	if _, err := tokens.Generate(user.Id, user.Name, user.Role, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
+	if _, err := tokens.Generate(user.ID, user.Name, user.Role, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
 		t.Fatalf("expected jwt key error for access token, got %v", err)
 	}
-	if _, err := tokens.GenerateRefresh(user.Id, user.Name, user.Role, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
+	if _, err := tokens.GenerateRefresh(user.ID, user.Name, user.Role, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
 		t.Fatalf("expected jwt key error for refresh token, got %v", err)
 	}
-	if _, err := tokens.GeneratePasswordReset(user.Id, user.Name, user.Role, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
+	if _, err := tokens.GeneratePasswordReset(user.ID, user.Name, user.Role, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
 		t.Fatalf("expected jwt key error for reset token, got %v", err)
 	}
 	if _, err := tokens.Claims("anything"); !errors.Is(err, ErrJWTKeyNotConfigured) {
@@ -320,7 +320,7 @@ func TestNilTokensTTLsAreZero(t *testing.T) {
 
 func newTokensForApp(t *testing.T, app string) *Tokens {
 	t.Helper()
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: app, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
+	tokens, err := NewTokens(Config{Key: testJWTKey, AppName: app, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
 	if err != nil {
 		t.Fatalf("NewTokens(%q): %v", app, err)
 	}
@@ -330,16 +330,16 @@ func newTokensForApp(t *testing.T, app string) *Tokens {
 // issueEachTokenType returns one token of every type the issuer can mint.
 func issueEachTokenType(t *testing.T, tokens *Tokens) map[string]string {
 	t.Helper()
-	user := &testUser{Id: "user-1", Name: "Jane", Role: roleViewer}
-	access, err := tokens.Generate(user.Id, user.Name, user.Role, "log-1")
+	user := &testUser{ID: "user-1", Name: "Jane", Role: roleViewer}
+	access, err := tokens.Generate(user.ID, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	refresh, err := tokens.GenerateRefresh(user.Id, user.Name, user.Role, "log-1")
+	refresh, err := tokens.GenerateRefresh(user.ID, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("GenerateRefresh: %v", err)
 	}
-	reset, err := tokens.GeneratePasswordReset(user.Id, user.Name, user.Role, "log-1")
+	reset, err := tokens.GeneratePasswordReset(user.ID, user.Name, user.Role, "log-1")
 	if err != nil {
 		t.Fatalf("GeneratePasswordReset: %v", err)
 	}
@@ -435,7 +435,7 @@ func TestClaimsAcceptsAudienceListContainingApp(t *testing.T) {
 
 func TestNewTokensRequiresAppName(t *testing.T) {
 	for _, name := range []string{"", "  "} {
-		tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: name, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
+		tokens, err := NewTokens(Config{Key: testJWTKey, AppName: name, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
 		if !errors.Is(err, ErrAppNameRequired) {
 			t.Fatalf("AppName %q: expected ErrAppNameRequired, got %v", name, err)
 		}
@@ -477,10 +477,10 @@ func TestGenerateImpersonatedRecordsOriginalIdentity(t *testing.T) {
 
 func TestIsPasswordResetClaims(t *testing.T) {
 	tokens := newTestTokens(t)
-	user := &testUser{Id: "user-1"}
+	user := &testUser{ID: "user-1"}
 
-	reset, _ := tokens.GeneratePasswordReset(user.Id, user.Name, user.Role, "log")
-	access, _ := tokens.Generate(user.Id, user.Name, user.Role, "log")
+	reset, _ := tokens.GeneratePasswordReset(user.ID, user.Name, user.Role, "log")
+	access, _ := tokens.Generate(user.ID, user.Name, user.Role, "log")
 	resetClaims, _ := tokens.Claims(reset)
 	accessClaims, _ := tokens.Claims(access)
 

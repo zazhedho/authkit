@@ -65,14 +65,14 @@ func (m *roleServiceHandlerTestDouble) Delete(ctx context.Context, id string) er
 	}
 	return m.err
 }
-func (m *roleServiceHandlerTestDouble) AssignPermissions(ctx context.Context, actor domainauth.Actor, roleId string, req dtorole.AssignPermissions) error {
-	m.assigned = req.PermissionIds
+func (m *roleServiceHandlerTestDouble) AssignPermissions(ctx context.Context, actor domainauth.Actor, roleID string, req dtorole.AssignPermissions) error {
+	m.assigned = req.PermissionIDs
 	if m.assignPermissionsErr != nil {
 		return m.assignPermissionsErr
 	}
 	return m.err
 }
-func (m *roleServiceHandlerTestDouble) GetRolePermissions(ctx context.Context, roleId string) ([]string, error) {
+func (m *roleServiceHandlerTestDouble) GetRolePermissions(ctx context.Context, roleID string) ([]string, error) {
 	return []string{"perm-old"}, nil
 }
 
@@ -121,9 +121,9 @@ func performRoleRawRequest(method, routePath, requestPath, body string, handler 
 
 func TestRoleCRUDHandlers(t *testing.T) {
 	handler := New(&roleServiceHandlerTestDouble{
-		role:    domainrole.Role{Id: "role-1", Name: "staff"},
-		details: dtorole.RoleWithDetails{Id: "role-1", Name: "staff"},
-		roles:   []domainrole.Role{{Id: "role-1", Name: "staff"}},
+		role:    domainrole.Role{ID: "role-1", Name: "staff"},
+		details: dtorole.RoleWithDetails{ID: "role-1", Name: "staff"},
+		roles:   []domainrole.Role{{ID: "role-1", Name: "staff"}},
 		total:   1,
 	}, &auditServiceRoleTestDouble{})
 
@@ -153,7 +153,7 @@ func TestRoleMutationErrorsAndAssignments(t *testing.T) {
 
 	service := &roleServiceHandlerTestDouble{}
 	handler = New(service, &auditServiceRoleTestDouble{})
-	rec = performRoleRequest(http.MethodPost, "/roles/:id/permissions", "/roles/role-1/permissions", dtorole.AssignPermissions{PermissionIds: []string{"perm-1"}}, handler.AssignPermissions)
+	rec = performRoleRequest(http.MethodPost, "/roles/:id/permissions", "/roles/role-1/permissions", dtorole.AssignPermissions{PermissionIDs: []string{"perm-1"}}, handler.AssignPermissions)
 	if rec.Code != http.StatusOK || len(service.assigned) != 1 || service.assigned[0] != "perm-1" {
 		t.Fatalf("expected permission assignment, code=%d assigned=%v", rec.Code, service.assigned)
 	}
@@ -216,7 +216,7 @@ func TestRoleHandlersServiceErrorBranches(t *testing.T) {
 	}
 
 	handler = New(&roleServiceHandlerTestDouble{assignPermissionsErr: errors.New("invalid permission ID: perm-x")}, &auditServiceRoleTestDouble{})
-	rec = performRoleRequest(http.MethodPost, "/roles/:id/permissions", "/roles/role-1/permissions", dtorole.AssignPermissions{PermissionIds: []string{"perm-x"}}, handler.AssignPermissions)
+	rec = performRoleRequest(http.MethodPost, "/roles/:id/permissions", "/roles/role-1/permissions", dtorole.AssignPermissions{PermissionIDs: []string{"perm-x"}}, handler.AssignPermissions)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected assign permissions 400, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -224,7 +224,7 @@ func TestRoleHandlersServiceErrorBranches(t *testing.T) {
 
 func TestRoleAssignmentsMapDeletedActorToNotFound(t *testing.T) {
 	handler := New(&roleServiceHandlerTestDouble{assignPermissionsErr: fmt.Errorf("check actor: %w", domainuser.ErrNotFound)}, &auditServiceRoleTestDouble{})
-	rec := performRoleRequest(http.MethodPost, "/roles/:id/permissions", "/roles/role-1/permissions", dtorole.AssignPermissions{PermissionIds: []string{"perm-1"}}, handler.AssignPermissions)
+	rec := performRoleRequest(http.MethodPost, "/roles/:id/permissions", "/roles/role-1/permissions", dtorole.AssignPermissions{PermissionIDs: []string{"perm-1"}}, handler.AssignPermissions)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected assign permissions 404, got %d: %s", rec.Code, rec.Body.String())
 	}

@@ -12,17 +12,17 @@ type RoleUpdate struct {
 }
 
 type AssignPermissions struct {
-	PermissionIds []string `json:"permission_ids" binding:"required,min=1"`
+	PermissionIDs []string `json:"permission_ids" binding:"required,min=1"`
 }
 
 type RoleWithDetails struct {
-	Id            string   `json:"id"`
+	ID            string   `json:"id"`
 	Name          string   `json:"name"`
 	DisplayName   string   `json:"display_name"`
 	Description   string   `json:"description"`
 	IsSystem      bool     `json:"is_system"`
-	PermissionIds []string `json:"permission_ids"`
-	MenuIds       []string `json:"menu_ids"`
+	PermissionIDs []string `json:"permission_ids"`
+	MenuIDs       []string `json:"menu_ids"`
 	CreatedAt     string   `json:"created_at"`
 	UpdatedAt     string   `json:"updated_at,omitempty"`
 }

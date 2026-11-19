@@ -64,7 +64,7 @@ func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret
 	})
 }
 
-func (r *Repository) AssignPermissions(ctx context.Context, roleId string, permissionIds []string) error {
+func (r *Repository) AssignPermissions(ctx context.Context, roleID string, permissionIDs []string) error {
 	tx := r.DB.WithContext(ctx).Begin()
 	defer func() {
 		if recover() != nil {
@@ -72,16 +72,16 @@ func (r *Repository) AssignPermissions(ctx context.Context, roleId string, permi
 		}
 	}()
 
-	if err := tx.Where(roleIDFilter, roleId).Delete(&domainrole.RolePermission{}).Error; err != nil {
+	if err := tx.Where(roleIDFilter, roleID).Delete(&domainrole.RolePermission{}).Error; err != nil {
 		tx.Rollback()
 		return err
 	}
 
-	for _, permissionId := range permissionIds {
+	for _, permissionID := range permissionIDs {
 		rolePermission := domainrole.RolePermission{
-			Id:           gokit.CreateUUID(),
-			RoleId:       roleId,
-			PermissionId: permissionId,
+			ID:           gokit.CreateUUID(),
+			RoleID:       roleID,
+			PermissionID: permissionID,
 		}
 		if err := tx.Create(&rolePermission).Error; err != nil {
 			tx.Rollback()
@@ -92,16 +92,16 @@ func (r *Repository) AssignPermissions(ctx context.Context, roleId string, permi
 	return tx.Commit().Error
 }
 
-func (r *Repository) GetRolePermissions(ctx context.Context, roleId string) ([]string, error) {
+func (r *Repository) GetRolePermissions(ctx context.Context, roleID string) ([]string, error) {
 	var rolePermissions []domainrole.RolePermission
-	if err := r.DB.WithContext(ctx).Where(roleIDFilter, roleId).Find(&rolePermissions).Error; err != nil {
+	if err := r.DB.WithContext(ctx).Where(roleIDFilter, roleID).Find(&rolePermissions).Error; err != nil {
 		return nil, err
 	}
 
-	permissionIds := make([]string, len(rolePermissions))
+	permissionIDs := make([]string, len(rolePermissions))
 	for i, rp := range rolePermissions {
-		permissionIds[i] = rp.PermissionId
+		permissionIDs[i] = rp.PermissionID
 	}
 
-	return permissionIds, nil
+	return permissionIDs, nil
 }

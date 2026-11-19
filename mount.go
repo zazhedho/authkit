@@ -32,7 +32,7 @@ func (k *Kit) mountUsers(r gin.IRouter) {
 		{
 			userPriv.POST("/logout", h.Logout)
 			userPriv.GET("", h.GetUserByAuth)
-			userPriv.GET("/:id", mdw.PermissionMiddleware("users", "view"), h.GetUserById)
+			userPriv.GET("/:id", mdw.PermissionMiddleware("users", "view"), h.GetUserByID)
 			userPriv.POST("/:id/impersonate", mdw.PermissionMiddleware("users", "impersonate"), h.ImpersonateUser)
 			userPriv.POST("/stop-impersonation", h.StopImpersonation)
 			userPriv.PUT("", h.Update)

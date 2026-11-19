@@ -13,27 +13,27 @@ import (
 	"github.com/google/uuid"
 )
 
-func roleMutationErrorResponse(logId uuid.UUID, err error) (int, *gokit.APIResponse) {
+func roleMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIResponse) {
 	// A dangling permission id or a deleted actor surfaces as a 404 too.
 	if httpshared.IsNotFound(err) {
-		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logId, "role not found")
+		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logID, "role not found")
 	}
 	if errors.Is(err, domainrole.ErrDuplicate) {
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logId, "role with this name already exists")
+		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logID, "role with this name already exists")
 	}
 
 	errMsg := err.Error()
 	switch {
 	case strings.Contains(errMsg, "already exists"):
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logId, errMsg)
+		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logID, errMsg)
 	case strings.HasPrefix(errMsg, "cannot update system"),
 		strings.HasPrefix(errMsg, "cannot delete system"),
 		strings.HasPrefix(errMsg, "access denied:"):
-		return http.StatusForbidden, gokit.Forbidden(logId, gokit.MsgAccessDenied)
+		return http.StatusForbidden, gokit.Forbidden(logID, gokit.MsgAccessDenied)
 	case strings.HasPrefix(errMsg, "invalid permission ID:"),
 		strings.Contains(errMsg, "menu access is derived"):
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logId, errMsg)
+		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, errMsg)
 	default:
-		return http.StatusInternalServerError, gokit.InternalServerError(logId)
+		return http.StatusInternalServerError, gokit.InternalServerError(logID)
 	}
 }

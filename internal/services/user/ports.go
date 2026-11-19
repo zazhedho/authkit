@@ -36,7 +36,7 @@ type RoleRepository interface {
 
 // PermissionRepository loads a user's permissions for authorisation checks.
 type PermissionRepository interface {
-	GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error)
+	GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error)
 }
 
 // TokenIssuer issues and reads the JWTs the user flows need.

@@ -15,12 +15,12 @@ import (
 type Service interface {
 	RegisterUser(ctx context.Context, req dtouser.UserRegister) (domainuser.Users, error)
 	AdminCreateUser(ctx context.Context, actor domainauth.Actor, req dtouser.AdminCreateUser) (domainuser.Users, error)
-	LoginUser(ctx context.Context, req dtouser.Login, logId string, metadata dtouser.LoginMetadata) (string, error)
+	LoginUser(ctx context.Context, req dtouser.Login, logID string, metadata dtouser.LoginMetadata) (string, error)
 	LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, metadata dtouser.LoginMetadata, allowRegistration bool) (domainuser.Users, bool, error)
 	LogoutUser(ctx context.Context, token string) error
-	ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserId string, logId string) (string, error)
-	StopImpersonation(ctx context.Context, actor domainauth.Actor, logId string) (string, error)
-	GetUserById(ctx context.Context, id string) (domainuser.Users, error)
+	ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID string, logID string) (string, error)
+	StopImpersonation(ctx context.Context, actor domainauth.Actor, logID string) (string, error)
+	GetUserByID(ctx context.Context, id string) (domainuser.Users, error)
 	GetUserByEmail(ctx context.Context, email string) (domainuser.Users, error)
 	GetUserByPhone(ctx context.Context, phone string) (domainuser.Users, error)
 	GetUserByAuth(ctx context.Context, id string) (map[string]any, error)

@@ -42,7 +42,7 @@ func buildUserAuthResponse(user domainuser.Users, permissions []string) map[stri
 	}
 
 	return map[string]any{
-		"id":                  user.Id,
+		"id":                  user.ID,
 		"name":                user.Name,
 		"email":               user.Email,
 		"phone":               user.Phone,
@@ -61,9 +61,9 @@ func buildUserAuthResponse(user domainuser.Users, permissions []string) map[stri
 
 func findRoleIDByName(ctx context.Context, roleRepo RoleRepository, roleName string) (*string, bool) {
 	roleEntity, err := roleRepo.GetByName(ctx, roleName)
-	if err != nil || roleEntity.Id == "" {
+	if err != nil || roleEntity.ID == "" {
 		return nil, false
 	}
 
-	return &roleEntity.Id, true
+	return &roleEntity.ID, true
 }

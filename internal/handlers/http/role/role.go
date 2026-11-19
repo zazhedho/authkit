@@ -31,7 +31,7 @@ func New(s Service, auditService httpshared.AuditService) *Handler {
 var roleResource = httpshared.Resource[domainrole.Role]{
 	Name:          "role",
 	Audit:         "role",
-	ID:            func(r domainrole.Role) string { return r.Id },
+	ID:            func(r domainrole.Role) string { return r.ID },
 	MutationError: roleMutationErrorResponse,
 }
 
@@ -104,10 +104,10 @@ type roleRelationAssignment[T any] struct {
 
 func handleRoleRelationAssignment[T any](h *Handler, ctx *gin.Context, req *T, assignment roleRelationAssignment[T]) {
 	id := ctx.Param("id")
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	reqCtx := ctx.Request.Context()
 
-	if !gokit.BindJSON(ctx, logId, assignment.logPrefix, req) {
+	if !gokit.BindJSON(ctx, logID, assignment.logPrefix, req) {
 		return
 	}
 
@@ -127,7 +127,7 @@ func handleRoleRelationAssignment[T any](h *Handler, ctx *gin.Context, req *T, a
 			AfterData:    *req,
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.%s; Error: %+v", assignment.logPrefix, assignment.serviceName, err)
-		statusCode, res := roleMutationErrorResponse(logId, err)
+		statusCode, res := roleMutationErrorResponse(logID, err)
 		ctx.JSON(statusCode, res)
 		return
 	}
@@ -142,7 +142,7 @@ func handleRoleRelationAssignment[T any](h *Handler, ctx *gin.Context, req *T, a
 		AfterData:  *req,
 	})
 
-	res := gokit.Response(http.StatusOK, assignment.responseMsg, logId, nil)
+	res := gokit.Response(http.StatusOK, assignment.responseMsg, logID, nil)
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; %s", assignment.logPrefix, assignment.debugMsg)
 	ctx.JSON(http.StatusOK, res)
 }

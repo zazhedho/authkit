@@ -34,13 +34,13 @@ func (s *Service) GetActiveMenus(ctx context.Context) ([]domainmenu.MenuItem, er
 	return s.MenuRepo.GetActiveMenus(ctx)
 }
 
-func (s *Service) GetUserMenus(ctx context.Context, userId string) ([]domainmenu.MenuItem, error) {
+func (s *Service) GetUserMenus(ctx context.Context, userID string) ([]domainmenu.MenuItem, error) {
 	activeMenus, err := s.MenuRepo.GetActiveMenus(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	permissions, err := s.PermissionRepo.GetUserPermissions(ctx, userId)
+	permissions, err := s.PermissionRepo.GetUserPermissions(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -71,8 +71,8 @@ func (s *Service) Update(ctx context.Context, id string, req dtomenu.MenuUpdate)
 	if req.Icon != "" {
 		menu.Icon = req.Icon
 	}
-	if req.ParentId != nil {
-		menu.ParentId = req.ParentId
+	if req.ParentID != nil {
+		menu.ParentID = req.ParentID
 	}
 	if req.OrderIndex != nil {
 		menu.OrderIndex = *req.OrderIndex

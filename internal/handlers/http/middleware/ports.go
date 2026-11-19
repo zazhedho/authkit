@@ -15,7 +15,7 @@ type TokenRevocations interface {
 
 // PermissionLookup loads the permissions granted to a user.
 type PermissionLookup interface {
-	GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error)
+	GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error)
 }
 
 // PermissionCache keeps a user's permission keys between requests. A nil value

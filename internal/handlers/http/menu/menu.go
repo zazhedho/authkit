@@ -28,7 +28,7 @@ func New(s Service, auditService httpshared.AuditService) *Handler {
 var menuResource = httpshared.Resource[domainmenu.MenuItem]{
 	Name:          "menu",
 	Audit:         "menu",
-	ID:            func(m domainmenu.MenuItem) string { return m.Id },
+	ID:            func(m domainmenu.MenuItem) string { return m.ID },
 	MutationError: httpshared.InternalErrorResponse,
 }
 

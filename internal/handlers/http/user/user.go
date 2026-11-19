@@ -85,30 +85,30 @@ func New(
 
 func (h *Handler) Register(ctx *gin.Context) {
 	var req dtouser.UserRegister
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][Register]"
 	reqCtx := ctx.Request.Context()
 
-	if !h.registrationOpen(ctx, logId, logPrefix) {
+	if !h.registrationOpen(ctx, logID, logPrefix) {
 		return
 	}
-	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
+	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; Request: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(req)))
 
-	otpEnabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.RegisterOTP, false)
+	otpEnabled, ok := h.configEnabled(ctx, logID, logPrefix, h.Settings.Flags.RegisterOTP, false)
 	if !ok {
 		return
 	}
 	if otpEnabled {
 		if strings.TrimSpace(req.OTPCode) == "" {
-			res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgInvalidRequest, logId, "otp_code is required")
+			res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgInvalidRequest, logID, "otp_code is required")
 			ctx.JSON(http.StatusBadRequest, res)
 			return
 		}
 		if h.OTPService == nil {
-			res := gokit.ErrorResponse(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logId, registrationOTPNotConfiguredMessage)
+			res := gokit.ErrorResponse(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logID, registrationOTPNotConfiguredMessage)
 			ctx.JSON(http.StatusServiceUnavailable, res)
 			return
 		}
@@ -132,7 +132,7 @@ func (h *Handler) Register(ctx *gin.Context) {
 				statusCode = http.StatusServiceUnavailable
 				message = registrationOTPNotConfiguredMessage
 			}
-			res := gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logId, message)
+			res := gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logID, message)
 			ctx.JSON(statusCode, res)
 			return
 		}
@@ -154,40 +154,40 @@ func (h *Handler) Register(ctx *gin.Context) {
 			},
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.RegisterUser; Error: %+v", logPrefix, err)
-		statusCode, res := userMutationErrorResponse(logId, err)
+		statusCode, res := userMutationErrorResponse(logID, err)
 		ctx.JSON(statusCode, res)
 		return
 	}
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
-		ActorUserID: data.Id,
+		ActorUserID: data.ID,
 		ActorRole:   data.Role,
 		Action:      domainaudit.ActionCreate,
 		Resource:    "user",
-		ResourceID:  data.Id,
+		ResourceID:  data.ID,
 		Status:      domainaudit.StatusSuccess,
 		Message:     "Registered user",
 		AfterData:   userSnapshot(data),
 	})
 
-	res := gokit.Response(http.StatusCreated, "User registered successfully", logId, data)
+	res := gokit.Response(http.StatusCreated, "User registered successfully", logID, data)
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(data))
 	ctx.JSON(http.StatusCreated, res)
 }
 
 func (h *Handler) GetRegisterStatus(ctx *gin.Context) {
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][GetRegisterStatus]"
 
-	registerEnabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.PublicRegistration, true)
+	registerEnabled, ok := h.configEnabled(ctx, logID, logPrefix, h.Settings.Flags.PublicRegistration, true)
 	if !ok {
 		return
 	}
-	otpEnabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.RegisterOTP, false)
+	otpEnabled, ok := h.configEnabled(ctx, logID, logPrefix, h.Settings.Flags.RegisterOTP, false)
 	if !ok {
 		return
 	}
 
-	res := gokit.Response(http.StatusOK, "Get register status successfully", logId, map[string]any{
+	res := gokit.Response(http.StatusOK, "Get register status successfully", logID, map[string]any{
 		"enabled":      registerEnabled,
 		"otp_enabled":  otpEnabled,
 		"otp_cooldown": int(h.Settings.OTPCooldown.Seconds()),
@@ -197,28 +197,28 @@ func (h *Handler) GetRegisterStatus(ctx *gin.Context) {
 
 func (h *Handler) SendRegisterOTP(ctx *gin.Context) {
 	var req dtouser.SendRegisterOTPRequest
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][SendRegisterOTP]"
 	reqCtx := ctx.Request.Context()
 
-	if !h.registrationOpen(ctx, logId, logPrefix) {
+	if !h.registrationOpen(ctx, logID, logPrefix) {
 		return
 	}
-	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
+	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
 
-	otpEnabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.RegisterOTP, false)
+	otpEnabled, ok := h.configEnabled(ctx, logID, logPrefix, h.Settings.Flags.RegisterOTP, false)
 	if !ok {
 		return
 	}
 	if !otpEnabled {
-		res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logId, "registration OTP is disabled")
+		res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, "registration OTP is disabled")
 		ctx.JSON(http.StatusBadRequest, res)
 		return
 	}
 	if h.OTPService == nil {
-		res := gokit.ErrorResponse(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logId, registrationOTPNotConfiguredMessage)
+		res := gokit.ErrorResponse(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logID, registrationOTPNotConfiguredMessage)
 		ctx.JSON(http.StatusServiceUnavailable, res)
 		return
 	}
@@ -227,11 +227,11 @@ func (h *Handler) SendRegisterOTP(ctx *gin.Context) {
 	conflict, lookup, err := h.registrationConflict(reqCtx, normalizedEmail, req.Phone)
 	if err != nil {
 		logus.LogContextf(ctx, logus.LevelError, "%s; %s; Error: %+v", logPrefix, lookup, err)
-		httpshared.RespondInternalError(ctx, logId)
+		httpshared.RespondInternalError(ctx, logID)
 		return
 	}
 	if conflict != "" {
-		res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logId, conflict)
+		res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logID, conflict)
 		ctx.JSON(http.StatusBadRequest, res)
 		return
 	}
@@ -248,17 +248,17 @@ func (h *Handler) SendRegisterOTP(ctx *gin.Context) {
 			},
 		})
 		if throttle, ok := errors.AsType[*domainotp.ThrottleError](err); ok {
-			h.respondThrottle(ctx, logId, throttle.RetryAfter, "OTP request is throttled. Please try again later.")
+			h.respondThrottle(ctx, logID, throttle.RetryAfter, "OTP request is throttled. Please try again later.")
 			return
 		}
 		if errors.Is(err, domainotp.ErrNotConfigured) || errors.Is(err, domainotp.ErrDeliveryFailed) {
 			statusCode := http.StatusServiceUnavailable
-			res := gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logId, "Registration OTP service is temporarily unavailable.")
+			res := gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logID, "Registration OTP service is temporarily unavailable.")
 			ctx.JSON(statusCode, res)
 			return
 		}
 
-		httpshared.RespondInternalError(ctx, logId)
+		httpshared.RespondInternalError(ctx, logID)
 		return
 	}
 
@@ -271,17 +271,17 @@ func (h *Handler) SendRegisterOTP(ctx *gin.Context) {
 			"email": normalizedEmail,
 		},
 	})
-	res := gokit.Response(http.StatusOK, "Registration OTP sent successfully", logId, nil)
+	res := gokit.Response(http.StatusOK, "Registration OTP sent successfully", logID, nil)
 	logus.LogContextf(ctx, logus.LevelInfo, "%s; Registration OTP sent successfully", logPrefix)
 	ctx.JSON(http.StatusOK, res)
 }
 
 func (h *Handler) AdminCreateUser(ctx *gin.Context) {
 	var req dtouser.AdminCreateUser
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][AdminCreateUser]"
 	reqCtx := ctx.Request.Context()
-	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
+	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; Request: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(req)))
@@ -302,52 +302,52 @@ func (h *Handler) AdminCreateUser(ctx *gin.Context) {
 			},
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.AdminCreateUser; Error: %+v", logPrefix, err)
-		statusCode, res := userMutationErrorResponse(logId, err)
+		statusCode, res := userMutationErrorResponse(logID, err)
 		ctx.JSON(statusCode, res)
 		return
 	}
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
 		Action:     domainaudit.ActionCreate,
 		Resource:   "user",
-		ResourceID: data.Id,
+		ResourceID: data.ID,
 		Status:     domainaudit.StatusSuccess,
 		Message:    "Created user by admin",
 		AfterData:  userSnapshot(data),
 	})
 
-	res := gokit.Response(http.StatusCreated, "User created successfully", logId, data)
+	res := gokit.Response(http.StatusCreated, "User created successfully", logID, data)
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(data))
 	ctx.JSON(http.StatusCreated, res)
 }
 
 func (h *Handler) Login(ctx *gin.Context) {
 	var req dtouser.Login
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserController][Login]"
 	reqCtx := ctx.Request.Context()
-	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
+	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; Request: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(req)))
 
 	normalizedIdentifier, err := domainuser.ResolveLoginIdentifier(req.Identifier, req.Email)
 	if err != nil {
-		res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgInvalidRequest, logId, err.Error())
+		res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgInvalidRequest, logID, err.Error())
 		ctx.JSON(http.StatusBadRequest, res)
 		return
 	}
 
 	loginIdentifier := fmt.Sprintf("%s:%s", ctx.ClientIP(), normalizedIdentifier)
-	if h.rejectBlockedLogin(ctx, logId, logPrefix, loginIdentifier, normalizedIdentifier) {
+	if h.rejectBlockedLogin(ctx, logID, logPrefix, loginIdentifier, normalizedIdentifier) {
 		return
 	}
 
-	token, err := h.Service.LoginUser(reqCtx, req, logId.String(), dtouser.LoginMetadata{
+	token, err := h.Service.LoginUser(reqCtx, req, logID.String(), dtouser.LoginMetadata{
 		IP:        ctx.ClientIP(),
 		UserAgent: ctx.Request.UserAgent(),
 	})
 	if err != nil {
-		h.handleLoginFailure(ctx, logId, logPrefix, normalizedIdentifier, loginIdentifier, err)
+		h.handleLoginFailure(ctx, logID, logPrefix, normalizedIdentifier, loginIdentifier, err)
 		return
 	}
 
@@ -362,14 +362,14 @@ func (h *Handler) Login(ctx *gin.Context) {
 	}
 	loginUserID := ""
 	if userErr == nil {
-		loginUserID = loggedInUser.Id
+		loginUserID = loggedInUser.ID
 	}
 
 	refreshToken := ""
 	if userErr == nil {
-		refreshToken, err = h.Tokens.GenerateRefresh(loggedInUser.Id, loggedInUser.Name, loggedInUser.Role, logId.String())
+		refreshToken, err = h.Tokens.GenerateRefresh(loggedInUser.ID, loggedInUser.Name, loggedInUser.Role, logID.String())
 		if err != nil {
-			respondStepFailed(ctx, logId, logPrefix, "GenerateRefreshJwt", err)
+			respondStepFailed(ctx, logID, logPrefix, "GenerateRefreshJwt", err)
 			return
 		}
 	}
@@ -391,21 +391,21 @@ func (h *Handler) Login(ctx *gin.Context) {
 	})
 
 	data := h.buildAuthTokenResponse(token, refreshToken)
-	res := gokit.Response(http.StatusOK, "success", logId, data)
+	res := gokit.Response(http.StatusOK, "success", logID, data)
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(data)))
 	ctx.JSON(http.StatusOK, res)
 }
 
 func (h *Handler) GoogleLogin(ctx *gin.Context) {
 	var req dtouser.GoogleLogin
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][GoogleLogin]"
 	reqCtx := ctx.Request.Context()
-	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
+	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
 
-	registerEnabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.PublicRegistration, true)
+	registerEnabled, ok := h.configEnabled(ctx, logID, logPrefix, h.Settings.Flags.PublicRegistration, true)
 	if !ok {
 		return
 	}
@@ -436,30 +436,30 @@ func (h *Handler) GoogleLogin(ctx *gin.Context) {
 			statusCode = http.StatusForbidden
 		}
 
-		res := gokit.InternalServerError(logId)
+		res := gokit.InternalServerError(logID)
 		switch {
 		case errors.Is(err, domainuser.ErrGoogleNotConfigured):
-			res = gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logId, "Google login is not configured.")
+			res = gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logID, "Google login is not configured.")
 		case errors.Is(err, domainuser.ErrGoogleTokenInvalid):
-			res = gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logId, "Invalid Google token.")
+			res = gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logID, "Invalid Google token.")
 		case errors.Is(err, domainuser.ErrGoogleEmailMissing):
-			res = gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logId, "Google account email is not available.")
+			res = gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logID, "Google account email is not available.")
 		case errors.Is(err, domainuser.ErrPublicRegistrationDisabled):
-			res = gokit.Forbidden(logId, publicRegistrationDisabledMessage)
+			res = gokit.Forbidden(logID, publicRegistrationDisabledMessage)
 		}
 		ctx.JSON(statusCode, res)
 		return
 	}
 
-	accessToken, err := h.Tokens.Generate(user.Id, user.Name, user.Role, logId.String())
+	accessToken, err := h.Tokens.Generate(user.ID, user.Name, user.Role, logID.String())
 	if err != nil {
-		respondStepFailed(ctx, logId, logPrefix, "GenerateJwt", err)
+		respondStepFailed(ctx, logID, logPrefix, "GenerateJwt", err)
 		return
 	}
 
-	refreshToken, err := h.Tokens.GenerateRefresh(user.Id, user.Name, user.Role, logId.String())
+	refreshToken, err := h.Tokens.GenerateRefresh(user.ID, user.Name, user.Role, logID.String())
 	if err != nil {
-		respondStepFailed(ctx, logId, logPrefix, "GenerateRefreshJwt", err)
+		respondStepFailed(ctx, logID, logPrefix, "GenerateRefreshJwt", err)
 		return
 	}
 
@@ -481,11 +481,11 @@ func (h *Handler) GoogleLogin(ctx *gin.Context) {
 	}
 
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
-		ActorUserID: user.Id,
+		ActorUserID: user.ID,
 		ActorRole:   user.Role,
 		Action:      domainaudit.ActionLogin,
 		Resource:    "auth",
-		ResourceID:  user.Id,
+		ResourceID:  user.ID,
 		Status:      domainaudit.StatusSuccess,
 		Message:     successMessage,
 		AfterData: map[string]any{
@@ -499,23 +499,23 @@ func (h *Handler) GoogleLogin(ctx *gin.Context) {
 	data["is_new_user"] = isNewUser
 	data["provider"] = "google"
 
-	res := gokit.Response(http.StatusOK, successMessage, logId, data)
+	res := gokit.Response(http.StatusOK, successMessage, logID, data)
 	logus.LogContextf(ctx, logus.LevelInfo, "%s; %s; Data: %+v", logPrefix, successMessage, gokit.JSONEncode(gokit.RedactSensitivePayload(data)))
 	ctx.JSON(http.StatusOK, res)
 }
 
 func (h *Handler) RefreshToken(ctx *gin.Context) {
 	var req dtouser.RefreshTokenRequest
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][RefreshToken]"
 	reqCtx := ctx.Request.Context()
-	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
+	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
 
 	tokenClaims, err := h.Tokens.Claims(req.RefreshToken)
 	if err != nil {
-		h.rejectRefresh(ctx, logId, "invalid or expired refresh token", domainaudit.AuditEvent{
+		h.rejectRefresh(ctx, logID, "invalid or expired refresh token", domainaudit.AuditEvent{
 			Message:      failedRenewLoginSessionMessage,
 			ErrorMessage: "The refresh token is invalid or expired",
 		})
@@ -525,7 +525,7 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 	claimUserID := gokit.InterfaceString(tokenClaims["user_id"])
 	claimRole := gokit.InterfaceString(tokenClaims["role"])
 	if !strings.EqualFold(gokit.InterfaceString(tokenClaims["token_type"]), "refresh") {
-		h.rejectRefresh(ctx, logId, "invalid token type", domainaudit.AuditEvent{
+		h.rejectRefresh(ctx, logID, "invalid token type", domainaudit.AuditEvent{
 			ActorUserID:  claimUserID,
 			ActorRole:    claimRole,
 			Message:      failedRenewLoginSessionMessage,
@@ -536,7 +536,7 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 
 	isBlacklisted, err := h.Service.IsTokenRevoked(ctx.Request.Context(), req.RefreshToken)
 	if err != nil {
-		h.failRefresh(ctx, logId, logPrefix, "BlacklistRepo.ExistsByToken", err, domainaudit.AuditEvent{
+		h.failRefresh(ctx, logID, logPrefix, "BlacklistRepo.ExistsByToken", err, domainaudit.AuditEvent{
 			ActorUserID: claimUserID,
 			ActorRole:   claimRole,
 			Message:     "Failed to validate login session renewal",
@@ -544,7 +544,7 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 		return
 	}
 	if isBlacklisted {
-		h.rejectRefresh(ctx, logId, "refresh token has been revoked", domainaudit.AuditEvent{
+		h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
 			ActorUserID:  claimUserID,
 			ActorRole:    claimRole,
 			Message:      failedRenewLoginSessionMessage,
@@ -554,7 +554,7 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 	}
 
 	userID := claimUserID
-	user, err := h.Service.GetUserById(reqCtx, userID)
+	user, err := h.Service.GetUserByID(reqCtx, userID)
 	if err != nil {
 		h.auditRefreshFailure(ctx, domainaudit.AuditEvent{
 			ActorUserID:  userID,
@@ -567,15 +567,15 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 		if httpshared.IsNotFound(err) {
 			statusCode = http.StatusNotFound
 		}
-		res := gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logId, userNotFoundMessage)
+		res := gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logID, userNotFoundMessage)
 		ctx.JSON(statusCode, res)
 		return
 	}
 
 	imp := impersonationFromClaims(tokenClaims)
-	accessToken, err := h.issueAccessToken(&user, logId.String(), imp)
+	accessToken, err := h.issueAccessToken(&user, logID.String(), imp)
 	if err != nil {
-		h.failRefresh(ctx, logId, logPrefix, "GenerateJwtWithClaims", err, domainaudit.AuditEvent{
+		h.failRefresh(ctx, logID, logPrefix, "GenerateJwtWithClaims", err, domainaudit.AuditEvent{
 			ActorUserID: userID,
 			ActorRole:   user.Role,
 			ResourceID:  userID,
@@ -584,9 +584,9 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 		return
 	}
 
-	refreshToken, err := h.issueRefreshToken(&user, logId.String(), imp)
+	refreshToken, err := h.issueRefreshToken(&user, logID.String(), imp)
 	if err != nil {
-		h.failRefresh(ctx, logId, logPrefix, "GenerateRefreshJwt", err, domainaudit.AuditEvent{
+		h.failRefresh(ctx, logID, logPrefix, "GenerateRefreshJwt", err, domainaudit.AuditEvent{
 			ActorUserID: userID,
 			ActorRole:   user.Role,
 			ResourceID:  userID,
@@ -606,13 +606,13 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 				ErrorMessage: "No active session was found for the refresh token",
 			})
 			logus.LogContextf(ctx, logus.LevelError, "%s; SessionSvc.GetSessionByRefreshToken; ERROR: %s;", logPrefix, sessionErr)
-			respondRefreshUnauthorized(ctx, logId, "session not found for refresh token")
+			respondRefreshUnauthorized(ctx, logID, "session not found for refresh token")
 			return
 		}
 
 		refreshExpAt := time.Now().Add(h.Settings.RefreshTTL)
 		if sessionErr = h.SessionSvc.RotateSessionTokens(reqCtx, session.SessionID, accessToken, refreshToken, refreshExpAt); sessionErr != nil {
-			h.failRefresh(ctx, logId, logPrefix, "SessionSvc.RotateSessionTokens", sessionErr, domainaudit.AuditEvent{
+			h.failRefresh(ctx, logID, logPrefix, "SessionSvc.RotateSessionTokens", sessionErr, domainaudit.AuditEvent{
 				ActorUserID: userID,
 				ActorRole:   user.Role,
 				ResourceID:  userID,
@@ -626,7 +626,7 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 	}
 
 	if err = h.Service.LogoutUser(reqCtx, req.RefreshToken); err != nil {
-		h.failRefresh(ctx, logId, logPrefix, "Service.LogoutUser(refresh)", err, domainaudit.AuditEvent{
+		h.failRefresh(ctx, logID, logPrefix, "Service.LogoutUser(refresh)", err, domainaudit.AuditEvent{
 			ActorUserID: userID,
 			ActorRole:   user.Role,
 			ResourceID:  userID,
@@ -645,12 +645,12 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 		Message:     "Renewed login session",
 	})
 
-	res := gokit.Response(http.StatusOK, "Refresh token rotated successfully", logId, h.buildAuthTokenResponse(accessToken, refreshToken))
+	res := gokit.Response(http.StatusOK, "Refresh token rotated successfully", logID, h.buildAuthTokenResponse(accessToken, refreshToken))
 	ctx.JSON(http.StatusOK, res)
 }
 
 func (h *Handler) Logout(ctx *gin.Context) {
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserController][Logout]"
 	reqCtx := ctx.Request.Context()
 
@@ -664,7 +664,7 @@ func (h *Handler) Logout(ctx *gin.Context) {
 			ErrorMessage: "token not found",
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; token not found in context", logPrefix)
-		httpshared.RespondInternalError(ctx, logId)
+		httpshared.RespondInternalError(ctx, logID)
 		return
 	}
 
@@ -686,7 +686,7 @@ func (h *Handler) Logout(ctx *gin.Context) {
 			ErrorMessage: err.Error(),
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.LogoutUser; Error: %+v", logPrefix, err)
-		httpshared.RespondInternalError(ctx, logId)
+		httpshared.RespondInternalError(ctx, logID)
 		return
 	}
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
@@ -696,48 +696,48 @@ func (h *Handler) Logout(ctx *gin.Context) {
 		Message:  "Logout success",
 	})
 
-	res := gokit.Response(http.StatusOK, "User logged out successfully", logId, nil)
+	res := gokit.Response(http.StatusOK, "User logged out successfully", logID, nil)
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; Success: User logged out successfully", logPrefix)
 	ctx.JSON(http.StatusOK, res)
 }
 
-func (h *Handler) GetUserById(ctx *gin.Context) {
-	logId := gokit.RequestID(ctx)
+func (h *Handler) GetUserByID(ctx *gin.Context) {
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][GetUserByID]"
 	reqCtx := ctx.Request.Context()
 
-	id, err := gokit.ValidateUUIDParam(ctx, logId)
+	id, err := gokit.ValidateUUIDParam(ctx, logID)
 	if err != nil {
 		return
 	}
 
-	data, err := h.Service.GetUserById(reqCtx, id)
+	data, err := h.Service.GetUserByID(reqCtx, id)
 	if err != nil {
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.GetUserByID; ERROR: %s;", logPrefix, err)
-		respondUserLookupError(ctx, logId, err)
+		respondUserLookupError(ctx, logID, err)
 		return
 	}
 
-	res := gokit.Response(http.StatusOK, "success", logId, data)
+	res := gokit.Response(http.StatusOK, "success", logID, data)
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(data))
 	ctx.JSON(http.StatusOK, res)
 }
 
 func (h *Handler) GetUserByAuth(ctx *gin.Context) {
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][GetUserByAuth]"
 	reqCtx := ctx.Request.Context()
 	scope := domainauth.FromContext(reqCtx)
 
 	if scope.UserID == "" {
-		httpshared.RespondUnauthorized(ctx, logId)
+		httpshared.RespondUnauthorized(ctx, logID)
 		return
 	}
 
 	data, err := h.Service.GetUserByAuth(reqCtx, scope.UserID)
 	if err != nil {
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.GetUserByAuth; ERROR: %s;", logPrefix, err)
-		respondUserLookupError(ctx, logId, err)
+		respondUserLookupError(ctx, logID, err)
 		return
 	}
 
@@ -752,22 +752,22 @@ func (h *Handler) GetUserByAuth(ctx *gin.Context) {
 		data["is_impersonated"] = false
 	}
 
-	res := gokit.Response(http.StatusOK, "success", logId, data)
+	res := gokit.Response(http.StatusOK, "success", logID, data)
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(data))
 	ctx.JSON(http.StatusOK, res)
 }
 
 func (h *Handler) ImpersonateUser(ctx *gin.Context) {
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][ImpersonateUser]"
 	reqCtx := ctx.Request.Context()
 
-	id, err := gokit.ValidateUUIDParam(ctx, logId)
+	id, err := gokit.ValidateUUIDParam(ctx, logID)
 	if err != nil {
 		return
 	}
 
-	token, err := h.Service.ImpersonateUser(reqCtx, httpshared.ActorFrom(reqCtx), id, logId.String())
+	token, err := h.Service.ImpersonateUser(reqCtx, httpshared.ActorFrom(reqCtx), id, logID.String())
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionLogin,
@@ -782,7 +782,7 @@ func (h *Handler) ImpersonateUser(ctx *gin.Context) {
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.ImpersonateUser; ERROR: %s;", logPrefix, err)
 
-		statusCode, res := impersonationErrorResponse(logId, err)
+		statusCode, res := impersonationErrorResponse(logID, err)
 		ctx.JSON(statusCode, res)
 		return
 	}
@@ -802,24 +802,24 @@ func (h *Handler) ImpersonateUser(ctx *gin.Context) {
 		},
 	})
 
-	res := gokit.Response(http.StatusOK, "Impersonation started successfully", logId, h.buildAuthTokenResponse(token, ""))
+	res := gokit.Response(http.StatusOK, "Impersonation started successfully", logID, h.buildAuthTokenResponse(token, ""))
 	ctx.JSON(http.StatusOK, res)
 }
 
 func (h *Handler) StopImpersonation(ctx *gin.Context) {
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][StopImpersonation]"
 	reqCtx := ctx.Request.Context()
 
 	scope := domainauth.FromContext(reqCtx)
 	originalUserID := scope.OriginalUserID
 	if !scope.IsImpersonated || originalUserID == "" {
-		res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logId, "current session is not impersonated")
+		res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, "current session is not impersonated")
 		ctx.JSON(http.StatusBadRequest, res)
 		return
 	}
 
-	token, err := h.Service.StopImpersonation(reqCtx, httpshared.ActorFrom(reqCtx), logId.String())
+	token, err := h.Service.StopImpersonation(reqCtx, httpshared.ActorFrom(reqCtx), logID.String())
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionLogout,
@@ -831,7 +831,7 @@ func (h *Handler) StopImpersonation(ctx *gin.Context) {
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.StopImpersonation; ERROR: %s;", logPrefix, err)
 
-		statusCode, res := impersonationErrorResponse(logId, err)
+		statusCode, res := impersonationErrorResponse(logID, err)
 		ctx.JSON(statusCode, res)
 		return
 	}
@@ -852,19 +852,19 @@ func (h *Handler) StopImpersonation(ctx *gin.Context) {
 		},
 	})
 
-	res := gokit.Response(http.StatusOK, "Impersonation stopped successfully", logId, h.buildAuthTokenResponse(token, ""))
+	res := gokit.Response(http.StatusOK, "Impersonation stopped successfully", logID, h.buildAuthTokenResponse(token, ""))
 	ctx.JSON(http.StatusOK, res)
 }
 
 func (h *Handler) GetAllUsers(ctx *gin.Context) {
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][GetAllUsers]"
 	reqCtx := ctx.Request.Context()
 
 	params, err := gokit.GetBaseParams(ctx.Request.URL.Query(), "updated_at", "desc", 10)
 	if err != nil {
 		logus.LogContextf(ctx, logus.LevelError, "%s; GetBaseParams; ERROR: %+v;", logPrefix, err)
-		ctx.JSON(http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgInvalidRequest, logId, "invalid query parameters"))
+		ctx.JSON(http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgInvalidRequest, logID, "invalid query parameters"))
 		return
 	}
 	params.Filters = gokit.WhitelistFilter(params.Filters, []string{"role"})
@@ -872,66 +872,66 @@ func (h *Handler) GetAllUsers(ctx *gin.Context) {
 	users, totalData, err := h.Service.GetAllUsers(reqCtx, httpshared.ActorFrom(reqCtx), httpshared.ListRequest(params))
 	if err != nil {
 		logus.LogContextf(ctx, logus.LevelError, "%s; GetAllUsers; ERROR: %+v;", logPrefix, err)
-		httpshared.RespondInternalError(ctx, logId)
+		httpshared.RespondInternalError(ctx, logID)
 		return
 	}
 
-	res := gokit.PaginationResponse(http.StatusOK, totalData, params.Page, httpshared.PageSize(dtoshared.PagedList, params), logId, users)
+	res := gokit.PaginationResponse(http.StatusOK, totalData, params.Page, httpshared.PageSize(dtoshared.PagedList, params), logID, users)
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(users))
 	ctx.JSON(http.StatusOK, res)
 }
 
 func (h *Handler) Update(ctx *gin.Context) {
 	var req dtouser.UserUpdate
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][Update]"
 	reqCtx := ctx.Request.Context()
 	scope := domainauth.FromContext(reqCtx)
 
 	if scope.UserID == "" {
-		httpshared.RespondUnauthorized(ctx, logId)
+		httpshared.RespondUnauthorized(ctx, logID)
 		return
 	}
-	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
+	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
 
-	h.updateUser(ctx, logId, logPrefix, scope.UserID, req, "Failed to update user profile", "Updated user profile")
+	h.updateUser(ctx, logID, logPrefix, scope.UserID, req, "Failed to update user profile", "Updated user profile")
 }
 
 func (h *Handler) UpdateUserById(ctx *gin.Context) {
 	var req dtouser.UserUpdate
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][UpdateUserById]"
 
-	id, err := gokit.ValidateUUIDParam(ctx, logId)
+	id, err := gokit.ValidateUUIDParam(ctx, logID)
 	if err != nil {
 		return
 	}
-	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
+	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; Request: %+v;", logPrefix, gokit.JSONEncode(req))
 
-	h.updateUser(ctx, logId, logPrefix, id, req, "Failed to update user by ID", "Updated user by ID")
+	h.updateUser(ctx, logID, logPrefix, id, req, "Failed to update user by ID", "Updated user by ID")
 }
 
 func (h *Handler) ChangePassword(ctx *gin.Context) {
 	var req dtouser.ChangePassword
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][ChangePassword]"
 	reqCtx := ctx.Request.Context()
 	scope := domainauth.FromContext(reqCtx)
 
 	if scope.UserID == "" {
-		httpshared.RespondUnauthorized(ctx, logId)
+		httpshared.RespondUnauthorized(ctx, logID)
 		return
 	}
-	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
+	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
 
-	before, _ := h.Service.GetUserById(reqCtx, scope.UserID)
+	before, _ := h.Service.GetUserByID(reqCtx, scope.UserID)
 	data, err := h.Service.ChangePassword(reqCtx, scope.UserID, req)
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
@@ -946,52 +946,52 @@ func (h *Handler) ChangePassword(ctx *gin.Context) {
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.ChangePassword; ERROR: %s;", logPrefix, err)
 		if !httpshared.IsNotFound(err) && err.Error() == ErrHashPassword {
-			res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logId, "current password is incorrect")
+			res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, "current password is incorrect")
 			ctx.JSON(http.StatusBadRequest, res)
 			return
 		}
-		respondUserMutationError(ctx, logId, err)
+		respondUserMutationError(ctx, logID, err)
 		return
 	}
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
 		Action:     domainaudit.ActionUpdate,
 		Resource:   "user_password",
-		ResourceID: data.Id,
+		ResourceID: data.ID,
 		Status:     domainaudit.StatusSuccess,
 		Message:    "Changed user password",
 		BeforeData: before,
 		AfterData: map[string]any{
-			"user_id": data.Id,
+			"user_id": data.ID,
 		},
 	})
 
-	res := gokit.Response(http.StatusOK, "User password changed successfully", logId, data)
+	res := gokit.Response(http.StatusOK, "User password changed successfully", logID, data)
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(data))
 	ctx.JSON(http.StatusOK, res)
 }
 
 func (h *Handler) ForgotPassword(ctx *gin.Context) {
 	var req dtouser.ForgotPasswordRequest
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][ForgotPassword]"
 	reqCtx := ctx.Request.Context()
-	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
+	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
 
-	emailResetEnabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.PasswordResetEmail, false)
+	emailResetEnabled, ok := h.configEnabled(ctx, logID, logPrefix, h.Settings.Flags.PasswordResetEmail, false)
 	if !ok {
 		return
 	}
 	if emailResetEnabled {
-		h.forgotPasswordByEmail(ctx, req, logId, logPrefix)
+		h.forgotPasswordByEmail(ctx, req, logID, logPrefix)
 		return
 	}
 
 	appEnv := httpshared.NormalizeKey(h.Settings.AppEnv)
 	if !h.Settings.DevEnv {
 		logus.LogContextf(ctx, logus.LevelError, "%s; Development password reset fallback is disabled in APP_ENV=%s", logPrefix, appEnv)
-		res := gokit.ErrorResponse(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logId, "Password reset service is temporarily unavailable.")
+		res := gokit.ErrorResponse(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logID, "Password reset service is temporarily unavailable.")
 		ctx.JSON(http.StatusServiceUnavailable, res)
 		return
 	}
@@ -1008,7 +1008,7 @@ func (h *Handler) ForgotPassword(ctx *gin.Context) {
 				"email": req.Email,
 			},
 		})
-		respondStepFailed(ctx, logId, logPrefix, "Service.ForgotPassword", err)
+		respondStepFailed(ctx, logID, logPrefix, "Service.ForgotPassword", err)
 		return
 	}
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
@@ -1023,25 +1023,25 @@ func (h *Handler) ForgotPassword(ctx *gin.Context) {
 
 	logus.LogContextf(ctx, logus.LevelInfo, "%s; Development password reset token generated for %s", logPrefix, domainuser.SanitizeEmail(req.Email))
 
-	res := gokit.Response(http.StatusOK, "Password reset instructions sent to your email", logId, token)
+	res := gokit.Response(http.StatusOK, "Password reset instructions sent to your email", logID, token)
 	ctx.JSON(http.StatusOK, res)
 }
 
 func (h *Handler) ResetPassword(ctx *gin.Context) {
 	var req dtouser.ResetPasswordRequest
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][ResetPassword]"
 	reqCtx := ctx.Request.Context()
-	if !gokit.BindJSON(ctx, logId, logPrefix, &req) {
+	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
 
-	emailResetEnabled, ok := h.configEnabled(ctx, logId, logPrefix, h.Settings.Flags.PasswordResetEmail, false)
+	emailResetEnabled, ok := h.configEnabled(ctx, logID, logPrefix, h.Settings.Flags.PasswordResetEmail, false)
 	if !ok {
 		return
 	}
 	if emailResetEnabled {
-		h.resetPasswordByEmail(ctx, req, logId, logPrefix)
+		h.resetPasswordByEmail(ctx, req, logID, logPrefix)
 		return
 	}
 
@@ -1055,14 +1055,14 @@ func (h *Handler) ResetPassword(ctx *gin.Context) {
 			AfterData:    req,
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.ResetPassword; ERROR: %s;", logPrefix, err)
-		statusCode, res := userMutationErrorResponse(logId, err)
+		statusCode, res := userMutationErrorResponse(logID, err)
 		ctx.JSON(statusCode, res)
 		return
 	}
 	if h.SessionSvc != nil {
 		claims, err := h.Tokens.Claims(req.Token)
 		if err != nil {
-			respondStepFailed(ctx, logId, logPrefix, "JwtClaim after reset", err)
+			respondStepFailed(ctx, logID, logPrefix, "JwtClaim after reset", err)
 			return
 		}
 		if err := h.revokePasswordResetSessions(reqCtx, gokit.InterfaceString(claims["user_id"])); err != nil {
@@ -1074,7 +1074,7 @@ func (h *Handler) ResetPassword(ctx *gin.Context) {
 				ErrorMessage: err.Error(),
 				AfterData:    req,
 			})
-			respondStepFailed(ctx, logId, logPrefix, "SessionSvc.DestroyAllUserSessions", err)
+			respondStepFailed(ctx, logID, logPrefix, "SessionSvc.DestroyAllUserSessions", err)
 			return
 		}
 	}
@@ -1088,7 +1088,7 @@ func (h *Handler) ResetPassword(ctx *gin.Context) {
 		},
 	})
 
-	res := gokit.Response(http.StatusOK, "Password reset successfully", logId, nil)
+	res := gokit.Response(http.StatusOK, "Password reset successfully", logID, nil)
 	ctx.JSON(http.StatusOK, res)
 }
 
@@ -1101,26 +1101,26 @@ func (h *Handler) revokePasswordResetSessions(ctx context.Context, userID string
 }
 
 func (h *Handler) Delete(ctx *gin.Context) {
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][Delete]"
 	reqCtx := ctx.Request.Context()
 	scope := domainauth.FromContext(reqCtx)
 
 	if scope.UserID == "" {
-		httpshared.RespondUnauthorized(ctx, logId)
+		httpshared.RespondUnauthorized(ctx, logID)
 		return
 	}
 
-	h.deleteUser(ctx, logId, logPrefix, scope.UserID, "Failed to delete own user", "Deleted own user")
+	h.deleteUser(ctx, logID, logPrefix, scope.UserID, "Failed to delete own user", "Deleted own user")
 }
 
 func (h *Handler) DeleteUserById(ctx *gin.Context) {
-	logId := gokit.RequestID(ctx)
+	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][DeleteUserById]"
 
-	id, err := gokit.ValidateUUIDParam(ctx, logId)
+	id, err := gokit.ValidateUUIDParam(ctx, logID)
 	if err != nil {
 		return
 	}
-	h.deleteUser(ctx, logId, logPrefix, id, "Failed to delete user by ID", "Deleted user by ID")
+	h.deleteUser(ctx, logID, logPrefix, id, "Failed to delete user by ID", "Deleted user by ID")
 }

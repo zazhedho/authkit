@@ -96,7 +96,7 @@ func New(cfg Config) (*Kit, error) {
 		logus.Log(logus.LevelWarn, w)
 	}
 
-	tokens, err := token.NewTokens(token.TokenConfig{
+	tokens, err := token.NewTokens(token.Config{
 		Key:        cfg.JWTKey,
 		AppName:    cfg.AppName,
 		AccessTTL:  cfg.AccessTokenTTL,

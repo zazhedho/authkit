@@ -10,9 +10,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// TokenConfig configures Tokens. Key needs 32+ characters. AppName is written
+// Config configures Tokens. Key needs 32+ characters. AppName is written
 // to iss and aud and must match on verification. The caller supplies every TTL.
-type TokenConfig struct {
+type Config struct {
 	Key        string
 	AppName    string
 	AccessTTL  time.Duration
@@ -29,7 +29,7 @@ type Tokens struct {
 	resetTTL   time.Duration
 }
 
-func NewTokens(cfg TokenConfig) (*Tokens, error) {
+func NewTokens(cfg Config) (*Tokens, error) {
 	key := strings.TrimSpace(cfg.Key)
 	if key == "" {
 		return nil, ErrJWTKeyNotConfigured
@@ -69,8 +69,8 @@ func (t *Tokens) RefreshTTL() time.Duration {
 	return t.refreshTTL
 }
 
-// The Generate methods take the user's id, name and role as plain strings so
-// this package needs no domain type.
+// Generate issues an access token. The Generate methods take the user's id,
+// name and role as plain strings so this package needs no domain type.
 func (t *Tokens) Generate(userID, username, role, logID string) (string, error) {
 	return t.GenerateWithClaims(userID, username, role, logID, nil)
 }
@@ -95,7 +95,7 @@ func (t *Tokens) GenerateWithClaims(userID, username, role, logID string, claims
 
 	accessExp := time.Now().Add(t.accessTTL)
 	claims := AppClaims{
-		UserId:    userID,
+		UserID:    userID,
 		Username:  username,
 		Role:      role,
 		TokenType: TokenTypeAccess,
@@ -112,7 +112,7 @@ func (t *Tokens) GenerateWithClaims(userID, username, role, logID string, claims
 			claims.TokenType = claimsOverride.TokenType
 		}
 		claims.IsImpersonated = claimsOverride.IsImpersonated
-		claims.OriginalUserId = claimsOverride.OriginalUserId
+		claims.OriginalUserID = claimsOverride.OriginalUserID
 		claims.OriginalUsername = claimsOverride.OriginalUsername
 		claims.OriginalRole = claimsOverride.OriginalRole
 		if claimsOverride.RegisteredClaims != nil && claimsOverride.ExpiresAt != nil {
@@ -133,7 +133,7 @@ func (t *Tokens) GenerateRefresh(userID, username, role, logID string) (string, 
 func (t *Tokens) GenerateRefreshImpersonated(userID, username, role, logID, originalUserID, originalUsername, originalRole string) (string, error) {
 	return t.generateRefresh(userID, username, role, logID, &AppClaims{
 		IsImpersonated:   true,
-		OriginalUserId:   originalUserID,
+		OriginalUserID:   originalUserID,
 		OriginalUsername: originalUsername,
 		OriginalRole:     originalRole,
 	})
@@ -146,7 +146,7 @@ func (t *Tokens) generateRefresh(userID, username, role, logID string, claimsOve
 
 	refreshExp := time.Now().Add(t.refreshTTL)
 	claims := &AppClaims{
-		UserId:    userID,
+		UserID:    userID,
 		Username:  username,
 		Role:      role,
 		TokenType: TokenTypeRefresh,
@@ -160,7 +160,7 @@ func (t *Tokens) generateRefresh(userID, username, role, logID string, claimsOve
 	}
 	if claimsOverride != nil {
 		claims.IsImpersonated = claimsOverride.IsImpersonated
-		claims.OriginalUserId = claimsOverride.OriginalUserId
+		claims.OriginalUserID = claimsOverride.OriginalUserID
 		claims.OriginalUsername = claimsOverride.OriginalUsername
 		claims.OriginalRole = claimsOverride.OriginalRole
 	}
@@ -221,7 +221,7 @@ func (t *Tokens) ExpiresAt(tokenString string) (time.Time, error) {
 func (t *Tokens) GenerateImpersonated(userID, username, role, logID, originalUserID, originalUsername, originalRole string) (string, error) {
 	return t.GenerateWithClaims(userID, username, role, logID, &AppClaims{
 		IsImpersonated:   true,
-		OriginalUserId:   originalUserID,
+		OriginalUserID:   originalUserID,
 		OriginalUsername: originalUsername,
 		OriginalRole:     originalRole,
 	})

@@ -11,13 +11,13 @@ func (Users) TableName() string {
 }
 
 type Users struct {
-	Id                 string         `json:"id" gorm:"column:id;primaryKey"`
+	ID                 string         `json:"id" gorm:"column:id;primaryKey"`
 	Name               string         `json:"name" gorm:"column:name"`
 	Email              string         `json:"email,omitempty" gorm:"column:email"`
 	Phone              string         `json:"phone,omitempty" gorm:"column:phone"`
 	Password           string         `json:"-" gorm:"column:password"`
 	Role               string         `json:"role,omitempty" gorm:"column:role"`
-	RoleId             *string        `json:"role_id,omitempty" gorm:"column:role_id"`
+	RoleID             *string        `json:"role_id,omitempty" gorm:"column:role_id"`
 	EmailVerifiedAt    *time.Time     `json:"email_verified_at,omitempty" gorm:"column:email_verified_at"`
 	PhoneVerifiedAt    *time.Time     `json:"phone_verified_at,omitempty" gorm:"column:phone_verified_at"`
 	LastLoginAt        *time.Time     `json:"last_login_at,omitempty" gorm:"column:last_login_at"`

@@ -55,7 +55,7 @@ func (m *permissionServiceTestDouble) GetAll(ctx context.Context, req dtoshared.
 func (m *permissionServiceTestDouble) GetByResource(ctx context.Context, resource string) ([]domainpermission.Permission, error) {
 	return m.permissions, nil
 }
-func (m *permissionServiceTestDouble) GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error) {
+func (m *permissionServiceTestDouble) GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -137,7 +137,7 @@ func performPermissionRawRequest(method, path, body string, handler gin.HandlerF
 func TestCreatePermissionReturnsCreatedAndWritesAudit(t *testing.T) {
 	auditSvc := &auditServicePermissionTestDouble{}
 	service := &permissionServiceTestDouble{permission: domainpermission.Permission{
-		Id:          "perm-1",
+		ID:          "perm-1",
 		Name:        "list_users",
 		DisplayName: "List Users",
 		Resource:    "users",
@@ -186,7 +186,7 @@ func TestGetPermissionByIDReturnsNotFound(t *testing.T) {
 
 func TestGetAllPermissionsReturnsPagination(t *testing.T) {
 	handler := New(&permissionServiceTestDouble{
-		permissions: []domainpermission.Permission{{Id: "perm-1", Name: "list_users"}},
+		permissions: []domainpermission.Permission{{ID: "perm-1", Name: "list_users"}},
 		total:       1,
 	}, &auditServicePermissionTestDouble{})
 
@@ -233,7 +233,7 @@ func TestUpdatePermissionMapsDuplicateError(t *testing.T) {
 }
 
 func TestDeletePermissionDelegatesToService(t *testing.T) {
-	service := &permissionServiceTestDouble{permission: domainpermission.Permission{Id: "perm-1"}}
+	service := &permissionServiceTestDouble{permission: domainpermission.Permission{ID: "perm-1"}}
 	handler := New(service, &auditServicePermissionTestDouble{})
 
 	rec := performPermissionRequest(http.MethodDelete, "/permissions/:id", nil, handler.Delete, domainauth.Scope{})
@@ -262,7 +262,7 @@ func TestGetUserPermissionsRequiresAuthScope(t *testing.T) {
 
 func TestGetUserPermissionsUsesAuthScopeUserID(t *testing.T) {
 	handler := New(&permissionServiceTestDouble{
-		userPermissions: []domainpermission.Permission{{Id: "perm-1", Resource: "users", Action: "list"}},
+		userPermissions: []domainpermission.Permission{{ID: "perm-1", Resource: "users", Action: "list"}},
 	}, &auditServicePermissionTestDouble{})
 
 	rec := performPermissionRequest(http.MethodGet, "/permissions/me", nil, handler.GetUserPermissions, domainauth.New("user-1", "Jane", "viewer", nil))

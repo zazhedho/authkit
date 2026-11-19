@@ -91,7 +91,7 @@ func TestMenuRepositoryGetUserMenusSuperadmin(t *testing.T) {
 		}).AddRow("menu-1", "dashboard", "Dashboard", "/dashboard", "home", nil, 1, true, now, nil, nil))
 
 	menus, err := repo.GetUserMenus(context.Background(), "user-1")
-	if err != nil || len(menus) != 1 || menus[0].Id != "menu-1" {
+	if err != nil || len(menus) != 1 || menus[0].ID != "menu-1" {
 		t.Fatalf("unexpected menus=%#v err=%v", menus, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -139,7 +139,7 @@ func TestMenuRepositoryGetUserMenusIncludesParentsAndSorts(t *testing.T) {
 	if err != nil || len(menus) != 3 {
 		t.Fatalf("expected 3 menus, got %#v err=%v", menus, err)
 	}
-	if menus[0].Id != rootID || menus[1].Id != parentID || menus[2].Id != "child-1" {
+	if menus[0].ID != rootID || menus[1].ID != parentID || menus[2].ID != "child-1" {
 		t.Fatalf("menus were not sorted with parents: %#v", menus)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

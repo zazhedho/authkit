@@ -11,7 +11,7 @@ func (Role) TableName() string {
 }
 
 type Role struct {
-	Id          string         `json:"id" gorm:"column:id;primaryKey"`
+	ID          string         `json:"id" gorm:"column:id;primaryKey"`
 	Name        string         `json:"name" gorm:"column:name;unique"`
 	DisplayName string         `json:"display_name" gorm:"column:display_name"`
 	Description string         `json:"description,omitempty" gorm:"column:description"`
@@ -26,9 +26,9 @@ func (RolePermission) TableName() string {
 }
 
 type RolePermission struct {
-	Id           string    `json:"id" gorm:"column:id;primaryKey"`
-	RoleId       string    `json:"role_id" gorm:"column:role_id"`
-	PermissionId string    `json:"permission_id" gorm:"column:permission_id"`
+	ID           string    `json:"id" gorm:"column:id;primaryKey"`
+	RoleID       string    `json:"role_id" gorm:"column:role_id"`
+	PermissionID string    `json:"permission_id" gorm:"column:permission_id"`
 	CreatedAt    time.Time `json:"created_at" gorm:"column:created_at"`
 }
 
@@ -37,8 +37,8 @@ func (RoleMenu) TableName() string {
 }
 
 type RoleMenu struct {
-	Id         string    `json:"id" gorm:"column:id;primaryKey"`
-	RoleId     string    `json:"role_id" gorm:"column:role_id"`
-	MenuItemId string    `json:"menu_item_id" gorm:"column:menu_item_id"`
+	ID         string    `json:"id" gorm:"column:id;primaryKey"`
+	RoleID     string    `json:"role_id" gorm:"column:role_id"`
+	MenuItemID string    `json:"menu_item_id" gorm:"column:menu_item_id"`
 	CreatedAt  time.Time `json:"created_at" gorm:"column:created_at"`
 }
