@@ -537,3 +537,32 @@ func TestConfigFromEnvStrictReportsUnparsableVariables(t *testing.T) {
 		t.Fatalf("the config built so far must still be returned: %+v", cfg)
 	}
 }
+
+func TestMailerCanBeSplitIntoOTPAndReset(t *testing.T) {
+	cfg := validConfig()
+	cfg.Mailer = nil
+	cfg.OTPMailer = mailerTestDouble{}
+	cfg.Reset.Secret = ""
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("only an OTPMailer: the reset secret must not be required: %v", err)
+	}
+	cfg.OTP.Secret = ""
+	cfg.Reset.Secret = strings.Repeat("r", 32)
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "OTP.Secret") {
+		t.Fatalf("an OTPMailer needs OTP.Secret: %v", err)
+	}
+	cfg = validConfig()
+	cfg.Mailer = nil
+	cfg.ResetMailer = mailerTestDouble{}
+	cfg.OTP.Secret = ""
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("only a ResetMailer: %v", err)
+	}
+	if cfg.otpMailer() != nil || cfg.resetMailer() == nil {
+		t.Fatal("the flows must use their own mailer only")
+	}
+	both := validConfig()
+	if both.otpMailer() == nil || both.resetMailer() == nil {
+		t.Fatal("Mailer feeds both flows")
+	}
+}

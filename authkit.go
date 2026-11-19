@@ -144,9 +144,11 @@ func New(cfg Config) (*Kit, error) {
 		sessionSvc = sessions
 		userSvc.Sessions = sessions
 		sessionHdlr = httpsession.New(sessions, auditSvc)
-		if cfg.Mailer != nil {
-			otpSvc = serviceotp.NewService(repositoryotp.NewRepository(cfg.Redis), cfg.Mailer, serviceotp.Config(cfg.OTP))
-			resetSvc = servicereset.NewService(repositoryreset.NewRepository(cfg.Redis), cfg.Mailer, servicereset.Config(cfg.Reset))
+		if m := cfg.otpMailer(); m != nil {
+			otpSvc = serviceotp.NewService(repositoryotp.NewRepository(cfg.Redis), m, serviceotp.Config(cfg.OTP))
+		}
+		if m := cfg.resetMailer(); m != nil {
+			resetSvc = servicereset.NewService(repositoryreset.NewRepository(cfg.Redis), m, servicereset.Config(cfg.Reset))
 		}
 	}
 

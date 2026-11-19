@@ -34,9 +34,14 @@ type FlagKeys = config.FlagKeys
 // other zero values take defaults. OTP.Secret and Reset.Secret have no default
 // and are required when both Redis and Mailer are set.
 type Config struct {
-	DB     *gorm.DB      // required
-	Redis  *redis.Client // optional
-	Mailer Mailer        // optional
+	DB    *gorm.DB      // required
+	Redis *redis.Client // optional
+	// Mailer sends both OTP and reset emails. OTPMailer and ResetMailer, when
+	// set, take precedence for their own flow, so the two can use different
+	// senders or only one can be enabled.
+	Mailer      Mailer      // optional
+	OTPMailer   OTPMailer   // optional
+	ResetMailer ResetMailer // optional
 
 	AppName, AppEnv                 string        // AppName is required
 	JWTKey                          string        // required, at least 32 characters
@@ -75,12 +80,34 @@ func (c Config) String() string {
 		return "set"
 	}
 	return fmt.Sprintf("authkit.Config{AppName:%q AppEnv:%q JWTKey:%s OTP.Secret:%s Reset.Secret:%s Redis:%t Mailer:%t}",
-		c.AppName, c.AppEnv, set(c.JWTKey), set(c.OTP.Secret), set(c.Reset.Secret), c.Redis != nil, c.Mailer != nil)
+		c.AppName, c.AppEnv, set(c.JWTKey), set(c.OTP.Secret), set(c.Reset.Secret), c.Redis != nil, c.otpMailer() != nil || c.resetMailer() != nil)
 }
 
 // GoString implements fmt.GoStringer with the same redaction as String, so %#v
 // is safe too.
 func (c Config) GoString() string { return c.String() }
+
+// otpMailer is the sender the OTP flow uses: OTPMailer, else Mailer.
+func (c Config) otpMailer() OTPMailer {
+	if c.OTPMailer != nil {
+		return c.OTPMailer
+	}
+	if c.Mailer != nil {
+		return c.Mailer
+	}
+	return nil
+}
+
+// resetMailer is the sender the reset flow uses: ResetMailer, else Mailer.
+func (c Config) resetMailer() ResetMailer {
+	if c.ResetMailer != nil {
+		return c.ResetMailer
+	}
+	if c.Mailer != nil {
+		return c.Mailer
+	}
+	return nil
+}
 
 // minSecretLength is the shortest OTP.Secret or Reset.Secret Validate accepts.
 const minSecretLength = 32
@@ -211,13 +238,11 @@ func (c Config) Validate() error {
 	case domainuser.RoleSuperAdmin, domainuser.RoleAdmin:
 		return fmt.Errorf("authkit: DefaultRole must not be a privileged role (%q): public registrations would receive it", role)
 	}
-	if c.Redis != nil && c.Mailer != nil {
-		if strings.TrimSpace(c.OTP.Secret) == "" {
-			return errors.New("authkit: OTP.Secret is required when Redis and Mailer are set")
-		}
-		if strings.TrimSpace(c.Reset.Secret) == "" {
-			return errors.New("authkit: Reset.Secret is required when Redis and Mailer are set")
-		}
+	if c.Redis != nil && c.otpMailer() != nil && strings.TrimSpace(c.OTP.Secret) == "" {
+		return errors.New("authkit: OTP.Secret is required when Redis and a Mailer are set")
+	}
+	if c.Redis != nil && c.resetMailer() != nil && strings.TrimSpace(c.Reset.Secret) == "" {
+		return errors.New("authkit: Reset.Secret is required when Redis and a Mailer are set")
 	}
 	// A secret that is set must be long enough to key an HMAC, even when the
 	// features that use it are off today.

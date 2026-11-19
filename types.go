@@ -66,8 +66,8 @@ const (
 // AuditService stores and reads audit trail entries. Kit.Audit returns one.
 type AuditService interface {
 	Store(ctx context.Context, req AuditEvent) error
-	GetAll(ctx context.Context, params gokit.BaseParams) ([]dtoaudit.AuditTrailResponse, int64, error)
-	GetByID(ctx context.Context, id string) (dtoaudit.AuditTrailResponse, error)
+	GetAll(ctx context.Context, params gokit.BaseParams) ([]AuditTrailResponse, int64, error)
+	GetByID(ctx context.Context, id string) (AuditTrailResponse, error)
 }
 
 // AuditWriter writes audit events from gin handlers, filling the actor from
@@ -96,11 +96,31 @@ const (
 	RoleViewer = domainuser.RoleViewer
 )
 
-// Mailer sends both registration OTP and password reset emails.
-type Mailer interface {
+// OTPMailer sends registration OTP emails.
+type OTPMailer interface {
 	mailer.Sender
+}
+
+// ResetMailer sends password reset emails.
+type ResetMailer interface {
 	mailer.PasswordResetSender
 }
+
+// Mailer sends both registration OTP and password reset emails.
+type Mailer interface {
+	OTPMailer
+	ResetMailer
+}
+
+// AuditTrailResponse is one audit trail entry as the audit routes and
+// AuditService return it.
+type AuditTrailResponse = dtoaudit.AuditTrailResponse
+
+// AppConfig is one app-config entry (a feature flag or setting).
+type AppConfig = domainappconfig.AppConfig
+
+// UpdateAppConfig is the request body that updates an app-config entry.
+type UpdateAppConfig = dtoappconfig.UpdateAppConfig
 
 // BrevoConfig is the explicit SMTP configuration for the Brevo mailer. Host,
 // Pass and From are required; the remaining fields fall back to defaults.
@@ -119,10 +139,10 @@ func NewBrevoMailer(cfg BrevoConfig) (Mailer, error) {
 // AppConfigService reads and updates the app-config entries (feature flags and
 // settings). Kit.AppConfig returns one.
 type AppConfigService interface {
-	GetAll(ctx context.Context, params gokit.BaseParams) ([]domainappconfig.AppConfig, int64, error)
-	GetByID(ctx context.Context, id string) (domainappconfig.AppConfig, error)
-	GetByKey(ctx context.Context, configKey string) (domainappconfig.AppConfig, error)
-	Update(ctx context.Context, id string, req dtoappconfig.UpdateAppConfig) (domainappconfig.AppConfig, error)
+	GetAll(ctx context.Context, params gokit.BaseParams) ([]AppConfig, int64, error)
+	GetByID(ctx context.Context, id string) (AppConfig, error)
+	GetByKey(ctx context.Context, configKey string) (AppConfig, error)
+	Update(ctx context.Context, id string, req UpdateAppConfig) (AppConfig, error)
 	GetString(ctx context.Context, configKey string, fallback string) (string, error)
 	GetBool(ctx context.Context, configKey string, fallback bool) (bool, error)
 	GetInt(ctx context.Context, configKey string, fallback int) (int, error)
