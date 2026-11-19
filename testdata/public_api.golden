@@ -67,6 +67,7 @@ type Config struct
 	field PermissionCacheTTL time.Duration
 	field Login LoginLimit
 	field Register RateLimit
+	field AuthRate RateLimit
 	field OTP OTPConfig
 	field Reset PasswordResetConfig
 	field Flags FlagKeys

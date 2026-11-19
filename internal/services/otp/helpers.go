@@ -1,9 +1,9 @@
 package otp
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -18,12 +18,18 @@ func generateOTP() (string, error) {
 	return fmt.Sprintf("%06d", n.Int64()), nil
 }
 
-func hashOTP(code, secret string) string {
-	h := sha256.Sum256([]byte(code + secret))
-	return hex.EncodeToString(h[:])
+// otpPurpose scopes a code to registration, so a hash made for one purpose
+// never verifies for another.
+const otpPurpose = "register"
+
+// hashOTP is HMAC-SHA256(secret, purpose + email + code): bound to the address
+// and the purpose, so a stolen hash cannot be replayed for another email.
+func hashOTP(email, code, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(otpPurpose + email + code))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func verifyOTP(code, hashed, secret string) bool {
-	candidate := hashOTP(code, secret)
-	return subtle.ConstantTimeCompare([]byte(candidate), []byte(hashed)) == 1
+func verifyOTP(email, code, hashed, secret string) bool {
+	return hmac.Equal([]byte(hashOTP(email, code, secret)), []byte(hashed))
 }

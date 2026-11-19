@@ -64,34 +64,38 @@ func (l *redisLoginLimiter) IsBlocked(ctx context.Context, key string) (bool, ti
 	return true, ttl, nil
 }
 
+// failureScript counts a failure, starts the window on the first one and blocks
+// the key at the limit, all in one step.
+var failureScript = redis.NewScript(`
+local count = redis.call('INCR', KEYS[1])
+if redis.call('PTTL', KEYS[1]) < 0 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+if count >= tonumber(ARGV[3]) then
+  redis.call('SET', KEYS[2], '1', 'PX', ARGV[2])
+  redis.call('DEL', KEYS[1])
+  return {1, tonumber(ARGV[2])}
+end
+return {0, redis.call('PTTL', KEYS[1])}
+`)
+
 func (l *redisLoginLimiter) RegisterFailure(ctx context.Context, key string) (bool, time.Duration, error) {
 	if l == nil || l.client == nil {
 		return false, 0, nil
 	}
-
-	attemptKey := l.attemptKey(key)
-	count, err := l.client.Incr(ctx, attemptKey).Result()
+	res, err := failureScript.Run(ctx, l.client, []string{l.attemptKey(key), l.blockKey(key)},
+		l.window.Milliseconds(), l.blockDuration.Milliseconds(), l.limit).Int64Slice()
 	if err != nil {
 		return false, 0, err
 	}
-
-	if count == 1 {
-		if err := l.client.Expire(ctx, attemptKey, l.window).Err(); err != nil {
-			return false, 0, err
-		}
+	if len(res) != 2 {
+		return false, 0, fmt.Errorf("login limiter: unexpected reply %v", res)
 	}
-
-	if int(count) >= l.limit {
-		blockKey := l.blockKey(key)
-		if err := l.client.Set(ctx, blockKey, "1", l.blockDuration).Err(); err != nil {
-			return false, 0, err
-		}
-		_ = l.client.Del(ctx, attemptKey).Err()
-		return true, l.blockDuration, nil
+	ttl := time.Duration(res[1]) * time.Millisecond
+	if ttl < 0 {
+		ttl = 0
 	}
-
-	ttl, _ := l.client.TTL(ctx, attemptKey).Result()
-	return false, ttl, nil
+	return res[0] == 1, ttl, nil
 }
 
 func (l *redisLoginLimiter) Reset(ctx context.Context, key string) error {

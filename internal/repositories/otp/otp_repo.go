@@ -40,15 +40,8 @@ func (r *Repository) DeleteOTP(ctx context.Context, email string) error {
 }
 
 func (r *Repository) IncrementAttempts(ctx context.Context, email string, ttl time.Duration) (int, error) {
-	key := fmt.Sprintf("%s%s", otpAttemptKeyPrefix, email)
-	count, err := r.Redis.Incr(ctx, key).Result()
-	if err != nil {
-		return 0, err
-	}
-	if count == 1 && ttl > 0 {
-		_ = r.Redis.Expire(ctx, key, ttl).Err()
-	}
-	return int(count), nil
+	count, _, err := repositoryshared.IncrementWithTTL(ctx, r.Redis, fmt.Sprintf("%s%s", otpAttemptKeyPrefix, email), ttl)
+	return count, err
 }
 
 func (r *Repository) ResetAttempts(ctx context.Context, email string) error {

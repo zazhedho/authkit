@@ -72,22 +72,21 @@ func (s *Service) SendRegisterOTP(ctx context.Context, email, appName string) er
 		return fmt.Errorf("generate otp: %w", err)
 	}
 
-	hashed := hashOTP(code, s.Config.Secret)
+	hashed := hashOTP(normalizedEmail, code, s.Config.Secret)
 	if err := s.Repo.SetOTP(ctx, normalizedEmail, hashed, s.Config.TTL); err != nil {
 		_ = s.Repo.ClearSendCount(ctx, normalizedEmail)
 		return fmt.Errorf("store otp: %w", err)
 	}
-	_ = s.Repo.ResetAttempts(ctx, normalizedEmail)
+	// The attempt counter is not reset by a resend: guesses against the
+	// address add up across codes until the counter's window ends.
 	if err := s.Repo.SetCooldown(ctx, normalizedEmail, s.Config.Cooldown); err != nil {
 		_ = s.Repo.DeleteOTP(ctx, normalizedEmail)
-		_ = s.Repo.ResetAttempts(ctx, normalizedEmail)
 		_ = s.Repo.ClearSendCount(ctx, normalizedEmail)
 		return fmt.Errorf("set cooldown: %w", err)
 	}
 
 	if err := s.Sender.SendOTP(normalizedEmail, code, appName, s.Config.TTL); err != nil {
 		_ = s.Repo.DeleteOTP(ctx, normalizedEmail)
-		_ = s.Repo.ResetAttempts(ctx, normalizedEmail)
 		_ = s.Repo.ClearCooldown(ctx, normalizedEmail)
 		_ = s.Repo.ClearSendCount(ctx, normalizedEmail)
 		logus.Log(logus.LevelError, "OTP delivery error:", err)
@@ -121,16 +120,16 @@ func (s *Service) VerifyRegisterOTP(ctx context.Context, email, code string) err
 		return fmt.Errorf("increment attempts: %w", err)
 	}
 
+	// Past the limit the counter stays until its window ends, so asking for a
+	// fresh code does not hand out fresh guesses.
 	if s.Config.MaxAttempts > 0 && attempts > s.Config.MaxAttempts {
 		_ = s.Repo.DeleteOTP(ctx, normalizedEmail)
-		_ = s.Repo.ResetAttempts(ctx, normalizedEmail)
 		return domainotp.ErrTooManyAttempt
 	}
 
-	if !verifyOTP(cleanCode, hashed, s.Config.Secret) {
+	if !verifyOTP(normalizedEmail, cleanCode, hashed, s.Config.Secret) {
 		if s.Config.MaxAttempts > 0 && attempts >= s.Config.MaxAttempts {
 			_ = s.Repo.DeleteOTP(ctx, normalizedEmail)
-			_ = s.Repo.ResetAttempts(ctx, normalizedEmail)
 			return domainotp.ErrTooManyAttempt
 		}
 		return domainotp.ErrInvalid

@@ -56,9 +56,13 @@ type Config struct {
 	PermissionCacheTTL time.Duration // default 300s
 	Login              LoginLimit
 	Register           RateLimit
-	OTP                OTPConfig
-	Reset              PasswordResetConfig
-	Flags              FlagKeys
+	// AuthRate is the per-IP limit on the unauthenticated auth routes that have
+	// no limiter of their own: google login, refresh, forgot and reset password,
+	// and the authenticated change-password. Default 30 per minute.
+	AuthRate RateLimit
+	OTP      OTPConfig
+	Reset    PasswordResetConfig
+	Flags    FlagKeys
 }
 
 // String reports whether each secret is set but never prints one, so logging a
@@ -78,6 +82,9 @@ func (c Config) String() string {
 // is safe too.
 func (c Config) GoString() string { return c.String() }
 
+// minSecretLength is the shortest OTP.Secret or Reset.Secret Validate accepts.
+const minSecretLength = 32
+
 const (
 	defaultAccessTTL          = 15 * time.Minute
 	defaultSessionMaxLifetime = 30 * 24 * time.Hour
@@ -88,6 +95,8 @@ const (
 	defaultLoginBlock         = 300 * time.Second
 	defaultRegisterLimit      = 5
 	defaultRegisterWindow     = 60 * time.Second
+	defaultAuthRateLimit      = 30
+	defaultAuthRateWindow     = 60 * time.Second
 	defaultOTPTTL             = 300 * time.Second
 	defaultOTPCooldown        = 60 * time.Second
 	defaultOTPRateLimit       = 5
@@ -137,6 +146,12 @@ func (c Config) withDefaults() Config {
 	}
 	if c.Register.Window <= 0 {
 		c.Register.Window = defaultRegisterWindow
+	}
+	if c.AuthRate.Limit <= 0 {
+		c.AuthRate.Limit = defaultAuthRateLimit
+	}
+	if c.AuthRate.Window <= 0 {
+		c.AuthRate.Window = defaultAuthRateWindow
 	}
 
 	if c.OTP.TTL <= 0 {
@@ -204,6 +219,14 @@ func (c Config) Validate() error {
 			return errors.New("authkit: Reset.Secret is required when Redis and Mailer are set")
 		}
 	}
+	// A secret that is set must be long enough to key an HMAC, even when the
+	// features that use it are off today.
+	if secret := strings.TrimSpace(c.OTP.Secret); secret != "" && len(secret) < minSecretLength {
+		return fmt.Errorf("authkit: OTP.Secret must be at least %d characters", minSecretLength)
+	}
+	if secret := strings.TrimSpace(c.Reset.Secret); secret != "" && len(secret) < minSecretLength {
+		return fmt.Errorf("authkit: Reset.Secret must be at least %d characters", minSecretLength)
+	}
 	return nil
 }
 
@@ -240,6 +263,8 @@ func ConfigFromEnv() Config {
 	cfg.Login.BlockDuration = time.Duration(gokit.GetEnv("LOGIN_BLOCK_DURATION_SECONDS", 0)) * time.Second
 	cfg.Register.Limit = gokit.GetEnv("REGISTER_RATE_LIMIT", 0)
 	cfg.Register.Window = time.Duration(gokit.GetEnv("REGISTER_RATE_WINDOW_SECONDS", 0)) * time.Second
+	cfg.AuthRate.Limit = gokit.GetEnv("AUTH_RATE_LIMIT", 0)
+	cfg.AuthRate.Window = time.Duration(gokit.GetEnv("AUTH_RATE_WINDOW_SECONDS", 0)) * time.Second
 
 	cfg.OTP.Secret = gokit.GetEnv("OTP_SECRET", "")
 	cfg.OTP.TTL = otpTTL

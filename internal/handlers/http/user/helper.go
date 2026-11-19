@@ -88,6 +88,11 @@ func (h *Handler) rejectBlockedLogin(ctx *gin.Context, logID uuid.UUID, logPrefi
 	blocked, ttl, err := h.LoginLimiter.IsBlocked(ctx.Request.Context(), loginIdentifier)
 	if err != nil {
 		logus.LogContextf(ctx, logus.LevelError, "%s; LoginLimiter.IsBlocked error: %v", logPrefix, err)
+		if h.Settings.FailClosedLimiters {
+			res := gokit.ErrorResponse(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logID, "Login is temporarily unavailable.")
+			ctx.JSON(http.StatusServiceUnavailable, res)
+			return true
+		}
 		return false
 	}
 	if !blocked {

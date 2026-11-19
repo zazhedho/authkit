@@ -23,10 +23,10 @@ func (k *Kit) mountUsers(r gin.IRouter) {
 		user.POST("/register", k.registerLimiter, h.Register)
 		user.POST("/register/otp/send", k.registerLimiter, h.SendRegisterOTP)
 		user.POST("/login", h.Login)
-		user.POST("/google/login", h.GoogleLogin)
-		user.POST("/refresh-token", h.RefreshToken)
-		user.POST("/forgot-password", h.ForgotPassword)
-		user.POST("/reset-password", h.ResetPassword)
+		user.POST("/google/login", k.authLimiter, h.GoogleLogin)
+		user.POST("/refresh-token", k.authLimiter, h.RefreshToken)
+		user.POST("/forgot-password", k.authLimiter, h.ForgotPassword)
+		user.POST("/reset-password", k.authLimiter, h.ResetPassword)
 
 		userPriv := user.Group("").Use(mdw.AuthMiddleware())
 		{
@@ -37,7 +37,7 @@ func (k *Kit) mountUsers(r gin.IRouter) {
 			userPriv.POST("/stop-impersonation", h.StopImpersonation)
 			userPriv.PUT("", h.Update)
 			userPriv.PUT("/:id", mdw.PermissionMiddleware("users", "update"), h.UpdateUserByID)
-			userPriv.PUT("/change/password", h.ChangePassword)
+			userPriv.PUT("/change/password", k.authLimiter, h.ChangePassword)
 			userPriv.DELETE("", h.Delete)
 			userPriv.DELETE("/:id", mdw.PermissionMiddleware("users", "delete"), h.DeleteUserByID)
 

@@ -173,7 +173,7 @@ func TestSendRegisterOTPCleansUpWhenDeliveryFails(t *testing.T) {
 
 func TestVerifyRegisterOTPSucceedsAndClearsState(t *testing.T) {
 	repo := newOTPRepoTestDouble()
-	repo.otp["jane@example.com"] = hashOTP("123456", "secret")
+	repo.otp["jane@example.com"] = hashOTP("jane@example.com", "123456", "secret")
 	svc := NewService(repo, nil, otpTestConfig())
 
 	if err := svc.VerifyRegisterOTP(context.Background(), " Jane@Example.COM ", " 123456 "); err != nil {
@@ -186,7 +186,7 @@ func TestVerifyRegisterOTPSucceedsAndClearsState(t *testing.T) {
 
 func TestVerifyRegisterOTPDeletesAfterTooManyAttempts(t *testing.T) {
 	repo := newOTPRepoTestDouble()
-	repo.otp["jane@example.com"] = hashOTP("123456", "secret")
+	repo.otp["jane@example.com"] = hashOTP("jane@example.com", "123456", "secret")
 	repo.attempts["jane@example.com"] = 2
 	svc := NewService(repo, nil, otpTestConfig())
 
@@ -283,7 +283,7 @@ func TestVerifyRegisterOTPErrorBranches(t *testing.T) {
 	})
 	t.Run("increment attempts error", func(t *testing.T) {
 		repo := newOTPRepoTestDouble()
-		repo.otp["jane@example.com"] = hashOTP("123456", "secret")
+		repo.otp["jane@example.com"] = hashOTP("jane@example.com", "123456", "secret")
 		repo.incrementAttemptErr = errors.New("redis down")
 		svc := NewService(repo, nil, otpTestConfig())
 		if err := svc.VerifyRegisterOTP(context.Background(), "jane@example.com", "123456"); err == nil {
@@ -292,7 +292,7 @@ func TestVerifyRegisterOTPErrorBranches(t *testing.T) {
 	})
 	t.Run("wrong code before max attempts", func(t *testing.T) {
 		repo := newOTPRepoTestDouble()
-		repo.otp["jane@example.com"] = hashOTP("123456", "secret")
+		repo.otp["jane@example.com"] = hashOTP("jane@example.com", "123456", "secret")
 		svc := NewService(repo, nil, otpTestConfig())
 		if err := svc.VerifyRegisterOTP(context.Background(), "jane@example.com", "000000"); !errors.Is(err, domainotp.ErrInvalid) {
 			t.Fatalf("expected invalid otp, got %v", err)
@@ -345,5 +345,63 @@ func TestOTPServiceRefusesEmptySecretBeforeTouchingRepo(t *testing.T) {
 		if !errors.Is(err, domainotp.ErrNotConfigured) {
 			t.Fatalf("VerifyRegisterOTP with secret %q: expected not configured, got %v", secret, err)
 		}
+	}
+}
+
+func TestOTPHashIsBoundToTheEmailAndThePurpose(t *testing.T) {
+	a := hashOTP("a@example.com", "123456", "secret")
+	if a == hashOTP("b@example.com", "123456", "secret") {
+		t.Fatal("the same code for another email must hash differently")
+	}
+	if a == hashOTP("a@example.com", "123456", "other-secret") {
+		t.Fatal("another secret must hash differently")
+	}
+	if verifyOTP("b@example.com", "123456", a, "secret") {
+		t.Fatal("a hash stored for one email must not verify for another")
+	}
+	if !verifyOTP("a@example.com", "123456", a, "secret") {
+		t.Fatal("the right email and code must verify")
+	}
+}
+
+func TestResendKeepsTheAttemptCounter(t *testing.T) {
+	repo := newOTPRepoTestDouble()
+	svc := NewService(repo, &otpSenderTestDouble{}, otpTestConfig())
+	ctx := context.Background()
+
+	if err := svc.SendRegisterOTP(ctx, "jane@example.com", "App"); err != nil {
+		t.Fatal(err)
+	}
+	repo.otp["jane@example.com"] = hashOTP("jane@example.com", "123456", "secret")
+	if err := svc.VerifyRegisterOTP(ctx, "jane@example.com", "000000"); err == nil {
+		t.Fatal("a wrong code must fail")
+	}
+	if err := svc.SendRegisterOTP(ctx, "jane@example.com", "App"); err != nil {
+		t.Fatal(err)
+	}
+	if repo.attempts["jane@example.com"] != 1 {
+		t.Fatalf("attempts after a resend = %d, want 1 carried over", repo.attempts["jane@example.com"])
+	}
+}
+
+func TestExhaustedAttemptsSurviveTheLockoutSoANewCodeGetsNoFreshGuesses(t *testing.T) {
+	repo := newOTPRepoTestDouble()
+	svc := NewService(repo, &otpSenderTestDouble{}, otpTestConfig()) // MaxAttempts: 2
+	ctx := context.Background()
+	repo.otp["jane@example.com"] = hashOTP("jane@example.com", "123456", "secret")
+
+	for i := 0; i < 2; i++ {
+		_ = svc.VerifyRegisterOTP(ctx, "jane@example.com", "000000")
+	}
+	if _, ok := repo.otp["jane@example.com"]; ok {
+		t.Fatal("the code must be burned at the limit")
+	}
+	if err := svc.SendRegisterOTP(ctx, "jane@example.com", "App"); err != nil {
+		t.Fatal(err)
+	}
+	right := hashOTP("jane@example.com", "123456", "secret")
+	repo.otp["jane@example.com"] = right
+	if err := svc.VerifyRegisterOTP(ctx, "jane@example.com", "123456"); !errors.Is(err, domainotp.ErrTooManyAttempt) {
+		t.Fatalf("err = %v, want ErrTooManyAttempt even for the right code", err)
 	}
 }

@@ -37,8 +37,8 @@ func validConfig() Config {
 		AppName: "test-app",
 		JWTKey:  testJWTKey,
 	}
-	cfg.OTP.Secret = "fake-otp-secret"
-	cfg.Reset.Secret = "fake-reset-secret"
+	cfg.OTP.Secret = "fake-otp-secret-0123456789-abcdef-0123456789"
+	cfg.Reset.Secret = "fake-reset-secret-0123456789-abcdef-0123456789"
 	return cfg.withDefaults()
 }
 
@@ -229,13 +229,13 @@ func TestConfigFromEnvReadsLegacyNames(t *testing.T) {
 		"LOGIN_BLOCK_DURATION_SECONDS": "700",
 		"REGISTER_RATE_LIMIT":          "9",
 		"REGISTER_RATE_WINDOW_SECONDS": "90",
-		"OTP_SECRET":                   "fake-otp-secret",
+		"OTP_SECRET":                   "fake-otp-secret-0123456789-abcdef-0123456789",
 		"OTP_TTL_SECONDS":              "200",
 		"OTP_COOLDOWN_SECONDS":         "30",
 		"OTP_RATE_LIMIT":               "4",
 		"OTP_RATE_WINDOW_SECONDS":      "400",
 		"OTP_MAX_ATTEMPTS":             "3",
-		"RESET_SECRET":                 "fake-reset-secret",
+		"RESET_SECRET":                 "fake-reset-secret-0123456789-abcdef-0123456789",
 		"RESET_TTL_SECONDS":            "600",
 		"RESET_COOLDOWN_SECONDS":       "45",
 		"RESET_RATE_LIMIT":             "6",
@@ -271,11 +271,11 @@ func TestConfigFromEnvReadsLegacyNames(t *testing.T) {
 	if cfg.Register != (config.RateLimit{Limit: 9, Window: 90 * time.Second}) {
 		t.Fatalf("unexpected register limit %+v", cfg.Register)
 	}
-	wantOTP := config.OTPConfig{TTL: 200 * time.Second, Cooldown: 30 * time.Second, RateLimit: 4, RateWindow: 400 * time.Second, MaxAttempts: 3, Secret: "fake-otp-secret"} //nolint:gosec // fake test secret
+	wantOTP := config.OTPConfig{TTL: 200 * time.Second, Cooldown: 30 * time.Second, RateLimit: 4, RateWindow: 400 * time.Second, MaxAttempts: 3, Secret: "fake-otp-secret-0123456789-abcdef-0123456789"} //nolint:gosec // fake test secret
 	if cfg.OTP != wantOTP {
 		t.Fatalf("unexpected OTP config %+v", cfg.OTP)
 	}
-	wantReset := config.PasswordResetConfig{TTL: 600 * time.Second, Cooldown: 45 * time.Second, RateLimit: 6, RateWindow: 1200 * time.Second, Secret: "fake-reset-secret", URLTemplate: "https://example.com/reset?token={token}"} //nolint:gosec // fake test secret
+	wantReset := config.PasswordResetConfig{TTL: 600 * time.Second, Cooldown: 45 * time.Second, RateLimit: 6, RateWindow: 1200 * time.Second, Secret: "fake-reset-secret-0123456789-abcdef-0123456789", URLTemplate: "https://example.com/reset?token={token}"} //nolint:gosec // fake test secret
 	if cfg.Reset != wantReset {
 		t.Fatalf("unexpected reset config %+v", cfg.Reset)
 	}
@@ -294,7 +294,7 @@ func TestConfigFromEnvPrefersDurationStrings(t *testing.T) {
 	t.Setenv("OTP_RATE_WINDOW", "10m")
 	t.Setenv("OTP_MAX_ATTEMPTS", "3")
 	t.Setenv("OTP_RATE_LIMIT", "9")
-	t.Setenv("OTP_SECRET", " fake-otp-secret ")
+	t.Setenv("OTP_SECRET", " fake-otp-secret-0123456789-abcdef-0123456789 ")
 	t.Setenv("RESET_TTL_SECONDS", "900")
 	t.Setenv("RESET_TTL", "20m")
 	t.Setenv("RESET_COOLDOWN_SECONDS", "30")
@@ -302,7 +302,7 @@ func TestConfigFromEnvPrefersDurationStrings(t *testing.T) {
 	t.Setenv("RESET_RATE_WINDOW_SECONDS", "30")
 	t.Setenv("RESET_RATE_WINDOW", "30m")
 	t.Setenv("RESET_RATE_LIMIT", "7")
-	t.Setenv("RESET_SECRET", " fake-reset-secret ")
+	t.Setenv("RESET_SECRET", " fake-reset-secret-0123456789-abcdef-0123456789 ")
 	t.Setenv("PERMISSION_CACHE_TTL_SECONDS", "120")
 	t.Setenv("PERMISSION_CACHE_TTL", "10m")
 
@@ -311,13 +311,13 @@ func TestConfigFromEnvPrefersDurationStrings(t *testing.T) {
 	if cfg.OTP.TTL != 7*time.Minute || cfg.OTP.Cooldown != 90*time.Second || cfg.OTP.RateWindow != 10*time.Minute {
 		t.Fatalf("unexpected OTP durations: %+v", cfg.OTP)
 	}
-	if cfg.OTP.MaxAttempts != 3 || cfg.OTP.RateLimit != 9 || cfg.OTP.Secret != "fake-otp-secret" {
+	if cfg.OTP.MaxAttempts != 3 || cfg.OTP.RateLimit != 9 || cfg.OTP.Secret != "fake-otp-secret-0123456789-abcdef-0123456789" {
 		t.Fatalf("unexpected OTP scalars: %+v", cfg.OTP)
 	}
 	if cfg.Reset.TTL != 20*time.Minute || cfg.Reset.Cooldown != 2*time.Minute || cfg.Reset.RateWindow != 30*time.Minute {
 		t.Fatalf("unexpected reset durations: %+v", cfg.Reset)
 	}
-	if cfg.Reset.RateLimit != 7 || cfg.Reset.Secret != "fake-reset-secret" {
+	if cfg.Reset.RateLimit != 7 || cfg.Reset.Secret != "fake-reset-secret-0123456789-abcdef-0123456789" {
 		t.Fatalf("unexpected reset scalars: %+v", cfg.Reset)
 	}
 	if cfg.PermissionCacheTTL != 10*time.Minute {
@@ -409,8 +409,8 @@ func TestConfigFromEnvPermissionCacheTTL(t *testing.T) {
 func TestConfigPrintingRedactsSecrets(t *testing.T) {
 	cfg := validConfig()
 	cfg.JWTKey = "jwt-secret-value-0123456789abcdefghij"
-	cfg.OTP.Secret = "otp-secret-value-xyz"
-	cfg.Reset.Secret = "reset-secret-value-xyz"
+	cfg.OTP.Secret = "otp-secret-value-xyz-0123456789-abcdef-0123"
+	cfg.Reset.Secret = "reset-secret-value-xyz-0123456789-abcdef-0123"
 	out := fmt.Sprintf("%v %+v %#v %s", cfg, cfg, cfg, &cfg)
 	for _, secret := range []string{cfg.JWTKey, cfg.OTP.Secret, cfg.Reset.Secret} {
 		if strings.Contains(out, secret) {
@@ -484,5 +484,37 @@ func TestNoBuiltInSecretLiterals(t *testing.T) {
 				t.Errorf("%s contains the built-in secret literal %q", path, needle)
 			}
 		}
+	}
+}
+
+func TestValidateRejectsShortOTPAndResetSecrets(t *testing.T) {
+	cfg := validConfig()
+	cfg.OTP.Secret = strings.Repeat("a", 31)
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "OTP.Secret") {
+		t.Fatalf("31-character OTP.Secret: err = %v", err)
+	}
+	cfg = validConfig()
+	cfg.Reset.Secret = strings.Repeat("a", 31)
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "Reset.Secret") {
+		t.Fatalf("31-character Reset.Secret: err = %v", err)
+	}
+	cfg = validConfig()
+	cfg.OTP.Secret, cfg.Reset.Secret = strings.Repeat("a", 32), strings.Repeat("b", 32)
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("32-character secrets: %v", err)
+	}
+	// Without Redis and Mailer the secrets are unused, but one that is set must
+	// still be long enough.
+	cfg = validConfig()
+	cfg.Redis, cfg.Mailer, cfg.OTP.Secret = nil, nil, "short"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("a short OTP.Secret must be rejected even when unused")
+	}
+}
+
+func TestAuthRateDefaults(t *testing.T) {
+	cfg := validConfig()
+	if cfg.AuthRate.Limit != 30 || cfg.AuthRate.Window != time.Minute {
+		t.Fatalf("AuthRate = %+v, want 30 per minute", cfg.AuthRate)
 	}
 }

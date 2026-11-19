@@ -128,3 +128,18 @@ func TestLoginFailsWhenTheSessionCannotBeStored(t *testing.T) {
 		t.Fatalf("tokens must not be returned: %s", rec.Body.String())
 	}
 }
+
+func TestLoginFailsClosedWhenTheLimiterIsDownAndTheOptionIsOn(t *testing.T) {
+	for _, closed := range []bool{false, true} {
+		opts := testHandlerOptions()
+		opts.Settings.FailClosedLimiters = closed
+		handler := New(&userServiceTestDouble{loginErr: domainuser.ErrInvalidCredentials}, nil, &loginLimiterUserHandlerTestDouble{isBlockedErr: errors.New("redis down")}, nil, opts)
+		ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/login", `{"identifier":"jane@example.com","password":"secret123"}`, nil)
+		handler.Login(ctx)
+		want := http.StatusBadRequest // fail open: the login runs and fails on credentials
+		if closed {
+			want = http.StatusServiceUnavailable
+		}
+		assertUserHandlerStatus(t, rec, want)
+	}
+}

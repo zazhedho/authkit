@@ -38,6 +38,9 @@ type Settings struct {
 	// SessionMaxLifetime is the absolute cap on a session, counted from login
 	// and not extended by refresh; zero means no cap.
 	SessionMaxLifetime time.Duration
+	// FailClosedLimiters rejects a request when the login limiter cannot be
+	// reached instead of letting it through.
+	FailClosedLimiters bool
 	OTPCooldown        time.Duration
 	// ResetCooldown is the resend cooldown reported by the forgot-password
 	// email flow.

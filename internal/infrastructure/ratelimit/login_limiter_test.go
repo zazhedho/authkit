@@ -2,12 +2,20 @@ package ratelimit
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
-	redismock "github.com/go-redis/redismock/v9"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
+
+func newLimiterRedis(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	return mr, client
+}
 
 func TestNewRedisLoginLimiterReturnsNilForInvalidConfig(t *testing.T) {
 	if got := NewRedisLoginLimiter(nil, 5, time.Minute, time.Minute); got != nil {
@@ -28,51 +36,48 @@ func TestRedisLoginLimiterKeyBuilders(t *testing.T) {
 	}
 }
 
-func TestRedisLoginLimiterUsesRedisForBlockingAndReset(t *testing.T) {
-	client, mock := redismock.NewClientMock()
+func TestRedisLoginLimiterBlocksAtTheLimitAndResets(t *testing.T) {
+	mr, client := newLimiterRedis(t)
 	limiter := NewRedisLoginLimiter(client, 3, time.Minute, 5*time.Minute)
 	ctx := context.Background()
 
-	mock.ExpectTTL("login_block:client-1").SetVal(30 * time.Second)
-	blocked, ttl, err := limiter.IsBlocked(ctx, "client-1")
-	if err != nil || !blocked || ttl != 30*time.Second {
-		t.Fatalf("is blocked: blocked=%v ttl=%v err=%v", blocked, ttl, err)
+	for i := 1; i <= 2; i++ {
+		blocked, ttl, err := limiter.RegisterFailure(ctx, "client-1")
+		if err != nil || blocked || ttl <= 0 || ttl > time.Minute {
+			t.Fatalf("failure %d: blocked=%v ttl=%v err=%v", i, blocked, ttl, err)
+		}
 	}
-
-	mock.ExpectDel("login_attempts:client-1").SetVal(1)
-	mock.ExpectDel("login_block:client-1").SetVal(1)
-	if err := limiter.Reset(ctx, "client-1"); err != nil {
-		t.Fatalf("reset: %v", err)
+	// The window was started together with the first count.
+	if got := mr.TTL("login_attempts:client-1"); got <= 0 || got > time.Minute {
+		t.Fatalf("attempt TTL = %v", got)
 	}
-
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("redis expectations: %v", err)
-	}
-}
-
-func TestRedisLoginLimiterRegisterFailure(t *testing.T) {
-	client, mock := redismock.NewClientMock()
-	limiter := NewRedisLoginLimiter(client, 3, time.Minute, 5*time.Minute)
-	ctx := context.Background()
-
-	mock.ExpectIncr("login_attempts:client-1").SetVal(1)
-	mock.ExpectExpire("login_attempts:client-1", time.Minute).SetVal(true)
-	mock.ExpectTTL("login_attempts:client-1").SetVal(time.Minute)
 	blocked, ttl, err := limiter.RegisterFailure(ctx, "client-1")
-	if err != nil || blocked || ttl != time.Minute {
-		t.Fatalf("first failure: blocked=%v ttl=%v err=%v", blocked, ttl, err)
-	}
-
-	mock.ExpectIncr("login_attempts:client-1").SetVal(3)
-	mock.ExpectSet("login_block:client-1", "1", 5*time.Minute).SetVal("OK")
-	mock.ExpectDel("login_attempts:client-1").SetVal(1)
-	blocked, ttl, err = limiter.RegisterFailure(ctx, "client-1")
 	if err != nil || !blocked || ttl != 5*time.Minute {
 		t.Fatalf("limit failure: blocked=%v ttl=%v err=%v", blocked, ttl, err)
 	}
+	if mr.Exists("login_attempts:client-1") {
+		t.Fatal("the attempt counter must be cleared once blocked")
+	}
+	if isBlocked, ttl, err := limiter.IsBlocked(ctx, "client-1"); err != nil || !isBlocked || ttl <= 0 {
+		t.Fatalf("IsBlocked: %v %v %v", isBlocked, ttl, err)
+	}
+	if err := limiter.Reset(ctx, "client-1"); err != nil {
+		t.Fatal(err)
+	}
+	if isBlocked, _, err := limiter.IsBlocked(ctx, "client-1"); err != nil || isBlocked {
+		t.Fatalf("after reset: blocked=%v err=%v", isBlocked, err)
+	}
+}
 
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("redis expectations: %v", err)
+func TestRedisLoginLimiterWindowExpires(t *testing.T) {
+	mr, client := newLimiterRedis(t)
+	limiter := NewRedisLoginLimiter(client, 3, time.Minute, 5*time.Minute)
+	ctx := context.Background()
+	_, _, _ = limiter.RegisterFailure(ctx, "k")
+	_, _, _ = limiter.RegisterFailure(ctx, "k")
+	mr.FastForward(2 * time.Minute)
+	if blocked, _, err := limiter.RegisterFailure(ctx, "k"); err != nil || blocked {
+		t.Fatalf("a failure after the window must start a new count: blocked=%v err=%v", blocked, err)
 	}
 }
 
@@ -89,49 +94,16 @@ func TestRedisLoginLimiterNilReceiverAndRedisErrors(t *testing.T) {
 		t.Fatalf("nil reset: %v", err)
 	}
 
-	client, mock := redismock.NewClientMock()
+	mr, client := newLimiterRedis(t)
 	limiter := NewRedisLoginLimiter(client, 2, time.Minute, 5*time.Minute)
-	redisErr := errors.New("redis down")
-
-	mock.ExpectTTL("login_block:client-1").SetErr(redisErr)
-	if _, _, err := limiter.IsBlocked(ctx, "client-1"); err == nil {
-		t.Fatal("expected ttl error")
+	mr.Close()
+	if _, _, err := limiter.IsBlocked(ctx, "c"); err == nil {
+		t.Error("IsBlocked: expected an error with Redis down")
 	}
-
-	mock.ExpectTTL("login_block:client-1").SetVal(0)
-	if blocked, ttl, err := limiter.IsBlocked(ctx, "client-1"); err != nil || blocked || ttl != 0 {
-		t.Fatalf("expected not blocked, blocked=%v ttl=%v err=%v", blocked, ttl, err)
+	if _, _, err := limiter.RegisterFailure(ctx, "c"); err == nil {
+		t.Error("RegisterFailure: expected an error with Redis down")
 	}
-
-	mock.ExpectIncr("login_attempts:client-1").SetErr(redisErr)
-	if _, _, err := limiter.RegisterFailure(ctx, "client-1"); err == nil {
-		t.Fatal("expected incr error")
-	}
-
-	mock.ExpectIncr("login_attempts:client-1").SetVal(1)
-	mock.ExpectExpire("login_attempts:client-1", time.Minute).SetErr(redisErr)
-	if _, _, err := limiter.RegisterFailure(ctx, "client-1"); err == nil {
-		t.Fatal("expected expire error")
-	}
-
-	mock.ExpectIncr("login_attempts:client-1").SetVal(2)
-	mock.ExpectSet("login_block:client-1", "1", 5*time.Minute).SetErr(redisErr)
-	if _, _, err := limiter.RegisterFailure(ctx, "client-1"); err == nil {
-		t.Fatal("expected set block error")
-	}
-
-	mock.ExpectDel("login_attempts:client-1").SetErr(redisErr)
-	if err := limiter.Reset(ctx, "client-1"); err == nil {
-		t.Fatal("expected reset attempts error")
-	}
-
-	mock.ExpectDel("login_attempts:client-1").SetVal(0)
-	mock.ExpectDel("login_block:client-1").SetErr(redisErr)
-	if err := limiter.Reset(ctx, "client-1"); err == nil {
-		t.Fatal("expected reset block error")
-	}
-
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("redis expectations: %v", err)
+	if err := limiter.Reset(ctx, "c"); err == nil {
+		t.Error("Reset: expected an error with Redis down")
 	}
 }

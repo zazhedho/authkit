@@ -5,13 +5,16 @@ package authkit
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	httpappconfig "github.com/zazhedho/authkit/internal/handlers/http/appconfig"
 	httpaudit "github.com/zazhedho/authkit/internal/handlers/http/audit"
 	httpmenu "github.com/zazhedho/authkit/internal/handlers/http/menu"
@@ -21,6 +24,7 @@ import (
 	httpsession "github.com/zazhedho/authkit/internal/handlers/http/session"
 	httpuser "github.com/zazhedho/authkit/internal/handlers/http/user"
 	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
+	"github.com/zazhedho/authkit/internal/infrastructure/googleid"
 	"github.com/zazhedho/authkit/internal/infrastructure/ratelimit"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	repositoryappconfig "github.com/zazhedho/authkit/internal/repositories/appconfig"
@@ -65,6 +69,7 @@ type Kit struct {
 	sessionHandler    *httpsession.Handler // nil without Redis
 
 	registerLimiter gin.HandlerFunc
+	authLimiter     gin.HandlerFunc
 }
 
 // startupWarnings returns the warnings New logs for risky configuration.
@@ -117,6 +122,7 @@ func New(cfg Config) (*Kit, error) {
 		DefaultRole:     cfg.DefaultRole,
 		GoogleClientIDs: cfg.GoogleClientIDs,
 		PhoneLogin:      cfg.PhoneLogin,
+		GoogleVerifier:  verifyGoogle,
 		PermissionCache: invalidator,
 	})
 
@@ -135,6 +141,7 @@ func New(cfg Config) (*Kit, error) {
 		sessionRepo = repositorysession.NewRepository(cfg.Redis)
 		sessions := servicesession.NewService(sessionRepo, cfg.RefreshTokenTTL)
 		sessionSvc = sessions
+		userSvc.Sessions = sessions
 		sessionHdlr = httpsession.New(sessions, auditSvc)
 		if cfg.Mailer != nil {
 			otpSvc = serviceotp.NewService(repositoryotp.NewRepository(cfg.Redis), cfg.Mailer, serviceotp.Config(cfg.OTP))
@@ -167,6 +174,7 @@ func New(cfg Config) (*Kit, error) {
 				AccessTTL:          cfg.AccessTokenTTL,
 				RefreshTTL:         cfg.RefreshTokenTTL,
 				SessionMaxLifetime: cfg.SessionMaxLifetime,
+				FailClosedLimiters: cfg.FailClosedLimiters,
 				OTPCooldown:        cfg.OTP.Cooldown,
 				ResetCooldown:      cfg.Reset.Cooldown,
 				Flags:              httpuser.FlagKeys(cfg.Flags),
@@ -179,6 +187,7 @@ func New(cfg Config) (*Kit, error) {
 		auditHandler:      httpaudit.New(auditCore),
 		sessionHandler:    sessionHdlr,
 		registerLimiter:   registerRateLimit(cfg),
+		authLimiter:       authRateLimit(cfg),
 	}, nil
 }
 
@@ -188,14 +197,28 @@ func New(cfg Config) (*Kit, error) {
 // *redis.Client must not reach it wrapped in an interface). Redis failures
 // fail open.
 func registerRateLimit(cfg Config) gin.HandlerFunc {
-	if cfg.Redis == nil || cfg.Register.Limit <= 0 || cfg.Register.Window <= 0 {
+	return ipRateLimit(cfg, "user_register", cfg.Register)
+}
+
+// authRateLimit limits the auth routes that have no limiter of their own.
+func authRateLimit(cfg Config) gin.HandlerFunc {
+	return ipRateLimit(cfg, "user_auth", cfg.AuthRate)
+}
+
+// ipRateLimit is a per-IP limit under its own Redis prefix. It is off without
+// Redis or with a non-positive limit or window (gokit panics on those, and a
+// nil *redis.Client must not reach it wrapped in an interface). A Redis failure
+// lets the request through unless Config.FailClosedLimiters is set.
+func ipRateLimit(cfg Config, prefix string, limit RateLimit) gin.HandlerFunc {
+	if cfg.Redis == nil || limit.Limit <= 0 || limit.Window <= 0 {
 		return func(c *gin.Context) { c.Next() }
 	}
 	return gokit.IPRateLimit(gokit.RateLimitOptions{
-		Redis:  cfg.Redis,
-		Prefix: "user_register",
-		Limit:  cfg.Register.Limit,
-		Window: cfg.Register.Window,
+		Redis:      cfg.Redis,
+		Prefix:     prefix,
+		Limit:      limit.Limit,
+		Window:     limit.Window,
+		FailClosed: cfg.FailClosedLimiters,
 	})
 }
 
@@ -241,3 +264,22 @@ func (k *Kit) IssueAccessToken(userID, name, role string) (string, error) {
 // ScopeFrom returns the scope on ctx. After Auth alone the permission set is
 // empty (Has is false for non-superadmins); Can or LoadPermissions loads it.
 func ScopeFrom(ctx context.Context) Scope { return domainauth.FromContext(ctx) }
+
+// verifyGoogle adapts the offline Google verifier to the user service's port.
+func verifyGoogle(ctx context.Context, idToken string, clientIDs []string) (serviceuser.GoogleIdentity, error) {
+	id, err := googleid.Verify(ctx, idToken, clientIDs)
+	switch {
+	case errors.Is(err, googleid.ErrNotConfigured):
+		return serviceuser.GoogleIdentity{}, domainuser.ErrGoogleNotConfigured
+	case errors.Is(err, googleid.ErrInvalidToken):
+		return serviceuser.GoogleIdentity{}, domainuser.ErrGoogleTokenInvalid
+	case errors.Is(err, googleid.ErrNoEmail):
+		return serviceuser.GoogleIdentity{}, domainuser.ErrGoogleEmailMissing
+	case err != nil:
+		return serviceuser.GoogleIdentity{}, err
+	}
+	return serviceuser.GoogleIdentity{
+		Audience: id.Audience, Email: id.Email, EmailVerified: strconv.FormatBool(id.EmailVerified),
+		Name: id.Name, Picture: id.Picture, Subject: id.Subject,
+	}, nil
+}

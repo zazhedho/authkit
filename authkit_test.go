@@ -2,6 +2,7 @@ package authkit
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -313,6 +314,12 @@ func resetRegisterLimit(mr *miniredis.Miniredis) {
 	}
 }
 
+func otpHMAC(purpose, email, code, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(purpose + email + code))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
 func sha256Hex(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
@@ -332,8 +339,8 @@ func wiringConfig(mailer Mailer) func(*Config) {
 		c.PermissionCacheTTL = 777 * time.Second
 		c.Login = config.LoginLimit{Limit: 2, Window: 33 * time.Second, BlockDuration: 444 * time.Second}
 		c.Register = config.RateLimit{Limit: 2, Window: 55 * time.Second}
-		c.OTP = config.OTPConfig{TTL: 111 * time.Second, Cooldown: 22 * time.Second, RateLimit: 2, RateWindow: 999 * time.Second, MaxAttempts: 2, Secret: "otp-secret-fake"} //nolint:gosec // fake test secret
-		c.Reset = config.PasswordResetConfig{TTL: 333 * time.Second, Cooldown: 44 * time.Second, RateLimit: 3, RateWindow: 888 * time.Second, Secret: "reset-secret-fake", URLTemplate: "https://app.example.test/reset?token={token}"}
+		c.OTP = config.OTPConfig{TTL: 111 * time.Second, Cooldown: 22 * time.Second, RateLimit: 2, RateWindow: 999 * time.Second, MaxAttempts: 2, Secret: "otp-secret-fake-0123456789-abcdef-0123456789"} //nolint:gosec // fake test secret
+		c.Reset = config.PasswordResetConfig{TTL: 333 * time.Second, Cooldown: 44 * time.Second, RateLimit: 3, RateWindow: 888 * time.Second, Secret: "reset-secret-fake-0123456789-abcdef-0123456789", URLTemplate: "https://app.example.test/reset?token={token}"}
 		c.Flags = config.FlagKeys{PublicRegistration: "wiring.registration", RegisterOTP: "wiring.otp", PasswordResetEmail: "wiring.reset"}
 	}
 }
@@ -490,7 +497,7 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := sha256Hex(sent.code + "otp-secret-fake"); stored != want {
+		if want := otpHMAC("register", "otp1@example.test", sent.code, "otp-secret-fake-0123456789-abcdef-0123456789"); stored != want {
 			t.Errorf("stored OTP hash does not use OTP.Secret")
 		}
 		for key, want := range map[string]time.Duration{
@@ -572,7 +579,7 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 		if want := "https://app.example.test/reset?token=" + sent.token; sent.url != want {
 			t.Errorf("url = %q, want %q (Reset.URLTemplate)", sent.url, want)
 		}
-		tokenKey := "reset:token:" + sha256Hex(sent.token+"reset-secret-fake")
+		tokenKey := "reset:token:" + sha256Hex(sent.token+"reset-secret-fake-0123456789-abcdef-0123456789")
 		if got := mr.TTL(tokenKey); got != 333*time.Second {
 			t.Errorf("TTL(token key, Reset.Secret) = %v, want 333s", got)
 		}
@@ -768,5 +775,17 @@ func TestAuthRequiresARedisSessionForLoginTokens(t *testing.T) {
 	// The tooling token carries no session and passes.
 	if code := do(engine, http.MethodGet, "/who", tokenFor(t, kit, "u1", "viewer")).Code; code != http.StatusOK {
 		t.Fatalf("tooling token: got %d, want 200", code)
+	}
+}
+
+func TestAuthRoutesShareAPerIPLimit(t *testing.T) {
+	for _, route := range []string{"/api/user/google/login", "/api/user/refresh-token", "/api/user/forgot-password", "/api/user/reset-password"} {
+		_, c := newMiniRedis(t)
+		k, _ := newTestKit(t, func(cfg *Config) { cfg.Redis = c; cfg.AuthRate = RateLimit{Limit: 1, Window: time.Minute} })
+		e := mountedEngine(t, k)
+		doJSON(e, http.MethodPost, route, "", `{}`)
+		if rec, _ := doJSON(e, http.MethodPost, route, "", `{}`); rec.Code != http.StatusTooManyRequests {
+			t.Errorf("%s: second request got %d, want 429", route, rec.Code)
+		}
 	}
 }
