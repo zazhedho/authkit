@@ -1,26 +1,39 @@
 # authkit
 
-Users, authentication and RBAC for Go services built on gin and gorm, extracted
-from an existing project into a module you import. It provides registration and
-login (password and Google), JWT access and refresh tokens, optional registration
-OTP and password reset e-mail, roles, permissions, menus, runtime app
-configuration, audit trails, an HTTP route set, and the middleware to protect
-your own routes. Database tables ship as embedded migrations.
+Users, JWT authentication, sessions, RBAC, menus, audit trails and runtime app configuration for gin + GORM/Postgres services, as one importable Go module.
 
-Everything is imported from one path, `github.com/zazhedho/authkit`; all
-implementation lives under `internal/` and is not importable. Upgrading from
-v0.1.x? See "Upgrading from v0.1.x" at the end.
+## Features
 
-authkit builds on two sibling modules: [`github.com/zazhedho/gokit`](https://github.com/zazhedho/gokit)
-(request ids, rate limiting, response helpers, generic repositories) and
-[`github.com/zazhedho/logus`](https://github.com/zazhedho/logus) (logging). Read the "Security defaults"
-section of gokit's README (trusted proxies, fail-open rate limiting, `limit=-1`,
-CORS) before exposing the routes; it applies to authkit unchanged.
+- Registration and login with email or phone and password, plus Google sign-in.
+- HS256 JWT access and refresh tokens with rotation, logout and a token blacklist.
+- Optional registration OTP and password reset by e-mail (Redis and SMTP).
+- Login and register rate limiting, and Redis-backed session management.
+- Roles, permissions and menus, with middleware to protect your own routes.
+- User impersonation for support staff, with the original identity audited.
+- Audit trail for every change, and an `AuditWriter` for your own handlers.
+- Runtime feature flags stored in the database (`app_configs`).
+- Embedded SQL migrations with their own version table, and a SQL generator for new modules.
+- A ready-made HTTP route set, mounted on any gin router group.
 
-Requires PostgreSQL 13 or newer. Redis and a mailer are optional. Read
-"Security notes and known limitations" below before deploying.
+## Install
+
+```sh
+go get github.com/zazhedho/authkit
+```
+
+Requires Go 1.27 (the `go` line of `go.mod`).
+
+| Dependency | Needed for |
+|---|---|
+| PostgreSQL 13 or newer (required) | all data; migrations use `gen_random_uuid()` |
+| Redis (`*redis.Client`, optional) | login limiter, register limiter, sessions, permission cache, OTP, e-mail password reset |
+| SMTP (optional) | OTP and password reset e-mail; with Redis only, those two stay inactive |
+
+Without Redis the module still works, but there is no login or register rate limiting, no session routes, and no OTP or e-mail password reset. `New` logs a warning in that case.
 
 ## Quick start
+
+A complete service with Postgres only. Set `APP_NAME`, `JWT_KEY` (at least 32 characters) and `DATABASE_URL`, and optionally `APP_ENV`.
 
 ```go
 package main
@@ -28,32 +41,29 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 	"github.com/zazhedho/authkit"
+	"github.com/zazhedho/gokit"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func main() {
-	db, err := gorm.Open(postgres.Open("postgres://user:password@localhost:5432/app?sslmode=disable"), &gorm.Config{})
-	if err != nil {
+	cfg := authkit.ConfigFromEnv()
+	// ConfigFromEnv reads through gokit and falls back to defaults on values it
+	// cannot parse; EnvErrors reports them so a typo does not go unnoticed.
+	if err := gokit.EnvErrors(); err != nil {
 		log.Fatal(err)
 	}
 
-	cfg := authkit.ConfigFromEnv() // optional: fill the Config yourself instead
-	cfg.DB = db
-	cfg.Redis = redis.NewClient(&redis.Options{Addr: "localhost:6379"}) // optional
-	port, _ := strconv.Atoi(os.Getenv("SMTP_PORT"))
-	if m, err := authkit.NewBrevoMailer(authkit.BrevoConfig{ // optional
-		Host: os.Getenv("SMTP_HOST"), Port: port, User: os.Getenv("SMTP_USER"),
-		Pass: os.Getenv("SMTP_PASS"), From: os.Getenv("SMTP_FROM"),
-	}); err == nil {
-		cfg.Mailer = m
+	db, err := gorm.Open(postgres.Open(os.Getenv("DATABASE_URL")), &gorm.Config{})
+	if err != nil {
+		log.Fatal(err)
 	}
+	cfg.DB = db
 
 	kit, err := authkit.New(cfg) // validates the config; never touches the database
 	if err != nil {
@@ -64,146 +74,395 @@ func main() {
 	}
 
 	r := gin.New()
-	// Set your reverse proxy CIDRs instead when behind a proxy; rate limits and
-	// audit IPs depend on it.
-	r.SetTrustedProxies(nil)
-	kit.Mount(r.Group("/api"))
+	r.Use(gin.Recovery(), authkit.RequestLogger())
+	// The limiters and audit trail use the client IP; see Security notes.
+	if err := r.SetTrustedProxies(nil); err != nil {
+		log.Fatal(err)
+	}
+
+	api := r.Group("/api")
+	kit.Mount(api) // /api/user/login, /api/roles, ...
+
+	// Your own routes: any signed-in user, then one that holds trips:list.
+	api.GET("/me", kit.Auth(), func(c *gin.Context) {
+		scope := authkit.ScopeFrom(c.Request.Context())
+		c.JSON(http.StatusOK, gin.H{"id": scope.UserID, "role": scope.Role})
+	})
+	api.GET("/trips", kit.Auth(), kit.Can("trips", "list"), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"trips": []string{}})
+	})
+
 	log.Fatal(r.Run(":8080"))
 }
 ```
 
-Order matters: build the `Kit`, run `Migrate`, then run your own migrations
-(they may reference `users` and `roles`), then `Mount`.
+Order matters: `New`, then `Migrate`, then your own migrations (they may reference `users` and `roles`), then `Mount`. Call `Mount` once per group; mounting twice makes gin panic on duplicate routes.
 
-## Protecting your own routes
+No user is seeded. Register one, then promote it:
 
-Routes, as a fragment of your `main` (after `kit.Mount`):
-
-```go
-api := r.Group("/api")
-
-// Any authenticated user.
-api.GET("/trips", kit.Auth(), listTrips)
-
-// Authenticated and holding the (resource, action) permission.
-api.POST("/trips", kit.Auth(), kit.Can("trips", "create"), createTrip)
-
-// Authenticated, with the permissions loaded but none required: the handler
-// branches on scope.Has (for example a "list_any" permission).
-api.GET("/files", kit.Auth(), kit.LoadPermissions(), listFiles)
-
-// Authenticated and one of the given roles.
-api.GET("/reports", kit.Auth(), kit.Role("admin", "staff"), reports)
+```sql
+UPDATE users
+SET role = 'superadmin', role_id = (SELECT id FROM roles WHERE name = 'superadmin')
+WHERE email = 'you@example.com';
 ```
 
-A handler, as a complete function (add `net/http`, `github.com/gin-gonic/gin`
-and `github.com/zazhedho/authkit` to your imports):
+The superadmin passes every `Can` and `Role` check, so `/api/trips` works for it even before a `trips` permission exists; see [Migrations](#migrations-and-module-seed) to add one.
+
+Add Redis and a mailer to the `Config` before `New`:
 
 ```go
-func listTrips(c *gin.Context) {
-	scope := authkit.ScopeFrom(c.Request.Context()) // UserID, Username, Role, impersonation fields
-	// After kit.Auth() alone the permission set is EMPTY, so scope.Has is false
-	// for every non-superadmin. kit.Can(...) or kit.LoadPermissions() loads them; behind it,
-	// scope.Has("trips", "create") reflects the user's real grants.
-	c.JSON(http.StatusOK, gin.H{"user": scope.UserID, "role": scope.Role})
-}
-```
+package main
 
-`Can`, `LoadPermissions` and `Role` must come after `Auth`. Superadmin bypasses
-`Can` and `Role`, and passes every `Has` check. `LoadPermissions` fills the
-scope's permissions like `Can` does (403 for a deleted user, 500 on a lookup
-error) but never rejects a user for lacking one. `ScopeFrom` returns identity
-and role after `Auth`; permissions are only populated by `Can` or
-`LoadPermissions`. Permissions are
-plain rows (`resource`, `action`); add yours with `cmd/module-seed` (see
-Extending). `kit.Audit()` and `kit.AppConfig()` expose the audit and app-config
-services (`authkit.AuditService`, `authkit.AppConfigService`).
-`kit.IssueAccessToken(userID, name, role)` issues a normal access token for a
-user through the Kit's own token service; it is meant for tests and tooling.
+import (
+	"github.com/redis/go-redis/v9"
+	"github.com/zazhedho/authkit"
+)
 
-## Public types
+func withRedisAndMailer(cfg authkit.Config) (authkit.Config, error) {
+	cfg.Redis = redis.NewClient(&redis.Options{Addr: "localhost:6379"})
 
-Besides `Kit` and `Config`, the root package exports these helpers (all in
-`types.go`).
-
-`Scope`, `NewScope`, `WithScope`: the authenticated identity of a request.
-
-```go
-ctx := authkit.WithScope(context.Background(),
-	authkit.NewScope("user-1", "Ada", authkit.RoleStaff, []string{"trips:view"}))
-scope := authkit.ScopeFrom(ctx)
-ok := scope.Has("trips", "view") // true
-```
-
-`AuditEvent`, `Action*`, `Status*`, `AuditService`, `AuditWriter`,
-`NewAuditWriter`: write audit trail entries from your own handlers.
-
-```go
-audit := authkit.NewAuditWriter(kit.Audit(), "TripHandler")
-
-func createTrip(c *gin.Context) {
-	// ... create the trip ...
-	audit.WriteAudit(c, authkit.AuditEvent{
-		Action:   authkit.ActionCreate,
-		Resource: "trips",
-		Status:   authkit.StatusSuccess,
+	mailer, err := authkit.NewBrevoMailer(authkit.BrevoConfig{
+		Host: "smtp-relay.brevo.com", // Host, Pass and From are required
+		Port: 587,                    // default 587
+		User: "login",                // default "apikey"
+		Pass: "smtp-key",
+		From: "no-reply@example.com",
 	})
+	if err != nil {
+		return cfg, err
+	}
+	cfg.Mailer = mailer
+
+	// Required once both Redis and a Mailer are set. Long random values.
+	cfg.OTP.Secret = "..."
+	cfg.Reset.Secret = "..."
+	return cfg, nil
 }
+
+func main() {}
 ```
 
-`RequestLogger`: a gin middleware that logs every request.
+## Usage
+
+### Authentication flows
+
+Send the access token as `Authorization: Bearer <token>`. Token responses carry `access_token`, `token_type`, `expires_in_hours` and, where a refresh token is issued, `refresh_token` and `refresh_expires_in_hours`.
+
+- **Register.** `POST /user/register` with `name`, `email`, `phone`, `password` (8 to 64 characters with a lowercase letter, an uppercase letter, a digit and a symbol) and `otp_code`. The user gets `Config.DefaultRole`. It is allowed while the `auth.public_registration_enabled` flag is on (the default); otherwise it answers 403. `GET /user/register/status` reports `enabled`, `otp_enabled` and `otp_cooldown`.
+- **Registration OTP.** When the `auth.register_otp_enabled` flag is on, call `POST /user/register/otp/send` with `email` first; the 6 digit code is then required as `otp_code` on register. Needs Redis, a mailer and `OTP.Secret`; otherwise those routes answer 503.
+- **Login.** `POST /user/login` with `identifier` (e-mail or phone, or the older `email` field) and `password`. Failures are counted per client IP and identifier; after `Login.Limit` failures within `Login.Window` the pair is blocked for `Login.BlockDuration` and gets 429 with `Retry-After`. Needs Redis.
+- **Google.** `POST /user/google/login` with `id_token`. Requires `GoogleClientIDs`, otherwise 503. A first-time Google user is registered only while public registration is on.
+- **Refresh.** `POST /user/refresh-token` with `refresh_token` issues a new pair and blacklists the old refresh token. With Redis the token must belong to a live session.
+- **Logout.** `POST /user/logout` blacklists the presented access token and destroys its session.
+- **Passwords.** `PUT /user/change/password` takes `current_password` and `new_password`. With the `auth.password_reset_email_enabled` flag on, `POST /user/forgot-password` with `email` mails a reset token (Redis, a mailer and `Reset.Secret` required) and always answers success, so it does not reveal which e-mails exist. `POST /user/reset-password` takes `token` and `new_password` and ends all of the user's sessions. If `Reset.URLTemplate` is set, the mail links to it: `{token}` is replaced, otherwise `?token=` (or `&token=`) is appended.
+- **Sessions** (Redis only). `GET /user/sessions` lists the caller's sessions, `DELETE /user/session/:session_id` revokes one, `POST /user/sessions/revoke-others` revokes all but the current one.
+- **Admin-created users.** `POST /user` (`users:create`) takes a `role`; assigning one needs `users:assign_role`.
+
+### Protecting routes
 
 ```go
-r.Use(authkit.RequestLogger())
+package main
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/zazhedho/authkit"
+)
+
+func registerRoutes(api gin.IRouter, kit *authkit.Kit) {
+	// Any signed-in user.
+	api.GET("/trips/mine", kit.Auth(), listMine)
+
+	// Signed in and holding the trips:create permission.
+	api.POST("/trips", kit.Auth(), kit.Can("trips", "create"), createTrip)
+
+	// Signed in and one of these roles.
+	api.GET("/reports", kit.Auth(), kit.Role(authkit.RoleAdmin, authkit.RoleStaff), reports)
+
+	// Permissions loaded but none required: the handler decides.
+	api.GET("/trips", kit.Auth(), kit.LoadPermissions(), listTrips)
+}
+
+// listTrips shows the caller's trips, or everyone's with trips:list_any.
+func listTrips(c *gin.Context) {
+	scope := authkit.ScopeFrom(c.Request.Context())
+	if scope.Has("trips", "list_any") {
+		c.JSON(http.StatusOK, gin.H{"scope": "all"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"scope": "own", "user_id": scope.UserID})
+}
+
+func listMine(c *gin.Context)   { c.Status(http.StatusNoContent) }
+func createTrip(c *gin.Context) { c.Status(http.StatusCreated) }
+func reports(c *gin.Context)    { c.Status(http.StatusNoContent) }
+
+func main() {}
 ```
 
-`RoleSuperAdmin`, `RoleAdmin`, `RoleStaff`, `RoleMember`, `RoleViewer`: the
-built-in role names.
+- `Can`, `LoadPermissions` and `Role` must come after `Auth`.
+- `Auth` verifies the token and checks it against the blacklist. After `Auth` alone, `ScopeFrom(ctx)` carries `UserID`, `Username`, `Role` and the impersonation fields, but an empty permission set, so `Has` is false for everyone except superadmin.
+- `Can(resource, action)` loads the permissions and answers 403 without the permission. `LoadPermissions` loads them and never rejects for a missing permission, for handlers that branch on `Has` (own data versus a `<action>_any` permission).
+- The superadmin role bypasses `Can` and `Role`, and `Has` is always true for it.
+- Permissions are plain rows of (`resource`, `action`). `kit.Can("trips", "create")` checks `trips:create`. Add your own with `cmd/module-seed`.
+- Permission checks for non-superadmin users are cached in Redis for `PermissionCacheTTL`. Grants changed through the API invalidate the cache; changes made directly in SQL can be stale for up to that long.
+- `Scope`, `NewScope` and `WithScope` build a scope by hand, for tests: `authkit.WithScope(ctx, authkit.NewScope("u1", "Ada", authkit.RoleStaff, []string{"trips:view"}))`.
+- `kit.IssueAccessToken(userID, name, role)` signs an access token that passes `Auth`, without checking the user exists. It is meant for tests and tooling.
+- Roles: `RoleSuperAdmin`, `RoleAdmin`, `RoleStaff` and `RoleViewer` exist after `Migrate`. `RoleMember` is only a name; create that role before using it.
+
+### Impersonation
+
+`POST /user/:id/impersonate` (`users:impersonate`) returns an access token for the target user; no refresh token or session is created. The token records the original identity, so `Scope.IsImpersonated`, `OriginalUserID`, `OriginalUsername` and `OriginalRole` are set, and `ActorUserID()` and `ActorRole()` return the original actor. `POST /user/stop-impersonation` blacklists that token and returns one for the original user. Nested impersonation, impersonating yourself and impersonating a superadmin as a non-superadmin are refused. The audit trail records the actor and the impersonation metadata.
+
+### Audit
+
+Every route in the set writes audit entries. For your own handlers, build an `AuditWriter` from `kit.Audit()`; it fills the actor, request id, client IP and user agent from the request.
 
 ```go
-api.GET("/reports", kit.Auth(), kit.Role(authkit.RoleAdmin, authkit.RoleStaff), reports)
+package main
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/zazhedho/authkit"
+)
+
+func newTripHandler(kit *authkit.Kit) gin.HandlerFunc {
+	audit := authkit.NewAuditWriter(kit.Audit(), "TripHandler")
+
+	return func(c *gin.Context) {
+		// ... create the trip ...
+		audit.WriteAudit(c, authkit.AuditEvent{
+			Action:     authkit.ActionCreate,
+			Resource:   "trips",
+			ResourceID: "trip-1",
+			Status:     authkit.StatusSuccess,
+			Message:    "Created trip",
+			AfterData:  map[string]any{"name": "Bali"},
+		})
+		c.Status(http.StatusCreated)
+	}
+}
+
+func main() {}
 ```
 
-`Mailer`, `BrevoConfig`, `NewBrevoMailer`: send OTP and password reset e-mail.
+Actions are `ActionCreate`, `ActionUpdate`, `ActionDelete`, `ActionAssign`, `ActionLogin`, `ActionLogout` and `ActionRefresh`; statuses are `StatusSuccess` and `StatusFailed`. A failed store is logged and never fails the request. Entries are read through `GET /audits` and `GET /audit/:id`, or `kit.Audit()` directly.
+
+### App config flags
+
+`app_configs` holds runtime settings that admins change through `GET /configs`, `GET /config/:id` and `PUT /config/:id` (`value`, `is_active`). Three rows are seeded and drive the auth flows:
+
+| Config key (default) | Seeded value | Effect |
+|---|---|---|
+| `auth.public_registration_enabled` | `true` | Public registration and first-time Google sign-up |
+| `auth.register_otp_enabled` | `false` | Require an e-mailed OTP to register |
+| `auth.password_reset_email_enabled` | `false` | Password reset by e-mail |
+
+The key names are configurable through `Config.Flags` (`PublicRegistration`, `RegisterOTP`, `PasswordResetEmail`). A row with `is_active = false`, or a missing row, falls back to the code default shown by the seeded value. Read your own settings from `kit.AppConfig()`:
 
 ```go
-m, err := authkit.NewBrevoMailer(authkit.BrevoConfig{
-	Host: "smtp-relay.brevo.com", User: "login", Pass: "key", From: "no-reply@example.com",
-})
+package main
+
+import (
+	"context"
+	"time"
+
+	"github.com/zazhedho/authkit"
+)
+
+func checkFlags(ctx context.Context, kit *authkit.Kit) error {
+	cfg := kit.AppConfig()
+
+	beta, err := cfg.IsEnabled(ctx, "trips.beta_enabled", false)
+	if err != nil {
+		return err
+	}
+	_ = beta
+
+	limit, err := cfg.GetInt(ctx, "trips.max_per_user", 10)
+	if err != nil {
+		return err
+	}
+	_ = limit
+
+	_, err = cfg.GetDuration(ctx, "trips.hold_time", 15*time.Minute)
+	return err
+}
+
+func main() {}
 ```
 
-`AppConfigService`: read and update runtime app configuration.
+`AppConfigService` also has `GetString`, `GetBool`, `DecodeJSON`, `GetByKey`, `GetByID`, `GetAll` and `Update`. Add your own rows with a migration.
+
+### Mailer
+
+`Config.Mailer` is the `authkit.Mailer` interface. `NewBrevoMailer` returns a Brevo SMTP implementation (`BrevoConfig`: `Host`, `Port`, `User`, `Pass`, `From` and optional `OTPSubject`, `ResetSubject`, `AppName`). To send through another provider, implement the interface:
 
 ```go
-var appConfig authkit.AppConfigService = kit.AppConfig()
+package main
+
+import (
+	"time"
+
+	"github.com/zazhedho/authkit"
+)
+
+type logMailer struct{}
+
+// ttl is the configured OTP.TTL; state it in the message.
+func (logMailer) SendOTP(to, code, appName string, ttl time.Duration) error { return nil }
+
+// resetURL is Reset.URLTemplate with the token filled in, or empty.
+func (logMailer) SendPasswordReset(to, token, appName, resetURL string, ttl time.Duration) error {
+	return nil
+}
+
+var _ authkit.Mailer = logMailer{}
+
+func main() {}
 ```
+
+### Migrations and module-seed
+
+`kit.Migrate(ctx)` applies the embedded migrations: the tables `users`, `blacklist`, `roles`, `permissions`, `menu_items`, `role_permissions`, `role_menus`, `audit_trails` and `app_configs`, plus seed rows for the system roles, menus, permissions and the three flags. It keeps its own version table, `authkit_schema_migrations` (the constant `authkit.MigrationsTable`), in the connection's current schema, so it never collides with your own `schema_migrations`. It is idempotent and safe on every start; instances starting together serialize on an advisory lock.
+
+| Database state | Behavior |
+|---|---|
+| Empty (no `users` table, no version record) | Applies all migrations; the version table ends at 4 (`authkit.BaselineVersion`). |
+| `users` exists, no version record, schema complete | Records version 4 without running the baseline SQL, then applies later migrations. |
+| `users` exists, no version record, schema incomplete | Returns an error wrapping `authkit.ErrLegacySchemaIncomplete` listing the missing `table` or `table.column`. Nothing changes. |
+| Has a version record | Applies pending migrations. A dirty record returns `authkit.ErrMigrationsDirty`. |
+
+The baseline seed is not idempotent (it computes role grants from `permissions` as they are), so it is never replayed on an existing database. "Complete" compares expected table and column names (not types or indexes) against `current_schema()`.
+
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"log"
+
+	"github.com/zazhedho/authkit"
+)
+
+func migrate(ctx context.Context, kit *authkit.Kit) {
+	err := kit.Migrate(ctx)
+	switch {
+	case errors.Is(err, authkit.ErrLegacySchemaIncomplete):
+		log.Fatalf("existing schema lacks authkit tables or columns: %v", err)
+	case errors.Is(err, authkit.ErrMigrationsDirty):
+		log.Fatalf("repair authkit_schema_migrations by hand: %v", err)
+	case err != nil:
+		log.Fatal(err)
+	}
+}
+
+func main() {}
+```
+
+- Use a direct database connection. The advisory lock is session-level and does not work through transaction-pooling proxies such as pgbouncer in transaction mode.
+- `ctx` bounds schema inspection and the connection checkout, not the wait for another instance's lock or a running migration.
+- If `ErrMigrationsDirty` is returned, repair the database by hand, set the record in `authkit_schema_migrations` to the last fully applied version and clear the dirty flag. Never delete the record: a missing record next to existing tables looks like a pre-authkit database.
+- Keep your own tables in your own migrations, run after `Migrate`. Per-user extras fit in the `users.metadata` jsonb column; anything structured belongs in your own table with a foreign key to `users(id)`.
+
+**New modules.** `cmd/module-seed` prints SQL that inserts a menu, its permissions and the role grants for a module. Put the output in your own migration.
+
+```sh
+go run github.com/zazhedho/authkit/cmd/module-seed \
+  -name trips -display-name Trips -path /trips
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `-name` | required | Menu and module name |
+| `-display-name` | required | Menu display name |
+| `-path` | required | Frontend path |
+| `-resource` | `-name` | Permission resource |
+| `-actions` | `list,view,create,update,delete` | Comma-separated actions |
+| `-grant-roles` | `admin,superadmin` | Roles that receive the permissions; empty skips grants |
+| `-icon` | `bi-folder` | Bootstrap icon name |
+| `-order-index` | `900` | Menu order |
+| `-parent-name` | empty | Parent menu |
+
+### Routes
+
+`kit.Mount(r)` registers these under `r`. The permission is `resource:action`; "signed in" means `Auth` only.
+
+| Method and path | Access |
+|---|---|
+| `GET /user/register/status` | public |
+| `POST /user/register` | public, register rate limit |
+| `POST /user/register/otp/send` | public, register rate limit |
+| `POST /user/login` | public |
+| `POST /user/google/login` | public |
+| `POST /user/refresh-token` | public |
+| `POST /user/forgot-password` | public |
+| `POST /user/reset-password` | public |
+| `POST /user/logout` | signed in |
+| `GET /user` | signed in |
+| `PUT /user` | signed in |
+| `PUT /user/change/password` | signed in |
+| `DELETE /user` | signed in |
+| `POST /user/stop-impersonation` | signed in |
+| `GET /user/:id` | `users:view` |
+| `POST /user/:id/impersonate` | `users:impersonate` |
+| `PUT /user/:id` | `users:update` |
+| `DELETE /user/:id` | `users:delete` |
+| `POST /user` | `users:create` |
+| `GET /users` | `users:list` |
+| `GET /user/sessions` | signed in, Redis only |
+| `DELETE /user/session/:session_id` | signed in, Redis only |
+| `POST /user/sessions/revoke-others` | signed in, Redis only |
+| `GET /roles` | `roles:list` |
+| `POST /role` | `roles:create` |
+| `GET /role/:id` | `roles:view` |
+| `PUT /role/:id` | `roles:update` |
+| `DELETE /role/:id` | `roles:delete` |
+| `POST /role/:id/permissions` | `roles:assign_permissions` |
+| `GET /permissions` | `permissions:list` |
+| `GET /permissions/me` | signed in |
+| `POST /permission` | `permissions:create` |
+| `GET /permission/:id` | `permissions:view` |
+| `PUT /permission/:id` | `permissions:update` |
+| `DELETE /permission/:id` | `permissions:delete` |
+| `GET /menus/active` | signed in |
+| `GET /menus/me` | signed in |
+| `GET /menus` | `menus:list` |
+| `GET /menu/:id` | `menus:view` |
+| `PUT /menu/:id` | `menus:update` |
+| `GET /configs` | `configs:list` |
+| `GET /config/:id` | `configs:view` |
+| `PUT /config/:id` | `configs:update` |
+| `GET /audits` | `audits:list` |
+| `GET /audit/:id` | `audits:view` |
+
+List endpoints take `page`, `limit`, `search`, `order_by`, `order_direction` and `filters[<key>]`.
 
 ## Configuration
 
-The nested config types (`OTPConfig`, `PasswordResetConfig`, `LoginLimit`,
-`RateLimit`, `FlagKeys`) are exported by the root package. Printing a `Config` with `%v`, `%+v`
-or `%#v` redacts `JWTKey`, `OTP.Secret` and `Reset.Secret`.
+`authkit.Config` is explicit. `authkit.ConfigFromEnv()` fills it from the environment and is the only code in the module that reads it. `DB`, `Redis` and `Mailer` are never read from the environment.
 
-`authkit.Config` is explicit; `authkit.ConfigFromEnv()` fills it from environment
-variables and is the only code in the module that reads the environment (plus
-nothing else in the public API). `DB`, `Redis` and `Mailer` are
-never read from the environment. Zero or negative numbers and durations mean
-"use the default": a limiter can not be disabled by setting its variable to 0.
-When both durations and seconds variables exist, the duration form wins.
-A value that cannot be parsed falls back to its default and is reported by
-`gokit.EnvErrors()`. Call it after `ConfigFromEnv` and refuse to start when it is non-nil.
+- Zero or negative numbers and durations mean "use the default", so a limiter cannot be disabled by setting its variable to 0.
+- Variables ending in `_SECONDS` are whole seconds. The duration-form variables (`OTP_TTL`, ...) accept `30s`, `5m`, `1h` or bare seconds, and win over their `_SECONDS` form when positive.
+- A value that cannot be parsed falls back to its default and is reported by `gokit.EnvErrors()`. Call it after `ConfigFromEnv` and refuse to start when it is non-nil.
+- Printing a `Config` with `%v`, `%+v` or `%#v` reports `JWTKey`, `OTP.Secret` and `Reset.Secret` only as set or unset.
+- `Config.Validate()` runs inside `New`.
 
 | Config field | Env variable | Default | Required |
 |---|---|---|---|
-| `DB` | - | - | yes |
-| `Redis` | - | nil | no |
-| `Mailer` | - | nil | no |
-| `AppName` | `APP_NAME` | - | yes |
+| `DB` | none | none | yes |
+| `Redis` | none | nil | no |
+| `Mailer` | none | nil | no |
+| `AppName` | `APP_NAME` | none | yes |
 | `AppEnv` | `APP_ENV` | empty | no |
-| `JWTKey` | `JWT_KEY` | - | yes, at least 32 characters |
+| `JWTKey` | `JWT_KEY` | none | yes, at least 32 characters |
 | `AccessTokenTTL` | `JWT_EXP` (hours) | 24h | no |
 | `RefreshTokenTTL` | `REFRESH_TOKEN_EXP_HOURS` | 168h | no |
-| `DefaultRole` | - | `viewer` | no (not `superadmin` or `admin`) |
+| `DefaultRole` | none | `viewer` | no (not `superadmin` or `admin`) |
 | `GoogleClientIDs` | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_IDS` (comma list) | none (Google login off) | no |
 | `EmailAppName` | `AUTH_EMAIL_APP_NAME` | `AppName` | no |
 | `PermissionCacheTTL` | `PERMISSION_CACHE_TTL`, `PERMISSION_CACHE_TTL_SECONDS` | 300s | no |
@@ -228,214 +487,38 @@ A value that cannot be parsed falls back to its default and is reported by
 | `Flags.RegisterOTP` | `CONFIG_REGISTER_OTP` | `auth.register_otp_enabled` | no |
 | `Flags.PasswordResetEmail` | `CONFIG_PASSWORD_RESET_EMAIL` | `auth.password_reset_email_enabled` | no |
 
-The `Flags` values are keys of rows in `app_configs`, which admins change at
-runtime through the `/config` routes. The Brevo mailer has its own variables
-(`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `SMTP_SUBJECT`,
-`RESET_SUBJECT`); read them yourself and pass an `authkit.BrevoConfig` to
-`authkit.NewBrevoMailer` (the module no longer reads them for you), or implement the `authkit.Mailer` interface yourself. Custom mailers implement
-both `SendOTP(to, code, appName string, ttl time.Duration) error` (`ttl` is the
-configured `OTP.TTL`; state it in the message) and
-`SendPasswordReset(to, token, appName, resetURL string, ttl time.Duration) error`.
+`Flags.*` are keys of rows in `app_configs`, not on/off values. Log output goes through `github.com/zazhedho/logus`: set the threshold (default info) with the `LOG_LEVEL` environment variable or `logus.SetLevel` before the first log line. Debug level logs request and response payloads, so keep it off in production.
 
-### What needs Redis
+## Security notes
 
-Without Redis there is no login limiter, no session management (the session
-routes are not mounted), registration rate limiting lets everything through,
-and OTP and e-mail password reset are inactive. With Redis but no mailer, the
-limiter and sessions work and OTP and reset e-mail stay inactive.
+Read these before exposing the routes.
 
-## Mounted routes
+- **Trusted proxies and client IP.** The login limiter (keyed by client IP plus identifier), the register limiter (keyed by client IP), the audit trail's `ip_address` and the request log all use gin's `c.ClientIP()`. gin trusts every proxy by default and then believes `X-Forwarded-For` and `X-Real-IP`, so any client can pick its own IP: it dodges both limiters and forges audit IPs. Call `engine.SetTrustedProxies(nil)` when clients connect directly, or pass the CIDRs of your reverse proxies.
+- **Rate limiting fails open.** If Redis is unreachable, the register limiter lets the request through and the login limiter treats the caller as not blocked and does not count failures; both only log. Without Redis there is no login or register limiting at all. Password reset and OTP requests return an error response instead of skipping their throttling. Permission-cache errors fall back to the database.
+- **`limit=-1` on list endpoints.** `GET /users`, `/roles`, `/permissions`, `/menus`, `/configs` and `/audits` accept `limit=-1`, which returns every matching row in one response. Other limits outside 1 to 10000 fall back to the endpoint default. The routes still need their `:list` permission, but grant `audits:list` and `users:list` accordingly, and cap the response size in front of the service if that matters.
+- **CORS.** authkit sets no CORS headers. Configure CORS in your application and allow only your own origins. If you use gokit's `gokit.CORS()` helper, note that it answers `Access-Control-Allow-Origin: *` and allows only `GET, POST, PUT, DELETE`.
+- **Token revocation.** Revocation is a blacklist in the `blacklist` table, checked on every `Auth`. Logout blacklists only the presented access token, and refresh blacklists the old refresh token. Not revoked: tokens of a user whose password changed (password reset ends Redis sessions, a password change does not), whose role changed, who was deleted, or whose session was revoked through the session routes; they work until they expire. `Auth` does not look the user up, and the permission lookup used by `Can` does not exclude soft-deleted users. Without Redis sessions, a refresh token stays valid after logout until it expires. Refresh fails for a deleted user. The `role` claim, including the superadmin bypass, is trusted until expiry, so keep `AccessTokenTTL` short (the default is 24h). `expires_in_hours` is in whole hours and reads 0 below one hour.
+- **JWT key.** Tokens are HS256. `JWTKey` must be at least 32 characters (checked after trimming whitespace); use 32 or more random bytes, not a phrase, and keep it out of the repository. Tokens carry `AppName` as `iss` and `aud` and are rejected unless both match, so give each application its own `AppName`: a token from one application is then not accepted by another that shares a key. Changing `AppName` or `JWTKey` invalidates every issued token.
+- **OTP and reset secrets.** Registration OTPs (6 digits) and reset tokens are stored in Redis only as `sha256(value + secret)`, so `OTP.Secret` and `Reset.Secret` are what keep a leaked Redis from being brute-forced; a 6 digit code is trivial to recover without the secret. They are required when both Redis and a mailer are set (`New` fails without them), and the services refuse to work with an empty one. Use long random values, distinct from `JWTKey`, outside the repository. Changing one invalidates pending codes or tokens. Wrong OTP guesses are capped by `OTP.MaxAttempts`.
+- **Development password reset.** When `AppEnv` is `development`, `local` or `test` and `auth.password_reset_email_enabled` is off, `POST /user/forgot-password` returns a valid reset token in the response for any registered e-mail. Never use those values on a reachable deployment. With a production `AppEnv` and the flag off the route answers 503, and with the flag on but Redis, a mailer or `Reset.Secret` missing it answers 503 too. `New` logs a warning for a development `AppEnv`.
+- **`DefaultRole`.** It is what public registrations receive. It cannot be `superadmin` or `admin`, and registration fails if the role does not exist.
+- **Redis keys are not namespaced.** Use a separate Redis database, or an ACL key prefix, per application. Sharing one shares the limiter counters and the OTP and reset throttling, and one application's permission-cache invalidation evicts the others'.
+- **Stored tokens.** Blacklisted tokens and Redis session tokens are stored as issued, not hashed. Treat database and Redis access as access to live tokens.
 
-`kit.Mount(r)` registers these under `r` (for example `/api`).
+## Versioning
 
-| Method and path | Access |
-|---|---|
-| `GET /user/register/status` | public |
-| `POST /user/register` | public, register rate limit |
-| `POST /user/register/otp/send` | public, register rate limit |
-| `POST /user/login` | public |
-| `POST /user/google/login` | public |
-| `POST /user/refresh-token` | public |
-| `POST /user/forgot-password` | public |
-| `POST /user/reset-password` | public |
-| `POST /user/logout` | authenticated |
-| `GET /user` | authenticated |
-| `PUT /user` | authenticated |
-| `PUT /user/change/password` | authenticated |
-| `DELETE /user` | authenticated |
-| `POST /user/stop-impersonation` | authenticated |
-| `GET /user/:id` | `users:view` |
-| `POST /user/:id/impersonate` | `users:impersonate` |
-| `PUT /user/:id` | `users:update` |
-| `DELETE /user/:id` | `users:delete` |
-| `POST /user` | `users:create` |
-| `GET /users` | `users:list` |
-| `GET /user/sessions`, `DELETE /user/session/:session_id`, `POST /user/sessions/revoke-others` | authenticated; only with Redis |
-| `GET /roles` | `roles:list` |
-| `POST /role` | `roles:create` |
-| `GET /role/:id` | `roles:view` |
-| `PUT /role/:id` | `roles:update` |
-| `DELETE /role/:id` | `roles:delete` |
-| `POST /role/:id/permissions` | `roles:assign_permissions` |
-| `GET /permissions` | `permissions:list` |
-| `GET /permissions/me` | authenticated |
-| `POST /permission` | `permissions:create` |
-| `GET /permission/:id` | `permissions:view` |
-| `PUT /permission/:id` | `permissions:update` |
-| `DELETE /permission/:id` | `permissions:delete` |
-| `GET /menus/active`, `GET /menus/me` | authenticated |
-| `GET /menus` | `menus:list` |
-| `GET /menu/:id` | `menus:view` |
-| `PUT /menu/:id` | `menus:update` |
-| `GET /configs` | `configs:list` |
-| `GET /config/:id` | `configs:view` |
-| `PUT /config/:id` | `configs:update` |
-| `GET /audits` | `audits:list` |
-| `GET /audit/:id` | `audits:view` |
-
-Call `Mount` once per group; mounting twice makes gin panic on duplicate routes.
-
-## Security notes and known limitations
-
-- **Tokens are bound to `AppName`.** Access, refresh and reset tokens carry
-  `AppName` as `iss` and `aud` and are rejected unless both match. Tokens issued
-  before adopting authkit do not have them, so every user logs in again once
-  after the upgrade. Give each application its own `AppName`, so a token from
-  one application is not accepted by another that shares a `JWTKey`. Changing
-  `AppName` later invalidates every issued token.
-- **No built-in secrets.** `OTP.Secret` and `Reset.Secret` are required when
-  both Redis and a mailer are configured, and `New` fails without them. The OTP
-  and reset services also refuse to work with an empty secret. Generate long
-  random values and keep them out of the repository.
-- **`JWTKey`** must be at least 32 characters.
-- **`DefaultRole`** is the role public registrations receive. It can not be
-  `superadmin` or `admin`, and registration fails if the role does not exist in
-  the database.
-- **Rate limiting fails open** if Redis is unavailable, and proxy and CORS
-  behaviour come from gokit; see its "Security defaults" section.
-
-- **Development password-reset path.** When `AppEnv` is `development`, `local`
-  or `test` and the `auth.password_reset_email_enabled` flag is off,
-  `POST /user/forgot-password` returns a valid reset token in the response for
-  any registered email. Never set those values on a reachable deployment.
-- **Logout and sessions.** Logout blacklists only the presented access token.
-  Without Redis sessions the refresh token stays valid until it expires.
-  Password reset revokes only Redis sessions.
-- **Access token claims are trusted until expiry.** The `role` claim (including
-  the superadmin bypass) is trusted until the token expires; role changes and
-  account deletion do not revoke issued tokens. The default access token
-  lifetime is 24h, so set a short `AccessTokenTTL`. `expires_in_hours` in
-  responses is whole hours and reports 0 for lifetimes under an hour.
-- **Permission cache.** Permission checks for non-superadmin roles are cached in
-  Redis for `PermissionCacheTTL` (default 300s). Changes made outside the API
-  (direct SQL, seeds) can be stale for up to that long.
-- **Redis keys are not namespaced per application.** Use a separate Redis
-  database (or ACL key prefix) per application. Sharing one Redis DB shares the
-  login and register limiter counters and the OTP and reset throttling state,
-  and one application's permission-cache invalidation evicts the others'.
-- **Rate limiting.** Limiters key on the client IP as gin reports it (see
-  `SetTrustedProxies` in the quick start). Without Redis there is no login or
-  register limiting.
-- **Runtime flags.** Public registration is ON by default (the baseline seeds
-  `auth.public_registration_enabled = true`). Email password reset is OFF until
-  `auth.password_reset_email_enabled` is true AND Redis, a mailer and
-  `Reset.Secret` are configured; with the flag off and a non-development
-  `AppEnv`, `POST /user/forgot-password` responds 503.
-- **Startup warnings.** `New` logs one warning when `AppEnv` is a development
-  value and one when `Redis` is nil.
-- **Deferred to a later release.** Live account and session checks on every
-  request; refresh-token revocation on logout and credential change;
-  exact-algorithm and required-expiry JWT validation; per-account login
-  limiting; hashing of stored tokens.
-
-## Migrations
-
-`kit.Migrate(ctx)` applies the embedded migrations (`internal/migrations/`, nine tables:
-`users`, `blacklist`, `roles`, `permissions`, `menu_items`, `role_permissions`,
-`role_menus`, `audit_trails`, `app_configs`, plus the seed rows for the system
-roles, menus and permissions). It keeps its own version table,
-`authkit_schema_migrations`, in the connection's current schema, so it never
-collides with your project's `schema_migrations`. It is idempotent and safe to
-call on every start. Instances that start at the same time serialize on the
-migration library's advisory lock: one applies the migrations and the others
-wait, then find nothing to do, and all return nil (covered by
-`TestMigrateConcurrentFirstStart`).
-
-What it does depends on the database:
-
-| Database | Behavior |
-|---|---|
-| Empty (no `users` table, no version record) | Applies all migrations; version table ends at 4. |
-| Existing, from before authkit (has `users`, no version record), schema complete | Records version 4 **without running the baseline SQL**, then applies any later authkit migration. |
-| Existing, schema incomplete | Returns an error wrapping `ErrLegacySchemaIncomplete` that lists the missing `table` or `table.column`. Nothing is changed and no version table is created. |
-| Has a version record | Applies pending migrations. A dirty record, reported once the lock is held, returns `ErrMigrationsDirty` naming the table; authkit never repairs it. |
-
-The baseline is not replayed on existing databases because its seed is not
-idempotent: it computes role grants from whatever is in `permissions` when it
-runs. Replaying it would give `staff` and `viewer` newly added permissions,
-restore permissions an admin revoked, and bring back deleted roles and menus.
-Existing and "complete" is judged against the schema the connection actually
-uses (`current_schema()`), by comparing the expected columns, not by trusting
-that a `users` table exists. An empty version table next to existing data (an
-interrupted stamp) is treated like a missing one.
-
-Run `Migrate` before your own migrations. `Migrate` runs on its own connection
-from your pool and leaves your `*sql.DB` open.
-
-- **Use a direct database connection.** The advisory lock is session-level, which
-  does not work through transaction-pooling proxies such as pgbouncer in
-  transaction mode.
-- **`ctx` does not bound the lock wait.** It bounds the schema inspection and the
-  connection checkout; waiting for another instance's lock, and a migration that
-  has started, are not cancelled by it.
-- **The legacy check compares table and column names only**, not types, indexes
-  or constraints. Table presence is read from the PostgreSQL catalog, so it does
-  not depend on the role's privileges.
-- **PostgreSQL 13 or newer** is required (the baseline uses `gen_random_uuid()`).
-- **Adopting projects must delete their own copies of the baseline migrations**
-  (users, RBAC, audit trails, app configs). Re-running those files replays the
-  seed data. Keep only your own migrations in your directory.
-- **Dirty record.** If `ErrMigrationsDirty` is returned, repair the database by
-  hand, then set the record in `authkit_schema_migrations` to the last fully
-  applied version and clear the dirty flag. Never delete the record: a missing
-  record next to existing tables makes the database look unmigrated to authkit.
-
-## Extending
-
-- **Default role.** Set `Config.DefaultRole` to a role that exists in `roles`
-  (the seed provides `viewer` and `staff`).
-- **Per-user data.** `users.metadata` is a `jsonb` column for small extras. For
-  anything structured, add your own profile table with a foreign key to
-  `users(id)` in your own migrations, which run after `Migrate`.
-- **New modules.** `go run github.com/zazhedho/authkit/cmd/module-seed -name
-  trips -display-name Trips -path /trips` prints SQL that inserts the menu,
-  permissions and role grants for a module (`-actions`, `-grant-roles`,
-  `-icon`, `-order-index` and `-parent-name` adjust it). Put the output in your own
-  migration.
-- **Without `Mount`.** The handlers, services and repositories are internal
-  and not importable. Use `Mount` for the route set and `Auth`, `Can`,
-  `LoadPermissions` and `Role` for your own routes; mount it on a group (for example `/api`) to place
-  it in your path layout.
+authkit follows semantic versioning but is pre-1.0: a minor bump (`v0.x`) may break the API, and a patch release never will. The public API is the exported surface of the root package, pinned by `TestPublicAPI` against `testdata/public_api.golden`. Everything under `internal/` is not importable.
 
 ## Development
 
+```sh
+make test   # go test -race ./...
+make lint   # golangci-lint v2.14.0; run `make lint-install` first
 ```
-go build ./... && go vet ./... && go test -race -count=1 ./...
-```
 
-The module layout is the root package (`authkit.go`, `config.go`, `mount.go`,
-`migrate.go`, `types.go`), `cmd/module-seed`, and everything else under
-`internal/`.
+`Migrate` integration tests need a disposable PostgreSQL and are skipped unless `AUTHKIT_TEST_DATABASE_URL` is set, for example `postgres://postgres:test@127.0.0.1:55432/postgres?sslmode=disable`. Each test creates and drops its own schema.
 
-Integration tests for `Migrate` need a disposable PostgreSQL and are skipped
-without `AUTHKIT_TEST_DATABASE_URL`, for example
-`postgres://postgres:test@127.0.0.1:55432/postgres?sslmode=disable`. Each test
-creates and drops its own schema.
-
-## Internal layout
-
-For contributors. Callers use only the root package; the code below it is
-organised by layer, and tests enforce the layering.
+### Internal layout
 
 ```text
 internal/
@@ -454,66 +537,18 @@ internal/
   testutil/                     test helpers
 ```
 
-**Dependency rule.** Everything depends inward on `domain` and `dto`; the
-middle layers never import each other. A consumer declares the interface it
-needs (`ports.go`) and the root package wires the concrete types. Services use
-only the standard library, `domain`, `dto`, `services/shared`, logus, uuid,
-`golang.org/x/crypto` and `golang.org/x/text`. Handlers and the middleware do
-not import services, repositories, infrastructure or `config`.
-Infrastructure imports no `domain`, except `infrastructure/cache/<module>`.
-Modules do not import each other, apart from the shared `domain` and `dto`
-model.
+Everything depends inward on `domain` and `dto`; the middle layers never import each other. A consumer declares the interface it needs in `ports.go` and the root package wires the concrete types. Modules do not import each other apart from the shared `domain` and `dto` model.
 
-**What `internal/architecture` enforces.** The import rule per layer, the list
-of known layers, the reserved `shared` directories, no module-to-module
-imports, the import alias convention (`domainuser`, `servicerole`,
-`repositoryshared`, `httpshared`, ...), package name equal to directory name,
-constructors returning concrete types, interfaces declared by their consumer
-without an `Interface` suffix, no `log.Fatal` or `os.Exit` outside `cmd/`, no
-package-level database or Redis clients, no `internal/` import of the root
-package, and `cmd/` importing only `internal/moduleseed`. Each guard has a
-test that proves it fires.
+`internal/architecture` guard tests enforce the import rule per layer, the list of known layers, the reserved `shared` directories, no module-to-module imports, the import alias convention (`domainuser`, `servicerole`, `repositoryshared`, `httpshared`, ...), package name equal to directory name, constructors returning concrete types, interfaces declared by their consumer without an `Interface` suffix, no `log.Fatal` or `os.Exit` outside `cmd/`, no package-level database or Redis clients, no `internal/` import of the root package, and `cmd/` importing only `internal/moduleseed`. Each guard has a test that proves it fires.
 
-**Public API snapshot.** `TestPublicAPI` compares the exported root API with
-`testdata/public_api.golden`. After an intended addition, regenerate it with
+### Public API golden file
 
-```
+After an intended change to the exported API, regenerate the snapshot and review the diff as an API change:
+
+```sh
 go test -run TestPublicAPI -update .
 ```
 
-A change to the golden file is a change to the public API: review it as one.
+## License
 
-## Upgrading from v0.1.x
-
-v0.2.0 is a breaking release: every sub-package became `internal/`, and the
-public API is the root package only. Change imports to
-`github.com/zazhedho/authkit` and rename:
-
-| v0.1.x import path and name | v0.2.0 |
-|---|---|
-| `authscope.Scope` | `authkit.Scope` |
-| `authscope.New(...)` | `authkit.NewScope(...)` |
-| `authscope.WithContext(ctx, scope)` | `authkit.WithScope(ctx, scope)` |
-| `authscope.FromContext(ctx)` | `authkit.ScopeFrom(ctx)` |
-| `domain/audit` `AuditEvent` | `authkit.AuditEvent` |
-| `domain/audit` `ActionCreate`, `ActionUpdate`, `ActionDelete`, `ActionAssign`, `ActionLogin`, `ActionLogout`, `ActionRefresh` | `authkit.Action*` |
-| `domain/audit` `StatusSuccess`, `StatusFailed` | `authkit.Status*` |
-| `interfaces/audit` `ServiceAuditInterface` | `authkit.AuditService` |
-| `interfaces/appconfig` `ServiceAppConfigInterface` | `authkit.AppConfigService` |
-| `handlers/auditwriter` `AuditWriter`, `NewAuditWriter` | `authkit.AuditWriter`, `authkit.NewAuditWriter` |
-| `middlewares.RequestLogger` | `authkit.RequestLogger` |
-| `authutil.RoleSuperAdmin`, `RoleAdmin`, `RoleStaff`, `RoleMember`, `RoleViewer` | `authkit.Role*` |
-| `mailer.BrevoConfig` | `authkit.BrevoConfig` |
-| `mailer.NewBrevoSender` | `authkit.NewBrevoMailer` (returns `authkit.Mailer`) |
-| `mailer.NewBrevoSenderFromEnv` | removed; read the `SMTP_*` variables yourself and call `authkit.NewBrevoMailer` |
-| `settings.OTPConfig`, `PasswordResetConfig`, `LoginLimit`, `RateLimit`, `FlagKeys` | `authkit.OTPConfig`, `PasswordResetConfig`, `LoginLimit`, `RateLimit`, `FlagKeys` |
-| `Kit.Users()` | removed |
-| `Kit.Tokens()` | removed; use `Kit.IssueAccessToken(userID, name, role)` to get an access token for tests and tooling |
-| `moduleseed` | internal; use `go run github.com/zazhedho/authkit/cmd/module-seed` |
-
-Everything else (`domain`, `dto`, `handlers`, `interfaces`, `repositories`,
-`services`, `security`, `cache`, `authutil`, `configvalue`, `middlewares`) is
-internal and no longer importable. Behavior, routes, permissions, JSON,
-migrations, configuration defaults and environment variable names are
-unchanged. The module now requires `github.com/zazhedho/gokit` v0.2.0 (one
-package) and `github.com/zazhedho/logus` v0.1.1.
+MIT. See [LICENSE](LICENSE).
