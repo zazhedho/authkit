@@ -10,18 +10,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// AuditWriter is the audit writer.
 type AuditWriter struct {
 	Service AuditService
 	Scope   string
 }
 
-// NewAuditWriter creates a new audit writer.
 func NewAuditWriter(service AuditService, scope string) AuditWriter {
 	return AuditWriter{Service: service, Scope: scope}
 }
 
-// WriteAudit implements the write audit operation.
 func (w AuditWriter) WriteAudit(ctx *gin.Context, event domainaudit.AuditEvent) {
 	if w.Service == nil {
 		return

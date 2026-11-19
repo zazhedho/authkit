@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// Repository is the persistence port of the reset service.
 type Repository interface {
 	SetToken(ctx context.Context, hash, email string, ttl time.Duration) error
 	GetEmailByToken(ctx context.Context, hash string) (string, error)

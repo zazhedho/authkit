@@ -9,7 +9,6 @@ import (
 	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
 )
 
-// Service is the permission service the handler calls.
 type Service interface {
 	Create(ctx context.Context, req dtopermission.Create) (domainpermission.Permission, error)
 	GetByID(ctx context.Context, id string) (domainpermission.Permission, error)

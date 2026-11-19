@@ -16,7 +16,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Service implements the user use cases.
 type Service struct {
 	UserRepo        Repository
 	BlacklistRepo   TokenRevocations
@@ -41,7 +40,6 @@ type Options struct {
 	NewID func() string
 }
 
-// NewService creates the user service.
 func NewService(userRepo Repository, blacklistRepo TokenRevocations, roleRepo RoleRepository, permissionRepo PermissionRepository, opts Options) *Service {
 	return &Service{
 		UserRepo:        userRepo,
@@ -132,7 +130,6 @@ func (s *Service) RegisterUser(ctx context.Context, req dtouser.Register) (domai
 	return data, nil
 }
 
-// AdminCreateUser implements the admin create user operation.
 func (s *Service) AdminCreateUser(ctx context.Context, actor domainauth.Actor, req dtouser.AdminCreateUser) (domainuser.Users, error) {
 	phone := domainuser.NormalizePhoneTo62(req.Phone)
 	email := domainuser.SanitizeEmail(req.Email)
@@ -198,7 +195,6 @@ func (s *Service) AdminCreateUser(ctx context.Context, actor domainauth.Actor, r
 	return data, nil
 }
 
-// LoginUser implements the login user operation.
 func (s *Service) LoginUser(ctx context.Context, req dtouser.Login, logID string, metadata dtouser.LoginMetadata) (string, error) {
 	identifier, err := domainuser.ResolveLoginIdentifier(req.Identifier, req.Email)
 	if err != nil {
@@ -240,7 +236,6 @@ func (s *Service) LoginUser(ctx context.Context, req dtouser.Login, logID string
 	return token, nil
 }
 
-// LogoutUser implements the logout user operation.
 func (s *Service) LogoutUser(ctx context.Context, token string) error {
 	expiresAt, err := s.Tokens.ExpiresAt(token)
 	if err != nil {
@@ -309,22 +304,18 @@ func (s *Service) StopImpersonation(ctx context.Context, actor domainauth.Actor,
 	return s.Tokens.Generate(originalUser.ID, originalUser.Name, originalUser.Role, logID)
 }
 
-// GetUserByID returns the user by ID.
 func (s *Service) GetUserByID(ctx context.Context, id string) (domainuser.Users, error) {
 	return s.UserRepo.GetByID(ctx, id)
 }
 
-// GetUserByEmail returns the user by email.
 func (s *Service) GetUserByEmail(ctx context.Context, email string) (domainuser.Users, error) {
 	return s.UserRepo.GetByEmail(ctx, email)
 }
 
-// GetUserByPhone returns the user by phone.
 func (s *Service) GetUserByPhone(ctx context.Context, phone string) (domainuser.Users, error) {
 	return s.UserRepo.GetByPhone(ctx, phone)
 }
 
-// GetUserByAuth returns the user by auth.
 func (s *Service) GetUserByAuth(ctx context.Context, id string) (map[string]any, error) {
 	user, err := s.UserRepo.GetByID(ctx, id)
 	if err != nil {
@@ -345,7 +336,6 @@ func (s *Service) GetUserByAuth(ctx context.Context, id string) (map[string]any,
 	return buildUserAuthResponse(user, permissionNames), nil
 }
 
-// GetAllUsers returns the all users.
 func (s *Service) GetAllUsers(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainuser.Users, int64, error) {
 	users, total, err := s.UserRepo.GetAll(ctx, req)
 	return serviceshared.HideSuperAdmin(actor, users, total, err, func(user domainuser.Users) bool {
@@ -560,7 +550,6 @@ func (s *Service) ChangePassword(ctx context.Context, id string, req dtouser.Cha
 	return data, nil
 }
 
-// ResetPasswordByEmail resets the password by email.
 func (s *Service) ResetPasswordByEmail(ctx context.Context, email, newPassword string) error {
 	if err := ValidatePasswordStrength(newPassword); err != nil {
 		return err

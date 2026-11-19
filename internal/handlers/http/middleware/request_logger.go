@@ -12,7 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RequestLogger implements the request logger operation.
 func RequestLogger() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		start := time.Now()

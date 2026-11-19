@@ -2,12 +2,10 @@ package audit
 
 import "time"
 
-// TableName returns the database table name GORM uses for AuditTrail.
 func (Trail) TableName() string {
 	return "audit_trails"
 }
 
-// Trail is the audit domain type: audit trail.
 type Trail struct {
 	ID           string    `json:"id" gorm:"column:id;primaryKey"`
 	OccurredAt   time.Time `json:"occurred_at" gorm:"column:occurred_at"`
@@ -28,7 +26,6 @@ type Trail struct {
 	CreatedAt    time.Time `json:"created_at" gorm:"column:created_at"`
 }
 
-// AuditEvent is the audit domain type: audit event.
 type AuditEvent struct { //nolint:revive // public API type (authkit.AuditEvent); renaming it is a breaking change
 	OccurredAt   time.Time
 	ActorUserID  string
@@ -48,25 +45,16 @@ type AuditEvent struct { //nolint:revive // public API type (authkit.AuditEvent)
 }
 
 const (
-	// ActionCreate is the action create constant.
-	ActionCreate = "create"
-	// ActionUpdate is the action update constant.
-	ActionUpdate = "update"
-	// ActionDelete is the action delete constant.
-	ActionDelete = "delete"
-	// ActionAssign is the action assign constant.
-	ActionAssign = "assign"
-	// ActionLogin is the action login constant.
-	ActionLogin = "login"
-	// ActionLogout is the action logout constant.
-	ActionLogout = "logout"
-	// ActionRefresh is the action refresh constant.
+	ActionCreate  = "create"
+	ActionUpdate  = "update"
+	ActionDelete  = "delete"
+	ActionAssign  = "assign"
+	ActionLogin   = "login"
+	ActionLogout  = "logout"
 	ActionRefresh = "refresh"
 )
 
 const (
-	// StatusSuccess is the status success constant.
 	StatusSuccess = "success"
-	// StatusFailed is the status failed constant.
-	StatusFailed = "failed"
+	StatusFailed  = "failed"
 )

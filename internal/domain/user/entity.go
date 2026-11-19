@@ -6,12 +6,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// TableName returns the database table name GORM uses for Users.
 func (Users) TableName() string {
 	return "users"
 }
 
-// Users is the user domain type: users.
 type Users struct {
 	ID                 string         `json:"id" gorm:"column:id;primaryKey"`
 	Name               string         `json:"name" gorm:"column:name"`

@@ -19,13 +19,11 @@ const (
 	failedRevokeSessionMessage           = "Failed to revoke a login session"
 )
 
-// Handler serves the session HTTP endpoints.
 type Handler struct {
 	Service Service
 	httpshared.AuditWriter
 }
 
-// New creates the session handler.
 func New(s Service, auditService httpshared.AuditService) *Handler {
 	return &Handler{
 		Service:     s,
@@ -33,7 +31,6 @@ func New(s Service, auditService httpshared.AuditService) *Handler {
 	}
 }
 
-// GetActiveSessions handles the get active sessions request.
 func (h *Handler) GetActiveSessions(ctx *gin.Context) {
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[SessionHandler][GetActiveSessions]"
@@ -65,7 +62,6 @@ func (h *Handler) GetActiveSessions(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// RevokeSession handles the revoke session request.
 func (h *Handler) RevokeSession(ctx *gin.Context) {
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[SessionHandler][RevokeSession]"
@@ -150,7 +146,6 @@ func (h *Handler) RevokeSession(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// RevokeAllOtherSessions handles the revoke all other sessions request.
 func (h *Handler) RevokeAllOtherSessions(ctx *gin.Context) {
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[SessionHandler][RevokeAllOtherSessions]"

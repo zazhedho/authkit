@@ -16,13 +16,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Handler serves the role HTTP endpoints.
 type Handler struct {
 	Service Service
 	httpshared.AuditWriter
 }
 
-// New creates the role handler.
 func New(s Service, auditService httpshared.AuditService) *Handler {
 	return &Handler{
 		Service:     s,
@@ -37,7 +35,6 @@ var roleResource = httpshared.Resource[domainrole.Role]{
 	MutationError: roleMutationErrorResponse,
 }
 
-// Create handles the create request.
 func (h *Handler) Create(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[RoleHandler][Create]")
 	req, ok := httpshared.Bind[dtorole.Create](f)
@@ -47,13 +44,11 @@ func (h *Handler) Create(ctx *gin.Context) {
 	httpshared.Create(f, h.AuditWriter, roleResource, req, h.Service.Create)
 }
 
-// GetByID handles the get by ID request.
 func (h *Handler) GetByID(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[RoleHandler][GetByID]")
 	httpshared.GetByID(f, "role", "Service.GetByIDWithDetails", f.ID(), h.Service.GetByIDWithDetails)
 }
 
-// GetAll handles the get all request.
 func (h *Handler) GetAll(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[RoleHandler][GetAll]")
 	httpshared.List(f, httpshared.ListOptions{OrderBy: "name", Direction: "asc", Limit: 10, Policy: dtoshared.ReferenceList},
@@ -62,7 +57,6 @@ func (h *Handler) GetAll(ctx *gin.Context) {
 		})
 }
 
-// Update handles the update request.
 func (h *Handler) Update(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[RoleHandler][Update]")
 	req, ok := httpshared.Bind[dtorole.Update](f)
@@ -72,13 +66,11 @@ func (h *Handler) Update(ctx *gin.Context) {
 	httpshared.Update(f, h.AuditWriter, roleResource, f.ID(), req, h.Service.GetByID, h.Service.Update)
 }
 
-// Delete handles the delete request.
 func (h *Handler) Delete(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[RoleHandler][Delete]")
 	httpshared.Delete(f, h.AuditWriter, roleResource, f.ID(), h.Service.GetByID, h.Service.Delete)
 }
 
-// AssignPermissions handles the assign permissions request.
 func (h *Handler) AssignPermissions(ctx *gin.Context) {
 	var req dtorole.AssignPermissions
 	handleRoleRelationAssignment(h, ctx, &req, roleRelationAssignment[dtorole.AssignPermissions]{

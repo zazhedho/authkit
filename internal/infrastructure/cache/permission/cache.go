@@ -20,7 +20,6 @@ const (
 	scanCount      = int64(100)
 )
 
-// Key implements the key operation.
 func Key(userID string) string {
 	return keyPrefix + userID
 }
@@ -30,7 +29,6 @@ func StateKey(userID string) string {
 	return stateKeyPrefix + userID
 }
 
-// GetUserPermissionKeys returns the user permission keys.
 func GetUserPermissionKeys(ctx context.Context, client *redis.Client, userID string) ([]string, bool) {
 	if client == nil {
 		return nil, false
@@ -62,7 +60,6 @@ func SetUserPermissionKeys(ctx context.Context, client *redis.Client, userID str
 	_ = client.Set(ctx, Key(userID), string(raw), ttl).Err()
 }
 
-// DeleteUserPermissionKeys deletes the user permission keys.
 func DeleteUserPermissionKeys(ctx context.Context, client *redis.Client, userIDs ...string) {
 	if client == nil {
 		return
@@ -117,12 +114,10 @@ type Cache struct {
 	client *redis.Client
 }
 
-// NewCache creates a new cache.
 func NewCache(client *redis.Client) *Cache {
 	return &Cache{client: client}
 }
 
-// Get returns the record.
 func (c *Cache) Get(ctx context.Context, userID string) ([]string, bool) {
 	if c == nil {
 		return nil, false
@@ -144,7 +139,6 @@ type authState struct {
 	TokensValidAfter *time.Time `json:"tokens_valid_after,omitempty"`
 }
 
-// GetAuthState returns a cached auth state.
 func (c *Cache) GetAuthState(ctx context.Context, userID string) (domainuser.AuthState, bool) {
 	if c == nil || c.client == nil {
 		return domainuser.AuthState{}, false

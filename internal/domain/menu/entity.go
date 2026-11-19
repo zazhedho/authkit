@@ -6,12 +6,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// TableName returns the database table name GORM uses for MenuItem.
 func (Item) TableName() string {
 	return "menu_items"
 }
 
-// Item is the menu domain type: menu item.
 type Item struct {
 	ID          string         `json:"id" gorm:"column:id;primaryKey"`
 	Name        string         `json:"name" gorm:"column:name;unique"`

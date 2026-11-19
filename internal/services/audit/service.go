@@ -12,14 +12,12 @@ import (
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 )
 
-// Service implements the audit use cases.
 type Service struct {
 	AuditRepo Repository
 	// NewID makes record ids; nil uses a UUID v7.
 	NewID func() string
 }
 
-// NewService creates the audit service.
 func NewService(auditRepo Repository) *Service {
 	return &Service{
 		AuditRepo: auditRepo,
@@ -27,7 +25,6 @@ func NewService(auditRepo Repository) *Service {
 	}
 }
 
-// Store stores the record.
 func (s *Service) Store(ctx context.Context, req domainaudit.AuditEvent) error {
 	if strings.TrimSpace(req.Action) == "" {
 		return errors.New("action is required")
@@ -71,7 +68,6 @@ func (s *Service) Store(ctx context.Context, req domainaudit.AuditEvent) error {
 	return s.AuditRepo.Store(ctx, data)
 }
 
-// GetAll returns a page of records.
 func (s *Service) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]dtoaudit.AuditTrailResponse, int64, error) {
 	items, total, err := s.AuditRepo.GetAll(ctx, req)
 	if err != nil {
@@ -81,7 +77,6 @@ func (s *Service) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]dtoa
 	return toAuditResponses(items), total, nil
 }
 
-// GetByID returns one record found by ID.
 func (s *Service) GetByID(ctx context.Context, id string) (dtoaudit.AuditTrailResponse, error) {
 	item, err := s.AuditRepo.GetByID(ctx, id)
 	if err != nil {

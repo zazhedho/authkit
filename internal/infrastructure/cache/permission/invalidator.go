@@ -6,7 +6,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Invalidator is the invalidator.
 type Invalidator interface {
 	DeleteUser(ctx context.Context, userIDs ...string)
 	DeleteAll(ctx context.Context)
@@ -16,7 +15,6 @@ type redisInvalidator struct {
 	client *redis.Client
 }
 
-// NewInvalidator creates a new invalidator.
 func NewInvalidator(client *redis.Client) Invalidator {
 	if client == nil {
 		return nil

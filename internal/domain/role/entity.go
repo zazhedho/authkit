@@ -6,12 +6,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// TableName returns the database table name GORM uses for Role.
 func (Role) TableName() string {
 	return "roles"
 }
 
-// Role is the role domain type: role.
 type Role struct {
 	ID          string         `json:"id" gorm:"column:id;primaryKey"`
 	Name        string         `json:"name" gorm:"column:name;unique"`
@@ -23,12 +21,10 @@ type Role struct {
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
-// TableName returns the database table name GORM uses for RolePermission.
 func (Permission) TableName() string {
 	return "role_permissions"
 }
 
-// Permission is the role domain type: role permission.
 type Permission struct {
 	ID           string    `json:"id" gorm:"column:id;primaryKey"`
 	RoleID       string    `json:"role_id" gorm:"column:role_id"`
@@ -36,12 +32,10 @@ type Permission struct {
 	CreatedAt    time.Time `json:"created_at" gorm:"column:created_at"`
 }
 
-// TableName returns the database table name GORM uses for RoleMenu.
 func (Menu) TableName() string {
 	return "role_menus"
 }
 
-// Menu is the role domain type: role menu.
 type Menu struct {
 	ID         string    `json:"id" gorm:"column:id;primaryKey"`
 	RoleID     string    `json:"role_id" gorm:"column:role_id"`

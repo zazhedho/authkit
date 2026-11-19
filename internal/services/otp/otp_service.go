@@ -23,14 +23,12 @@ type Config struct {
 	Secret      string
 }
 
-// Service implements the otp use cases.
 type Service struct {
 	Repo   Repository
 	Sender Mailer
 	Config Config
 }
 
-// NewService creates the otp service.
 func NewService(repo Repository, sender Mailer, cfg Config) *Service {
 	return &Service{Repo: repo, Sender: sender, Config: cfg}
 }
@@ -41,7 +39,6 @@ func (s *Service) missingSecret() bool {
 	return strings.TrimSpace(s.Config.Secret) == ""
 }
 
-// SendRegisterOTP sends the register OTP.
 func (s *Service) SendRegisterOTP(ctx context.Context, email, appName string) error {
 	if s == nil || s.Repo == nil || s.Sender == nil || s.missingSecret() {
 		return domainotp.ErrNotConfigured
@@ -100,7 +97,6 @@ func (s *Service) SendRegisterOTP(ctx context.Context, email, appName string) er
 	return nil
 }
 
-// VerifyRegisterOTP verifies the register OTP.
 func (s *Service) VerifyRegisterOTP(ctx context.Context, email, code string) error {
 	if s == nil || s.Repo == nil || s.missingSecret() {
 		return domainotp.ErrNotConfigured

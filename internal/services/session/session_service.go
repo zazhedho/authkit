@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Service implements the session use cases.
 type Service struct {
 	SessionRepo Repository
 	RefreshTTL  time.Duration
@@ -26,7 +25,6 @@ func NewService(sessionRepo Repository, refreshTTL time.Duration) *Service {
 	}
 }
 
-// CreateSession creates the session.
 func (s *Service) CreateSession(ctx context.Context, user *domainuser.Users, accessToken string, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error) {
 	sessionID := uuid.New().String()
 
@@ -61,7 +59,6 @@ func (s *Service) CreateSession(ctx context.Context, user *domainuser.Users, acc
 	return session, nil
 }
 
-// GetUserSessions returns the user sessions.
 func (s *Service) GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.Info, error) {
 	sessions, err := s.SessionRepo.GetByUserID(ctx, userID)
 	if err != nil {
@@ -84,12 +81,10 @@ func (s *Service) GetUserSessions(ctx context.Context, userID string, currentSes
 	return sessionInfos, nil
 }
 
-// DestroySession destroys the session.
 func (s *Service) DestroySession(ctx context.Context, sessionID string) error {
 	return s.SessionRepo.Delete(ctx, sessionID)
 }
 
-// DestroySessionByToken destroys the session by token.
 func (s *Service) DestroySessionByToken(ctx context.Context, token string) error {
 	session, err := s.SessionRepo.GetByToken(ctx, token)
 	if err != nil {
@@ -98,32 +93,26 @@ func (s *Service) DestroySessionByToken(ctx context.Context, token string) error
 	return s.SessionRepo.Delete(ctx, session.SessionID)
 }
 
-// GetSessionByToken returns the session by token.
 func (s *Service) GetSessionByToken(ctx context.Context, token string) (*domainsession.Session, error) {
 	return s.SessionRepo.GetByToken(ctx, token)
 }
 
-// GetSessionByRefreshToken returns the session by refresh token.
 func (s *Service) GetSessionByRefreshToken(ctx context.Context, refreshToken string) (*domainsession.Session, error) {
 	return s.SessionRepo.GetByRefreshToken(ctx, refreshToken)
 }
 
-// GetSessionBySessionID returns the session by session ID.
 func (s *Service) GetSessionBySessionID(ctx context.Context, sessionID string) (*domainsession.Session, error) {
 	return s.SessionRepo.GetBySessionID(ctx, sessionID)
 }
 
-// RotateSessionTokens implements the rotate session tokens operation.
 func (s *Service) RotateSessionTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
 	return s.SessionRepo.RotateTokens(ctx, sessionID, accessToken, refreshToken, expiresAt)
 }
 
-// DestroyAllUserSessions destroys the all user sessions.
 func (s *Service) DestroyAllUserSessions(ctx context.Context, userID string) error {
 	return s.SessionRepo.DeleteByUserID(ctx, userID)
 }
 
-// DestroyOtherSessions destroys the other sessions.
 func (s *Service) DestroyOtherSessions(ctx context.Context, userID string, currentSessionID string) error {
 	sessions, err := s.SessionRepo.GetByUserID(ctx, userID)
 	if err != nil {

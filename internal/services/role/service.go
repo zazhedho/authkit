@@ -13,7 +13,6 @@ import (
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 )
 
-// Service implements the role use cases.
 type Service struct {
 	RoleRepo        Repository
 	PermissionRepo  PermissionRepository
@@ -23,7 +22,6 @@ type Service struct {
 	NewID func() string
 }
 
-// NewService creates the role service.
 func NewService(
 	roleRepo Repository,
 	permissionRepo PermissionRepository,
@@ -42,7 +40,6 @@ func NewService(
 	return service
 }
 
-// Create creates the record.
 func (s *Service) Create(ctx context.Context, req dtorole.Create) (domainrole.Role, error) {
 	name := serviceshared.NormalizeKey(serviceshared.CleanText(req.Name))
 	existing, err := s.RoleRepo.GetByName(ctx, name)
@@ -69,12 +66,10 @@ func (s *Service) Create(ctx context.Context, req dtorole.Create) (domainrole.Ro
 	return data, nil
 }
 
-// GetByID returns one record found by ID.
 func (s *Service) GetByID(ctx context.Context, id string) (domainrole.Role, error) {
 	return s.RoleRepo.GetByID(ctx, id)
 }
 
-// GetByIDWithDetails returns one record found by ID with details.
 func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.WithDetails, error) {
 	role, err := s.RoleRepo.GetByID(ctx, id)
 	if err != nil {
@@ -109,7 +104,6 @@ func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.Wi
 	}, nil
 }
 
-// GetAll returns a page of records.
 func (s *Service) GetAll(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainrole.Role, int64, error) {
 	roles, total, err := s.RoleRepo.GetAll(ctx, req)
 	return serviceshared.HideSuperAdmin(actor, roles, total, err, func(role domainrole.Role) bool {
@@ -117,7 +111,6 @@ func (s *Service) GetAll(ctx context.Context, actor domainauth.Actor, req dtosha
 	})
 }
 
-// Update updates the record.
 func (s *Service) Update(ctx context.Context, id string, req dtorole.Update) (domainrole.Role, error) {
 	role, err := s.RoleRepo.GetByID(ctx, id)
 	if err != nil {
@@ -141,7 +134,6 @@ func (s *Service) Update(ctx context.Context, id string, req dtorole.Update) (do
 	return role, nil
 }
 
-// Delete deletes the record.
 func (s *Service) Delete(ctx context.Context, id string) error {
 	role, err := s.RoleRepo.GetByID(ctx, id)
 	if err != nil {
@@ -166,7 +158,6 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// AssignPermissions assigns the permissions.
 func (s *Service) AssignPermissions(ctx context.Context, actor domainauth.Actor, roleID string, req dtorole.AssignPermissions) error {
 	role, err := s.RoleRepo.GetByID(ctx, roleID)
 	if err != nil {
@@ -212,7 +203,6 @@ func (s *Service) invalidatePermissionCache(ctx context.Context) {
 	}
 }
 
-// GetRolePermissions returns the role permissions.
 func (s *Service) GetRolePermissions(ctx context.Context, roleID string) ([]string, error) {
 	return s.RoleRepo.GetRolePermissions(ctx, roleID)
 }

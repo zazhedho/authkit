@@ -12,7 +12,6 @@ import (
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
-// Repository is the persistence port of the user service.
 type Repository interface {
 	Store(ctx context.Context, data domainuser.Users) error
 	GetByID(ctx context.Context, id string) (domainuser.Users, error)

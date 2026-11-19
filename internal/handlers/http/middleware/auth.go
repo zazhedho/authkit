@@ -21,7 +21,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Middleware is the middleware.
 type Middleware struct {
 	BlacklistRepo   TokenRevocations
 	PermissionRepo  PermissionLookup
@@ -38,7 +37,6 @@ type Middleware struct {
 	Sessions   SessionIndex
 }
 
-// NewMiddleware creates the authentication and authorization middleware.
 func NewMiddleware(blacklistRepo TokenRevocations,
 	permissionRepo PermissionLookup,
 	permissionCache PermissionCache,
@@ -177,7 +175,6 @@ func (m *Middleware) userState(ctx context.Context, userID string) (domainuser.A
 	return state, nil
 }
 
-// RoleMiddleware implements the role middleware operation.
 func (m *Middleware) RoleMiddleware(allowedRoles ...string) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		var (
@@ -235,7 +232,6 @@ func (m *Middleware) RoleMiddleware(allowedRoles ...string) gin.HandlerFunc {
 	}
 }
 
-// PermissionMiddleware implements the permission middleware operation.
 func (m *Middleware) PermissionMiddleware(resource, action string) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		var (

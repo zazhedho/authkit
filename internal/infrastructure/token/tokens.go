@@ -64,7 +64,6 @@ func (t *Tokens) AccessTTL() time.Duration {
 	return t.accessTTL
 }
 
-// RefreshTTL refreshes the TTL.
 func (t *Tokens) RefreshTTL() time.Duration {
 	if t == nil {
 		return 0
@@ -78,7 +77,6 @@ func (t *Tokens) Generate(userID, username, role, logID string) (string, error) 
 	return t.GenerateWithClaims(userID, username, role, logID, nil)
 }
 
-// GenerateWithClaims generates the with claims.
 func (t *Tokens) GenerateWithClaims(userID, username, role, logID string, claimsOverride *AppClaims) (string, error) {
 	if t == nil {
 		return "", ErrJWTKeyNotConfigured
@@ -119,7 +117,6 @@ func (t *Tokens) GenerateWithClaims(userID, username, role, logID string, claims
 	return token.SignedString(t.key)
 }
 
-// GenerateRefresh generates the refresh.
 func (t *Tokens) GenerateRefresh(userID, username, role, logID string) (string, error) {
 	return t.generateRefresh(userID, username, role, logID, nil)
 }
@@ -165,14 +162,12 @@ func (t *Tokens) generateRefresh(userID, username, role, logID string, claimsOve
 	return token.SignedString(t.key)
 }
 
-// ClaimsFromRequest implements the claims from request operation.
 func (t *Tokens) ClaimsFromRequest(request *http.Request) (string, map[string]any, error) {
 	tokenString := GetAuthToken(request)
 	data, err := t.Claims(tokenString)
 	return tokenString, data, err
 }
 
-// Claims implements the claims operation.
 func (t *Tokens) Claims(tokenString string) (map[string]any, error) {
 	if tokenString == "" {
 		return nil, errors.New("empty token")
@@ -201,7 +196,6 @@ func (t *Tokens) Claims(tokenString string) (map[string]any, error) {
 	return nil, errors.New("invalid token")
 }
 
-// ExpiresAt implements the expires at operation.
 func (t *Tokens) ExpiresAt(tokenString string) (time.Time, error) {
 	claims, err := t.Claims(tokenString)
 	if err != nil {

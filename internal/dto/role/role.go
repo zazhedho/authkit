@@ -1,24 +1,20 @@
 package role
 
-// Create is the role request body for role create.
 type Create struct {
 	Name        string `json:"name" binding:"required,min=3,max=50"`
 	DisplayName string `json:"display_name" binding:"required,min=3,max=100"`
 	Description string `json:"description" binding:"omitempty,max=500"`
 }
 
-// Update is the role request body for role update.
 type Update struct {
 	DisplayName string `json:"display_name" binding:"omitempty,min=3,max=100"`
 	Description string `json:"description" binding:"omitempty,max=500"`
 }
 
-// AssignPermissions is the role request body for assign permissions.
 type AssignPermissions struct {
 	PermissionIDs []string `json:"permission_ids" binding:"required"`
 }
 
-// WithDetails is a role response payload.
 type WithDetails struct {
 	ID            string   `json:"id"`
 	Name          string   `json:"name"`

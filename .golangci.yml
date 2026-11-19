@@ -35,6 +35,7 @@ linters:
       rules:
         - name: var-naming
         - name: exported
+        - name: package-comments
     dupl:
       threshold: 80
     misspell:
@@ -52,6 +53,16 @@ linters:
         linters:
           - gosec
         text: "G101: Potential hardcoded credentials"
+      # Exported names and package comments are checked on the public root
+      # package only; internal/ code is not an API.
+      - path: ^internal/
+        linters:
+          - revive
+        text: "exported|package-comments|should have a package comment"
+      - path: ^cmd/
+        linters:
+          - revive
+        text: "package-comments|should have a package comment"
       - path: _test\.go
         linters:
           - noctx

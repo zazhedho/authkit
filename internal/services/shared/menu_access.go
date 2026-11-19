@@ -9,7 +9,6 @@ import (
 	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 )
 
-// ResolveAccessibleMenus resolves the accessible menus.
 func ResolveAccessibleMenus(activeMenus []domainmenu.Item, resources []string) []domainmenu.Item {
 	if len(activeMenus) == 0 || len(resources) == 0 {
 		return []domainmenu.Item{}
@@ -54,7 +53,6 @@ func addMenuAncestors(menu domainmenu.Item, menuByID map[string]domainmenu.Item,
 	}
 }
 
-// ResolveAccessibleMenuIDs resolves the accessible menu i ds.
 func ResolveAccessibleMenuIDs(activeMenus []domainmenu.Item, resources []string) []string {
 	menus := ResolveAccessibleMenus(activeMenus, resources)
 	ids := make([]string, 0, len(menus))

@@ -7,7 +7,6 @@ import (
 	"github.com/zazhedho/gokit"
 )
 
-// GetImpersonationMetadata returns the impersonation metadata.
 func GetImpersonationMetadata(ctx context.Context) map[string]any {
 	authData := GetAuthData(ctx)
 	if authData == nil {

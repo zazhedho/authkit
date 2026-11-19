@@ -17,12 +17,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Repository stores session data.
 type Repository struct {
 	Redis *redis.Client
 }
 
-// NewRepository creates the session repository on Redis.
 func NewRepository(redisClient *redis.Client) *Repository {
 	return &Repository{
 		Redis: redisClient,
@@ -49,7 +47,6 @@ func userSessionKey(id string) string    { return userSessionsKey + id }
 func accessIndexKey(hash string) string  { return accessTokenSessionKey + hash }
 func refreshIndexKey(hash string) string { return refreshTokenSessionKey + hash }
 
-// Create creates the record.
 func (r *Repository) Create(ctx context.Context, session *domainsession.Session) error {
 	ttl := time.Until(session.ExpiresAt)
 	if ttl <= 0 {
@@ -76,7 +73,6 @@ func (r *Repository) Create(ctx context.Context, session *domainsession.Session)
 	return nil
 }
 
-// GetBySessionID returns one record found by session ID.
 func (r *Repository) GetBySessionID(ctx context.Context, sessionID string) (*domainsession.Session, error) {
 	data, err := r.Redis.Get(ctx, sessionKey(sessionID)).Result()
 	if errors.Is(err, redis.Nil) {
@@ -92,7 +88,6 @@ func (r *Repository) GetBySessionID(ctx context.Context, sessionID string) (*dom
 	return &session, nil
 }
 
-// GetByUserID returns one record found by user ID.
 func (r *Repository) GetByUserID(ctx context.Context, userID string) ([]*domainsession.Session, error) {
 	sessionIDs, err := r.Redis.SMembers(ctx, userSessionKey(userID)).Result()
 	if err != nil {
@@ -114,7 +109,6 @@ func (r *Repository) GetByUserID(ctx context.Context, userID string) ([]*domains
 	return sessions, nil
 }
 
-// GetByToken returns one record found by access token.
 func (r *Repository) GetByToken(ctx context.Context, token string) (*domainsession.Session, error) {
 	return r.getByTokenKey(ctx, accessIndexKey(HashToken(token)), "token")
 }
@@ -165,7 +159,6 @@ func (r *Repository) getByTokenKey(ctx context.Context, tokenKey, kind string) (
 	return r.GetBySessionID(ctx, sessionID)
 }
 
-// Delete deletes the record.
 func (r *Repository) Delete(ctx context.Context, sessionID string) error {
 	session, err := r.GetBySessionID(ctx, sessionID)
 	if err != nil {

@@ -45,7 +45,6 @@ type Settings struct {
 	Flags         FlagKeys
 }
 
-// Handler serves the user HTTP endpoints.
 type Handler struct {
 	Service      Service
 	SessionSvc   SessionService
@@ -69,7 +68,6 @@ type Options struct {
 	Settings         Settings
 }
 
-// New creates the user handler.
 func New(
 	s Service,
 	sessionSvc SessionService,
@@ -90,7 +88,6 @@ func New(
 	}
 }
 
-// Register handles the register request.
 func (h *Handler) Register(ctx *gin.Context) {
 	var req dtouser.Register
 	logID := gokit.RequestID(ctx)
@@ -182,7 +179,6 @@ func (h *Handler) Register(ctx *gin.Context) {
 	ctx.JSON(http.StatusCreated, res)
 }
 
-// GetRegisterStatus handles the get register status request.
 func (h *Handler) GetRegisterStatus(ctx *gin.Context) {
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][GetRegisterStatus]"
@@ -204,7 +200,6 @@ func (h *Handler) GetRegisterStatus(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// SendRegisterOTP handles the send register OTP request.
 func (h *Handler) SendRegisterOTP(ctx *gin.Context) {
 	var req dtouser.SendRegisterOTPRequest
 	logID := gokit.RequestID(ctx)
@@ -286,7 +281,6 @@ func (h *Handler) SendRegisterOTP(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// AdminCreateUser handles the admin create user request.
 func (h *Handler) AdminCreateUser(ctx *gin.Context) {
 	var req dtouser.AdminCreateUser
 	logID := gokit.RequestID(ctx)
@@ -331,7 +325,6 @@ func (h *Handler) AdminCreateUser(ctx *gin.Context) {
 	ctx.JSON(http.StatusCreated, res)
 }
 
-// Login handles the login request.
 func (h *Handler) Login(ctx *gin.Context) {
 	var req dtouser.Login
 	logID := gokit.RequestID(ctx)
@@ -408,7 +401,6 @@ func (h *Handler) Login(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// GoogleLogin handles the google login request.
 func (h *Handler) GoogleLogin(ctx *gin.Context) {
 	var req dtouser.GoogleLogin
 	logID := gokit.RequestID(ctx)
@@ -517,7 +509,6 @@ func (h *Handler) GoogleLogin(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// RefreshToken handles the refresh token request.
 func (h *Handler) RefreshToken(ctx *gin.Context) {
 	var req dtouser.RefreshTokenRequest
 	logID := gokit.RequestID(ctx)
@@ -712,7 +703,6 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// Logout handles the logout request.
 func (h *Handler) Logout(ctx *gin.Context) {
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserController][Logout]"
@@ -793,7 +783,6 @@ func (h *Handler) Logout(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// GetUserByID handles the get user by ID request.
 func (h *Handler) GetUserByID(ctx *gin.Context) {
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][GetUserByID]"
@@ -816,7 +805,6 @@ func (h *Handler) GetUserByID(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// GetUserByAuth handles the get user by auth request.
 func (h *Handler) GetUserByAuth(ctx *gin.Context) {
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][GetUserByAuth]"
@@ -851,7 +839,6 @@ func (h *Handler) GetUserByAuth(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// ImpersonateUser handles the impersonate user request.
 func (h *Handler) ImpersonateUser(ctx *gin.Context) {
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][ImpersonateUser]"
@@ -909,7 +896,6 @@ func (h *Handler) ImpersonateUser(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// StopImpersonation handles the stop impersonation request.
 func (h *Handler) StopImpersonation(ctx *gin.Context) {
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][StopImpersonation]"
@@ -960,7 +946,6 @@ func (h *Handler) StopImpersonation(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// GetAllUsers handles the get all users request.
 func (h *Handler) GetAllUsers(ctx *gin.Context) {
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][GetAllUsers]"
@@ -986,7 +971,6 @@ func (h *Handler) GetAllUsers(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// Update handles the update request.
 func (h *Handler) Update(ctx *gin.Context) {
 	var req dtouser.Update
 	logID := gokit.RequestID(ctx)
@@ -1008,7 +992,6 @@ func (h *Handler) Update(ctx *gin.Context) {
 	h.updateUser(ctx, logID, logPrefix, scope.UserID, req, "Failed to update user profile", "Updated user profile")
 }
 
-// UpdateUserByID handles the update user by id request.
 func (h *Handler) UpdateUserByID(ctx *gin.Context) {
 	var req dtouser.Update
 	logID := gokit.RequestID(ctx)
@@ -1026,7 +1009,6 @@ func (h *Handler) UpdateUserByID(ctx *gin.Context) {
 	h.updateUser(ctx, logID, logPrefix, id, req, "Failed to update user by ID", "Updated user by ID")
 }
 
-// ChangePassword handles the change password request.
 func (h *Handler) ChangePassword(ctx *gin.Context) {
 	var req dtouser.ChangePassword
 	logID := gokit.RequestID(ctx)
@@ -1125,7 +1107,6 @@ func (h *Handler) ForgotPassword(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gokit.Response(http.StatusOK, forgotPasswordMessage, logID, nil))
 }
 
-// ResetPassword handles the reset password request.
 func (h *Handler) ResetPassword(ctx *gin.Context) {
 	var req dtouser.ResetPasswordRequest
 	logID := gokit.RequestID(ctx)
@@ -1158,7 +1139,6 @@ func (h *Handler) revokeAllSessions(ctx context.Context, userID string) error {
 	return h.SessionSvc.DestroyAllUserSessions(ctx, userID)
 }
 
-// Delete handles the delete request.
 func (h *Handler) Delete(ctx *gin.Context) {
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][Delete]"
@@ -1193,7 +1173,6 @@ func (h *Handler) Delete(ctx *gin.Context) {
 	h.deleteUser(ctx, logID, logPrefix, scope.UserID, "Failed to delete own user", "Deleted own user")
 }
 
-// DeleteUserByID handles the delete user by id request.
 func (h *Handler) DeleteUserByID(ctx *gin.Context) {
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][DeleteUserById]"

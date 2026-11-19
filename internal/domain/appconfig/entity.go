@@ -6,12 +6,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// TableName returns the database table name GORM uses for AppConfig.
 func (AppConfig) TableName() string {
 	return "app_configs"
 }
 
-// AppConfig is the appconfig domain type: app config.
 type AppConfig struct {
 	Id          string         `json:"id" gorm:"column:id;primaryKey"` //nolint:revive // public API field (authkit.AppConfig); renaming it is a breaking change
 	ConfigKey   string         `json:"config_key" gorm:"column:config_key"`
