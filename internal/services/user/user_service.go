@@ -376,10 +376,25 @@ func (s *Service) GetUserByAuth(ctx context.Context, id string) (map[string]any,
 }
 
 func (s *Service) GetAllUsers(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainuser.Users, int64, error) {
-	users, total, err := s.UserRepo.GetAll(ctx, req)
-	return serviceshared.HideSuperAdmin(actor, users, total, err, func(user domainuser.Users) bool {
-		return user.Role == domainuser.RoleSuperAdmin
-	})
+	if actor.Role == domainuser.RoleSuperAdmin {
+		return s.UserRepo.GetAll(ctx, req)
+	}
+	// Superadmins are left out by the query itself, so the page size and the
+	// total count agree.
+	return s.UserRepo.GetAllExcludingRole(ctx, req, domainuser.RoleSuperAdmin)
+}
+
+// GetUserForActor returns one user as the actor may see it: a superadmin
+// account does not exist for anyone else.
+func (s *Service) GetUserForActor(ctx context.Context, actor domainauth.Actor, id string) (domainuser.Users, error) {
+	user, err := s.UserRepo.GetByID(ctx, id)
+	if err != nil {
+		return domainuser.Users{}, err
+	}
+	if user.Role == domainuser.RoleSuperAdmin && actor.Role != domainuser.RoleSuperAdmin {
+		return domainuser.Users{}, domainuser.ErrNotFound
+	}
+	return user, nil
 }
 
 // Update edits a user. The role rule applies to every target but the actor's

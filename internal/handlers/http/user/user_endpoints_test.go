@@ -129,6 +129,9 @@ func (s *userServiceTestDouble) GetUserByAuth(ctx context.Context, id string) (m
 	}
 	return map[string]any{"id": id, "name": s.user.Name, "role": s.user.Role}, nil
 }
+func (s *userServiceTestDouble) GetUserForActor(ctx context.Context, actor domainauth.Actor, id string) (domainuser.Users, error) {
+	return s.GetUserByID(ctx, id)
+}
 func (s *userServiceTestDouble) GetAllUsers(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainuser.Users, int64, error) {
 	if s.err != nil {
 		return nil, 0, s.err

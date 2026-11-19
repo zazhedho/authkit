@@ -578,8 +578,7 @@ func (h *Handler) updateUser(ctx *gin.Context, logID uuid.UUID, logPrefix, id st
 		AfterData:  userSnapshot(data),
 	})
 
-	res := gokit.Response(http.StatusOK, "User updated successfully", logID, data)
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(data))
+	res := gokit.Response(http.StatusOK, "User updated successfully", logID, dtouser.NewResponse(data, false))
 	ctx.JSON(http.StatusOK, res)
 }
 

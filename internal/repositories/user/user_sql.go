@@ -117,7 +117,18 @@ func (r *Repository) GetByPhone(ctx context.Context, phone string) (ret domainus
 }
 
 func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainuser.Users, totalData int64, err error) {
+	return r.getAll(ctx, req, nil)
+}
+
+// GetAllExcludingRole lists the users who do not hold role. The exclusion is in
+// the query, so the page size and the total both leave those rows out.
+func (r *Repository) GetAllExcludingRole(ctx context.Context, req dtoshared.ListRequest, role string) ([]domainuser.Users, int64, error) {
+	return r.getAll(ctx, req, func(db *gorm.DB) *gorm.DB { return db.Where("role <> ?", role) })
+}
+
+func (r *Repository) getAll(ctx context.Context, req dtoshared.ListRequest, base gokit.QueryFunc) (ret []domainuser.Users, totalData int64, err error) {
 	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
+		BaseQuery:      base,
 		MaxLimit:       dtoshared.PagedList.MaxLimit,
 		AllowAll:       dtoshared.PagedList.AllowAll,
 		Search:         gokit.BuildSearchFunc("name", "email", "phone"),

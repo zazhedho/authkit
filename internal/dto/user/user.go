@@ -1,5 +1,11 @@
 package user
 
+import (
+	"time"
+
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+)
+
 type Register struct {
 	Name          string `json:"name" binding:"required,min=3,max=100"`
 	Email         string `json:"email" binding:"required,email"`
@@ -76,4 +82,50 @@ type Logout struct {
 
 type DeleteOwn struct {
 	CurrentPassword string `json:"current_password" binding:"required,max=72"`
+}
+
+// Response is the JSON shape of a user in API responses. Login bookkeeping and
+// metadata are filled only for a superadmin caller.
+type Response struct {
+	ID                 string         `json:"id"`
+	Name               string         `json:"name"`
+	Email              string         `json:"email,omitempty"`
+	Phone              string         `json:"phone,omitempty"`
+	Role               string         `json:"role,omitempty"`
+	RoleID             *string        `json:"role_id,omitempty"`
+	EmailVerifiedAt    *time.Time     `json:"email_verified_at,omitempty"`
+	PhoneVerifiedAt    *time.Time     `json:"phone_verified_at,omitempty"`
+	LastLoginAt        *time.Time     `json:"last_login_at,omitempty"`
+	LastLoginIP        string         `json:"last_login_ip,omitempty"`
+	LastLoginUserAgent string         `json:"last_login_user_agent,omitempty"`
+	PasswordChangedAt  *time.Time     `json:"password_changed_at,omitempty"`
+	LoginProvider      string         `json:"login_provider,omitempty"`
+	AvatarURL          string         `json:"avatar_url,omitempty"`
+	Metadata           map[string]any `json:"metadata,omitempty"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          *time.Time     `json:"updated_at,omitempty"`
+}
+
+// NewResponse maps a user to its response. detailed adds the login IP, user
+// agent and metadata; pass true for a superadmin caller only.
+func NewResponse(u domainuser.Users, detailed bool) Response {
+	r := Response{
+		ID: u.ID, Name: u.Name, Email: u.Email, Phone: u.Phone, Role: u.Role, RoleID: u.RoleID,
+		EmailVerifiedAt: u.EmailVerifiedAt, PhoneVerifiedAt: u.PhoneVerifiedAt, LastLoginAt: u.LastLoginAt,
+		PasswordChangedAt: u.PasswordChangedAt, LoginProvider: u.LoginProvider, AvatarURL: u.AvatarURL,
+		CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
+	}
+	if detailed {
+		r.LastLoginIP, r.LastLoginUserAgent, r.Metadata = u.LastLoginIP, u.LastLoginUserAgent, u.Metadata
+	}
+	return r
+}
+
+// NewResponses maps a page of users.
+func NewResponses(users []domainuser.Users, detailed bool) []Response {
+	out := make([]Response, 0, len(users))
+	for _, u := range users {
+		out = append(out, NewResponse(u, detailed))
+	}
+	return out
 }

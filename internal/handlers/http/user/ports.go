@@ -21,6 +21,7 @@ type Service interface {
 	ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason, logID string) (string, error)
 	StopImpersonation(ctx context.Context, actor domainauth.Actor, logID string) (string, error)
 	GetUserByID(ctx context.Context, id string) (domainuser.Users, error)
+	GetUserForActor(ctx context.Context, actor domainauth.Actor, id string) (domainuser.Users, error)
 	GetUserByEmail(ctx context.Context, email string) (domainuser.Users, error)
 	GetUserByPhone(ctx context.Context, phone string) (domainuser.Users, error)
 	GetUserByAuth(ctx context.Context, id string) (map[string]any, error)

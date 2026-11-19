@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -238,5 +239,26 @@ func TestUserAuditSnapshotIsAnAllowList(t *testing.T) {
 	upd := updateSnapshot(dtouser.Update{Name: "N", CurrentPassword: "secret"})
 	if _, ok := upd["current_password"]; ok {
 		t.Error("the update snapshot must not carry the current password")
+	}
+}
+
+func TestUserResponsesHideLoginBookkeepingFromNonSuperadmins(t *testing.T) {
+	u := domainuser.Users{ID: "1", Name: "N", Email: "e@example.test", LastLoginIP: "10.0.0.1", LastLoginUserAgent: "ua", Metadata: map[string]any{"k": "v"}}
+	body := func(detailed bool) string {
+		raw, _ := json.Marshal(dtouser.NewResponse(u, detailed))
+		return string(raw)
+	}
+	for _, field := range []string{"last_login_ip", "last_login_user_agent", "metadata", "locked_until"} {
+		if strings.Contains(body(false), field) {
+			t.Errorf("a non-superadmin response contains %s", field)
+		}
+	}
+	for _, field := range []string{"last_login_ip", "last_login_user_agent", "metadata"} {
+		if !strings.Contains(body(true), field) {
+			t.Errorf("a superadmin response lacks %s", field)
+		}
+	}
+	if strings.Contains(body(true), "locked_until") {
+		t.Error("locked_until is gone for everyone")
 	}
 }

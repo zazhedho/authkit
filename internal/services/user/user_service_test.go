@@ -46,11 +46,12 @@ type userRepoMock struct {
 	deleteErr error
 	getAllErr error
 
-	subjectUser domainuser.Users
-	subjectErr  error
-	superAdmins int64
-	fields      map[string]any
-	fieldsID    string
+	excludedRole string
+	subjectUser  domainuser.Users
+	subjectErr   error
+	superAdmins  int64
+	fields       map[string]any
+	fieldsID     string
 }
 
 func (m *userRepoMock) Store(ctx context.Context, data domainuser.Users) error {
@@ -72,6 +73,19 @@ func (m *userRepoMock) GetAll(ctx context.Context, req dtoshared.ListRequest) ([
 		return nil, 0, m.getAllErr
 	}
 	return append([]domainuser.Users{}, m.users...), int64(len(m.users)), nil
+}
+func (m *userRepoMock) GetAllExcludingRole(ctx context.Context, req dtoshared.ListRequest, role string) ([]domainuser.Users, int64, error) {
+	if m.getAllErr != nil {
+		return nil, 0, m.getAllErr
+	}
+	m.excludedRole = role
+	var out []domainuser.Users
+	for _, u := range m.users {
+		if u.Role != role {
+			out = append(out, u)
+		}
+	}
+	return out, int64(len(out)), nil
 }
 func (m *userRepoMock) Update(ctx context.Context, data domainuser.Users) error {
 	m.updated = data
@@ -1239,5 +1253,28 @@ func TestRegisterUserDoesNotTurnEntitiesIntoMarkup(t *testing.T) {
 	}
 	if strings.Contains(user.Name, "<") || strings.Contains(user.Name, ">") {
 		t.Fatalf("name must stay escaped text, got %q", user.Name)
+	}
+}
+
+func TestGetAllUsersExcludesSuperadminsInTheQueryForOthers(t *testing.T) {
+	repo := &userRepoMock{users: []domainuser.Users{{ID: "1", Role: "viewer"}, {ID: "2", Role: domainuser.RoleSuperAdmin}, {ID: "3", Role: "staff"}}}
+	svc := newTestUserService(t, repo, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
+	users, total, err := svc.GetAllUsers(context.Background(), authActor("a", "A", domainuser.RoleAdmin), dtoshared.ListRequest{})
+	if err != nil || len(users) != 2 || total != 2 {
+		t.Fatalf("users=%d total=%d err=%v, want the total to agree with the rows", len(users), total, err)
+	}
+	if repo.excludedRole != domainuser.RoleSuperAdmin {
+		t.Fatalf("the exclusion must happen in the query, got %q", repo.excludedRole)
+	}
+}
+
+func TestGetUserForActorHidesSuperadmins(t *testing.T) {
+	repo := &userRepoMock{user: domainuser.Users{ID: "root", Role: domainuser.RoleSuperAdmin}}
+	svc := newTestUserService(t, repo, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
+	if _, err := svc.GetUserForActor(context.Background(), authActor("a", "A", domainuser.RoleAdmin), "root"); !errors.Is(err, domainuser.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound for a non-superadmin", err)
+	}
+	if got, err := svc.GetUserForActor(context.Background(), authActor("r", "R", domainuser.RoleSuperAdmin), "root"); err != nil || got.ID != "root" {
+		t.Fatalf("a superadmin sees it: %v %v", got.ID, err)
 	}
 }

@@ -16,6 +16,9 @@ type Repository interface {
 	Store(ctx context.Context, data domainuser.Users) error
 	GetByID(ctx context.Context, id string) (domainuser.Users, error)
 	GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainuser.Users, int64, error)
+	// GetAllExcludingRole lists users who do not hold role, in the query, so the
+	// total stays right.
+	GetAllExcludingRole(ctx context.Context, req dtoshared.ListRequest, role string) ([]domainuser.Users, int64, error)
 	Update(ctx context.Context, data domainuser.Users) error
 	Delete(ctx context.Context, id string) error
 	GetByEmail(ctx context.Context, email string) (domainuser.Users, error)

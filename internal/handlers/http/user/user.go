@@ -180,7 +180,7 @@ func (h *Handler) Register(ctx *gin.Context) {
 		AfterData:   userSnapshot(data),
 	})
 
-	res := gokit.Response(http.StatusCreated, "User registered successfully", logID, data)
+	res := gokit.Response(http.StatusCreated, "User registered successfully", logID, dtouser.NewResponse(data, false))
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(data))
 	ctx.JSON(http.StatusCreated, res)
 }
@@ -308,7 +308,7 @@ func (h *Handler) AdminCreateUser(ctx *gin.Context) {
 		AfterData:  userSnapshot(data),
 	})
 
-	res := gokit.Response(http.StatusCreated, "User created successfully", logID, data)
+	res := gokit.Response(http.StatusCreated, "User created successfully", logID, dtouser.NewResponse(data, false))
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(data))
 	ctx.JSON(http.StatusCreated, res)
 }
@@ -784,15 +784,16 @@ func (h *Handler) GetUserByID(ctx *gin.Context) {
 		return
 	}
 
-	data, err := h.Service.GetUserByID(reqCtx, id)
+	actor := httpshared.ActorFrom(reqCtx)
+	user, err := h.Service.GetUserForActor(reqCtx, actor, id)
 	if err != nil {
-		logus.LogContextf(ctx, logus.LevelError, "%s; Service.GetUserByID; ERROR: %s;", logPrefix, err)
+		logus.LogContextf(ctx, logus.LevelError, "%s; Service.GetUserForActor; ERROR: %s;", logPrefix, err)
 		respondUserLookupError(ctx, logID, err)
 		return
 	}
 
+	data := dtouser.NewResponse(user, actor.Role == domainuser.RoleSuperAdmin)
 	res := gokit.Response(http.StatusOK, "success", logID, data)
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(data))
 	ctx.JSON(http.StatusOK, res)
 }
 
@@ -977,8 +978,9 @@ func (h *Handler) GetAllUsers(ctx *gin.Context) {
 		return
 	}
 
-	res := gokit.PaginationResponse(http.StatusOK, totalData, params.Page, httpshared.PageSize(dtoshared.PagedList, params), logID, users)
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(users))
+	actor := httpshared.ActorFrom(reqCtx)
+	items := dtouser.NewResponses(users, actor.Role == domainuser.RoleSuperAdmin)
+	res := gokit.PaginationResponse(http.StatusOK, totalData, params.Page, httpshared.PageSize(dtoshared.PagedList, params), logID, items)
 	ctx.JSON(http.StatusOK, res)
 }
 
