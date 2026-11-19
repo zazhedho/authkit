@@ -46,6 +46,8 @@ type userRepoMock struct {
 	deleteErr error
 	getAllErr error
 
+	subjectUser domainuser.Users
+	subjectErr  error
 	superAdmins int64
 	fields      map[string]any
 	fieldsID    string
@@ -96,6 +98,12 @@ func (m *userRepoMock) UpdateFields(ctx context.Context, id string, fields map[s
 		m.fields[k] = v
 	}
 	return m.updateErr
+}
+func (m *userRepoMock) GetByGoogleSubject(ctx context.Context, subject string) (domainuser.Users, error) {
+	if m.subjectErr != nil {
+		return domainuser.Users{}, m.subjectErr
+	}
+	return m.subjectUser, nil
 }
 func (m *userRepoMock) GetByEmail(ctx context.Context, email string) (domainuser.Users, error) {
 	if m.emailErr != nil {
@@ -662,28 +670,6 @@ func TestLoginWithGoogleRejectsNewUserWhenPublicRegistrationDisabled(t *testing.
 	}
 	if userRepo.user.ID != "" {
 		t.Fatalf("expected no user to be created, got %+v", userRepo.user)
-	}
-}
-
-func TestGoogleTokenVerifierLocalValidationBranches(t *testing.T) {
-	if _, err := verifyGoogleIDToken(context.Background(), " ", []string{"client-a"}); !errors.Is(err, domainuser.ErrGoogleTokenInvalid) {
-		t.Fatalf("expected invalid token for empty input, got %v", err)
-	}
-	if _, err := verifyGoogleIDToken(context.Background(), "token", nil); !errors.Is(err, domainuser.ErrGoogleNotConfigured) {
-		t.Fatalf("expected not configured without audiences, got %v", err)
-	}
-	if _, err := verifyGoogleIDToken(context.Background(), "token", []string{" ", ""}); !errors.Is(err, domainuser.ErrGoogleNotConfigured) {
-		t.Fatalf("expected not configured with only blank audiences, got %v", err)
-	}
-
-	audiences := googleAllowedAudiences([]string{"client-a", " client-b ", "", "client-c"})
-	if len(audiences) != 3 {
-		t.Fatalf("expected 3 audiences, got %#v", audiences)
-	}
-	for _, audience := range []string{"client-a", "client-b", "client-c"} {
-		if _, ok := audiences[audience]; !ok {
-			t.Fatalf("expected audience %q in %#v", audience, audiences)
-		}
 	}
 }
 

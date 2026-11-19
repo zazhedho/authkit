@@ -22,10 +22,15 @@ type Service struct {
 	RoleRepo        RoleRepository
 	PermissionRepo  PermissionRepository
 	PermissionCache PermissionCache
-	Tokens          TokenIssuer
+	// Sessions, when set, ends a user's sessions after their credentials are
+	// reset.
+	Sessions SessionRevoker
+	Tokens   TokenIssuer
 	// DefaultRole is the role given to public registrations; empty means viewer.
 	DefaultRole     string
 	GoogleClientIDs []string
+	// GoogleVerifier checks Google ID tokens; the root package injects it.
+	GoogleVerifier GoogleVerifier
 	// PhoneLogin lets a user sign in with a phone number. Phone numbers are
 	// not verified, so it is off by default.
 	PhoneLogin bool
@@ -38,8 +43,10 @@ type Options struct {
 	Tokens          TokenIssuer
 	DefaultRole     string
 	GoogleClientIDs []string
+	GoogleVerifier  GoogleVerifier
 	PhoneLogin      bool
 	PermissionCache PermissionCache
+	Sessions        SessionRevoker
 	// NewID makes record ids; nil uses a UUID v7.
 	NewID func() string
 }
@@ -51,9 +58,11 @@ func NewService(userRepo Repository, blacklistRepo TokenRevocations, roleRepo Ro
 		RoleRepo:        roleRepo,
 		PermissionRepo:  permissionRepo,
 		PermissionCache: opts.PermissionCache,
+		Sessions:        opts.Sessions,
 		Tokens:          opts.Tokens,
 		DefaultRole:     opts.DefaultRole,
 		GoogleClientIDs: opts.GoogleClientIDs,
+		GoogleVerifier:  opts.GoogleVerifier,
 		PhoneLogin:      opts.PhoneLogin,
 		NewID:           opts.NewID,
 	}

@@ -63,6 +63,7 @@ var updatableFields = map[string]struct{}{
 	"last_login_ip":         {},
 	"last_login_user_agent": {},
 	"login_provider":        {},
+	"google_subject":        {},
 	"password":              {},
 	"password_changed_at":   {},
 	"email_verified_at":     {},
@@ -85,6 +86,13 @@ func (r *Repository) UpdateFields(ctx context.Context, id string, fields map[str
 		return domainuser.ErrNotFound
 	}
 	return nil
+}
+
+// GetByGoogleSubject returns the live user linked to a Google "sub".
+func (r *Repository) GetByGoogleSubject(ctx context.Context, subject string) (domainuser.Users, error) {
+	var ret domainuser.Users
+	err := r.DB.WithContext(ctx).Where("google_subject = ?", subject).First(&ret).Error
+	return ret, translateErr(err)
 }
 
 // CountByRole counts the live users holding the role.

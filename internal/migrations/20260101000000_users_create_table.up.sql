@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS users (
     password_changed_at TIMESTAMP,
     -- Tokens issued before this instant are void; bumped on delete, role, password and email change.
     tokens_valid_after TIMESTAMPTZ,
+    -- The "sub" of the linked Google account.
+    google_subject VARCHAR(255),
     login_provider VARCHAR(50) DEFAULT 'local',
     avatar_url TEXT,
     metadata JSONB DEFAULT '{}'::jsonb,
@@ -26,6 +28,8 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email_live ON users(email) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)
     WHERE deleted_at IS NULL AND phone IS NOT NULL AND phone <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS ux_users_google_subject ON users(google_subject)
+    WHERE deleted_at IS NULL AND google_subject IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_login_provider ON users(login_provider);
 CREATE INDEX IF NOT EXISTS idx_users_last_login_at ON users(last_login_at);

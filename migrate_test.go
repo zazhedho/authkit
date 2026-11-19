@@ -178,7 +178,7 @@ var expectedSchema = map[string][]string{
 	"users": {
 		"id", "name", "email", "phone", "password", "role", "role_id",
 		"email_verified_at", "phone_verified_at", "last_login_at", "last_login_ip",
-		"last_login_user_agent", "password_changed_at", "tokens_valid_after",
+		"last_login_user_agent", "password_changed_at", "tokens_valid_after", "google_subject",
 		"login_provider", "avatar_url", "metadata", "created_at", "updated_at", "deleted_at",
 	},
 	"blacklist": {"id", "token", "created_at", "expires_at"},

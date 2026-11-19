@@ -20,6 +20,7 @@ type Repository interface {
 	Delete(ctx context.Context, id string) error
 	GetByEmail(ctx context.Context, email string) (domainuser.Users, error)
 	GetByPhone(ctx context.Context, phone string) (domainuser.Users, error)
+	GetByGoogleSubject(ctx context.Context, subject string) (domainuser.Users, error)
 	CountByRole(ctx context.Context, role string) (int64, error)
 	// UpdateFields writes only the named columns.
 	UpdateFields(ctx context.Context, id string, fields map[string]any) error
@@ -49,6 +50,11 @@ type TokenIssuer interface {
 	GenerateImpersonated(userID, username, role, logID, originalUserID, originalUsername, originalRole string) (string, error)
 	Claims(tokenString string) (map[string]any, error)
 	ExpiresAt(tokenString string) (time.Time, error)
+}
+
+// SessionRevoker ends every session of a user.
+type SessionRevoker interface {
+	DestroyAllUserSessions(ctx context.Context, userID string) error
 }
 
 // PermissionCache drops a user's cached permission set when their role changes.
