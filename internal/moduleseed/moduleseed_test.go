@@ -58,3 +58,16 @@ func TestRenderSQLRejectsMissingRequiredFields(t *testing.T) {
 		t.Fatalf("expected display_name validation error, got %v", err)
 	}
 }
+
+func TestRenderSQLUsesTheLiveUniqueIndexAndGuardsNameCollisions(t *testing.T) {
+	sql, err := RenderSQL(Definition{Name: "projects", DisplayName: "Projects", Path: "/projects", GrantRoles: []string{"admin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(sql, "ON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING") != 2 {
+		t.Fatalf("menu and permission inserts must target the partial unique index:\n%s", sql)
+	}
+	if !strings.Contains(sql, "RAISE EXCEPTION 'module-seed:") || !strings.Contains(sql, "('list_projects', 'projects', 'list')") {
+		t.Fatalf("the collision guard is missing:\n%s", sql)
+	}
+}

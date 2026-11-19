@@ -19,6 +19,8 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/zazhedho/authkit/internal/moduleseed"
 )
 
 // adminDB returns a connection to the database named by AUTHKIT_TEST_DATABASE_URL.
@@ -508,5 +510,37 @@ func TestTokensValidAfterColumnExists(t *testing.T) {
 	}
 	if err := db.Exec(`INSERT INTO users (id, name, email, password, tokens_valid_after) VALUES (gen_random_uuid(), 'A', 'a@example.test', 'x', now())`).Error; err != nil {
 		t.Fatalf("tokens_valid_after: %v", err)
+	}
+}
+
+func TestModuleSeedSQLRunsAndDetectsPermissionNameCollisions(t *testing.T) {
+	t.Parallel()
+	db, _, _ := testSchema(t)
+	if err := testKit(t, db).Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	seed := func(def moduleseed.Definition) error {
+		sql, err := moduleseed.RenderSQL(def)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return db.Exec(sql).Error
+	}
+	projects := moduleseed.Definition{Name: "projects", DisplayName: "Projects", Path: "/projects", GrantRoles: []string{"admin"}}
+	if err := seed(projects); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	before := counts(t, db)
+	if err := seed(projects); err != nil {
+		t.Fatalf("second run must be idempotent: %v", err)
+	}
+	if after := counts(t, db); fmt.Sprint(after) != fmt.Sprint(before) {
+		t.Fatalf("second run changed data: %v -> %v", before, after)
+	}
+	// "list_users" is a built-in permission for resource users; a module named
+	// users with another resource would silently lose its permission.
+	err := seed(moduleseed.Definition{Name: "users", DisplayName: "Users 2", Path: "/u2", Resource: "people", Actions: []string{"list"}})
+	if err == nil || !strings.Contains(err.Error(), "module-seed") {
+		t.Fatalf("collision err = %v, want the module-seed guard", err)
 	}
 }

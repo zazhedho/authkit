@@ -96,6 +96,7 @@ func RenderSQL(input Definition) (string, error) {
 
 	var sections []string
 	sections = append(sections, renderMenuInsert(def))
+	sections = append(sections, renderCollisionGuard(def))
 	sections = append(sections, renderPermissionInsert(def))
 	if len(def.GrantRoles) > 0 {
 		sections = append(sections, renderRolePermissionInsert(def))
@@ -131,10 +132,40 @@ func renderMenuInsert(def Definition) string {
 	}
 
 	return fmt.Sprintf(
-		"INSERT INTO menu_items (%s)\nVALUES\n    (%s)\nON CONFLICT (name) DO NOTHING;",
+		"INSERT INTO menu_items (%s)\nVALUES\n    (%s)\nON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING;",
 		strings.Join(columns, ", "),
 		strings.Join(values, ", "),
 	)
+}
+
+// renderCollisionGuard makes the migration stop when a permission with one of
+// the generated names already exists for a different resource or action. Without
+// it, ON CONFLICT DO NOTHING would skip the row silently and the role grants
+// (which join on the resource) would hand out the wrong permission.
+func renderCollisionGuard(def Definition) string {
+	expected := make([]string, 0, len(def.Actions))
+	for _, action := range def.Actions {
+		expected = append(expected, fmt.Sprintf("(%s, %s, %s)", quote(permissionName(action, def.Name)), quote(def.Resource), quote(action)))
+	}
+	return fmt.Sprintf(`DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM permissions p
+    WHERE p.deleted_at IS NULL
+      AND p.name IN (%s)
+      AND (p.name, p.resource, p.action) NOT IN (VALUES %s)
+  ) THEN
+    RAISE EXCEPTION 'module-seed: a permission named like one of this module''s already exists for another resource or action';
+  END IF;
+END$$;`, quotedNames(def), strings.Join(expected, ", "))
+}
+
+func quotedNames(def Definition) string {
+	names := make([]string, 0, len(def.Actions))
+	for _, action := range def.Actions {
+		names = append(names, quote(permissionName(action, def.Name)))
+	}
+	return strings.Join(names, ", ")
 }
 
 func renderPermissionInsert(def Definition) string {
@@ -150,7 +181,7 @@ func renderPermissionInsert(def Definition) string {
 	}
 
 	return fmt.Sprintf(
-		"INSERT INTO permissions (id, name, display_name, resource, action) VALUES\n%s\nON CONFLICT (name) DO NOTHING;",
+		"INSERT INTO permissions (id, name, display_name, resource, action) VALUES\n%s\nON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING;",
 		strings.Join(values, ",\n"),
 	)
 }
