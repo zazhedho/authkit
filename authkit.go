@@ -115,6 +115,7 @@ func New(cfg Config) (*Kit, error) {
 
 	auditCore := serviceaudit.NewService(repositoryaudit.NewRepository(db))
 	appConfigCore := serviceappconfig.NewService(repositoryappconfig.NewRepository(db))
+	appConfigCore.SetBoolKeys(cfg.Flags.PublicRegistration, cfg.Flags.RegisterOTP, cfg.Flags.PasswordResetEmail)
 	auditSvc := auditFacade{auditCore}
 	appConfigSvc := appConfigFacade{appConfigCore}
 	userSvc := serviceuser.NewService(userRepo, blacklistRepo, roleRepo, permissionRepo, serviceuser.Options{

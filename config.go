@@ -230,6 +230,18 @@ func (c Config) Validate() error {
 	return nil
 }
 
+// ConfigFromEnvStrict is ConfigFromEnv that also reports every variable that
+// was set to a value it could not parse (a typo such as JWT_EXP_MINUTES=15m
+// otherwise falls back to the default without a word). It returns the config
+// built so far together with the error. Prefer it at startup.
+func ConfigFromEnvStrict() (Config, error) {
+	cfg := ConfigFromEnv()
+	if err := gokit.EnvErrors(); err != nil {
+		return cfg, fmt.Errorf("authkit: environment: %w", err)
+	}
+	return cfg, nil
+}
+
 // ConfigFromEnv builds a Config from environment variables; names and defaults:
 // see README, Configuration. DB, Redis and Mailer stay unset and there are no
 // built-in secrets. Call it once at startup.

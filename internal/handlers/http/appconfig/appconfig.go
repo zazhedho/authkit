@@ -38,6 +38,10 @@ func configMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIRes
 		res := gokit.ErrorResponse(http.StatusNotFound, gokit.MsgResourceNotFound, logID, "config data not found")
 		return http.StatusNotFound, res
 	}
+	if errors.Is(err, domainappconfig.ErrInvalidValue) {
+		res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgInvalidRequest, logID, err.Error())
+		return http.StatusBadRequest, res
+	}
 	return httpshared.InternalErrorResponse(logID, err)
 }
 

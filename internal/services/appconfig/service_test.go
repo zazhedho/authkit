@@ -315,3 +315,36 @@ func TestAppConfigUpdateDoesNotTurnEntitiesIntoMarkup(t *testing.T) {
 		t.Fatalf("value = %q, stored %q; want the trimmed raw input", updated.Value, repo.update.Value)
 	}
 }
+
+func TestUpdateRejectsANonBooleanValueForAFlagKey(t *testing.T) {
+	repo := &appConfigRepoMock{byID: domainappconfig.AppConfig{Id: "1", ConfigKey: "auth.flag", Value: "true", IsActive: true}}
+	svc := NewService(repo)
+	svc.SetBoolKeys("auth.flag")
+
+	for _, bad := range []string{"tru", "2", "", "yes please"} {
+		if _, err := svc.Update(context.Background(), "1", dtoappconfig.UpdateAppConfig{Value: bad}); !errors.Is(err, domainappconfig.ErrInvalidValue) {
+			t.Errorf("value %q: err = %v, want ErrInvalidValue", bad, err)
+		}
+	}
+	got, err := svc.Update(context.Background(), "1", dtoappconfig.UpdateAppConfig{Value: "Enabled"})
+	if err != nil || got.Value != "true" {
+		t.Fatalf("a boolean spelling must be stored normalised: %q %v", got.Value, err)
+	}
+}
+
+func TestUpdateLeavesOtherKeysFreeText(t *testing.T) {
+	repo := &appConfigRepoMock{byID: domainappconfig.AppConfig{Id: "1", ConfigKey: "ui.title", IsActive: true}}
+	svc := NewService(repo)
+	svc.SetBoolKeys("auth.flag")
+	if got, err := svc.Update(context.Background(), "1", dtoappconfig.UpdateAppConfig{Value: "anything"}); err != nil || got.Value != "anything" {
+		t.Fatalf("%q %v", got.Value, err)
+	}
+}
+
+func TestAnInvalidStoredBoolIsAnInvalidValueError(t *testing.T) {
+	repo := &appConfigRepoMock{byKey: map[string]domainappconfig.AppConfig{"k": {ConfigKey: "k", Value: "treu", IsActive: true}}}
+	got, err := NewService(repo).GetBool(context.Background(), "k", true)
+	if !errors.Is(err, domainappconfig.ErrInvalidValue) || !got {
+		t.Fatalf("got=%v err=%v, want the fallback and ErrInvalidValue", got, err)
+	}
+}

@@ -75,6 +75,7 @@ type Config struct
 	method (T) String() string
 	method (T) Validate() error
 func ConfigFromEnv() Config
+func ConfigFromEnvStrict() (Config, error)
 var ErrMigrationsDirty error
 type FlagKeys alias struct
 	field PublicRegistration string

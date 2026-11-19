@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 )
 
@@ -30,7 +31,7 @@ func parseBool(raw string, fallback bool) (bool, error) {
 	case "0", "false", "no", "n", "off", "disabled":
 		return false, nil
 	default:
-		return fallback, fmt.Errorf("invalid boolean value: %s", raw)
+		return fallback, fmt.Errorf("%w: boolean expected, got %q", domainappconfig.ErrInvalidValue, raw)
 	}
 }
 
@@ -42,7 +43,7 @@ func parseInt(raw string, fallback int) (int, error) {
 
 	parsed, err := strconv.Atoi(value)
 	if err != nil {
-		return fallback, fmt.Errorf("invalid integer value: %s", raw)
+		return fallback, fmt.Errorf("%w: integer expected, got %q", domainappconfig.ErrInvalidValue, raw)
 	}
 	return parsed, nil
 }
@@ -55,7 +56,7 @@ func parseDuration(raw string, fallback time.Duration) (time.Duration, error) {
 
 	parsed, err := time.ParseDuration(value)
 	if err != nil {
-		return fallback, fmt.Errorf("invalid duration value: %s", raw)
+		return fallback, fmt.Errorf("%w: duration expected, got %q", domainappconfig.ErrInvalidValue, raw)
 	}
 	return parsed, nil
 }

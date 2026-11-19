@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/zazhedho/gokit"
 	"gorm.io/gorm"
 
 	"github.com/zazhedho/authkit/internal/config"
@@ -516,5 +517,23 @@ func TestAuthRateDefaults(t *testing.T) {
 	cfg := validConfig()
 	if cfg.AuthRate.Limit != 30 || cfg.AuthRate.Window != time.Minute {
 		t.Fatalf("AuthRate = %+v, want 30 per minute", cfg.AuthRate)
+	}
+}
+
+func TestConfigFromEnvStrictReportsUnparsableVariables(t *testing.T) {
+	clearLegacyEnv(t)
+	t.Cleanup(gokit.ResetEnvErrors)
+	gokit.ResetEnvErrors()
+	t.Setenv("APP_NAME", "app")
+	if _, err := ConfigFromEnvStrict(); err != nil {
+		t.Fatalf("clean environment: %v", err)
+	}
+	t.Setenv("OTP_RATE_LIMIT", "five")
+	cfg, err := ConfigFromEnvStrict()
+	if err == nil || !strings.Contains(err.Error(), "OTP_RATE_LIMIT") {
+		t.Fatalf("err = %v, want it to name OTP_RATE_LIMIT", err)
+	}
+	if cfg.AppName != "app" {
+		t.Fatalf("the config built so far must still be returned: %+v", cfg)
 	}
 }
