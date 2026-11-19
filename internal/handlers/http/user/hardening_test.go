@@ -1,11 +1,14 @@
 package user
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 
+	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
@@ -142,4 +145,36 @@ func TestLoginFailsClosedWhenTheLimiterIsDownAndTheOptionIsOn(t *testing.T) {
 		}
 		assertUserHandlerStatus(t, rec, want)
 	}
+}
+
+func TestResetWithAWeakPasswordDoesNotConsumeTheToken(t *testing.T) {
+	resets := &resetServiceUserHandlerTestDouble{email: "jane@example.com"}
+	handler := New(&userServiceTestDouble{user: domainuser.Users{ID: "u1", Email: "jane@example.com"}}, nil, nil, nil, Options{
+		Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: resets,
+	})
+	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"reset-token","new_password":"weak"}`, nil)
+	handler.ResetPassword(ctx)
+	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
+	if resets.verified != 0 {
+		t.Fatalf("the token was consumed %d times by a request with a weak password", resets.verified)
+	}
+}
+
+type flakyConfigDouble struct{ err error }
+
+func (f flakyConfigDouble) IsEnabled(context.Context, string, bool) (bool, error) { return true, f.err }
+
+func TestAMalformedFlagValueDoesNotBreakTheAuthRoutes(t *testing.T) {
+	opts := testHandlerOptions()
+	opts.AppConfigService = flakyConfigDouble{err: fmt.Errorf("%w: boolean expected", domainappconfig.ErrInvalidValue)}
+	handler := New(&userServiceTestDouble{}, nil, nil, nil, opts)
+	ctx, rec := newUserHandlerTestContext(t, http.MethodGet, "/register/status", "", nil)
+	handler.GetRegisterStatus(ctx)
+	assertUserHandlerStatus(t, rec, http.StatusOK)
+
+	opts.AppConfigService = flakyConfigDouble{err: errors.New("database down")}
+	handler = New(&userServiceTestDouble{}, nil, nil, nil, opts)
+	ctx, rec = newUserHandlerTestContext(t, http.MethodGet, "/register/status", "", nil)
+	handler.GetRegisterStatus(ctx)
+	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
 }

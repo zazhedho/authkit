@@ -23,7 +23,7 @@ func TestNewPasswordResetRepositoryAndNilRedisMethodPanics(t *testing.T) {
 	}
 	ctx := context.Background()
 	expectPanic(t, func() { _ = repo.SetToken(ctx, "hash", "a@example.com", time.Minute) })
-	expectPanic(t, func() { _, _ = repo.GetEmailByToken(ctx, "hash") })
+	expectPanic(t, func() { _, _ = repo.ConsumeToken(ctx, "hash") })
 	expectPanic(t, func() { _ = repo.DeleteToken(ctx, "hash") })
 	expectPanic(t, func() { _ = repo.SetCooldown(ctx, "a@example.com", time.Minute) })
 	expectPanic(t, func() { _, _ = repo.GetCooldownTTL(ctx, "a@example.com") })

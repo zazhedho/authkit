@@ -30,6 +30,8 @@ type Service interface {
 	ResetPasswordByEmail(ctx context.Context, email, newPassword string) error
 	Delete(ctx context.Context, actor domainauth.Actor, id string) error
 	VerifyPassword(ctx context.Context, id, password string) error
+	// ValidatePassword checks a new password against the strength rules.
+	ValidatePassword(password string) error
 	// IsTokenRevoked reports whether a token was revoked at logout.
 	IsTokenRevoked(ctx context.Context, token string) (bool, error)
 }

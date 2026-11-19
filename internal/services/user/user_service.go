@@ -670,3 +670,7 @@ func (s *Service) VerifyPassword(ctx context.Context, id, password string) error
 	}
 	return nil
 }
+
+// ValidatePassword checks a new password against the strength rules and
+// bcrypt's length limit without storing anything.
+func (s *Service) ValidatePassword(password string) error { return ValidatePasswordStrength(password) }

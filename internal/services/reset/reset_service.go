@@ -104,7 +104,7 @@ func (s *Service) VerifyReset(ctx context.Context, token string) (string, error)
 	}
 
 	hash := hashToken(cleanToken, s.Config.Secret)
-	email, err := s.Repo.GetEmailByToken(ctx, hash)
+	email, err := s.Repo.ConsumeToken(ctx, hash)
 	if err != nil {
 		if errors.Is(err, domainreset.ErrNotFound) {
 			return "", domainreset.ErrInvalid
@@ -112,7 +112,6 @@ func (s *Service) VerifyReset(ctx context.Context, token string) (string, error)
 		return "", fmt.Errorf("get token: %w", err)
 	}
 
-	_ = s.Repo.DeleteToken(ctx, hash)
 	_ = s.Repo.ClearCooldown(ctx, email)
 	_ = s.Repo.ClearSendCount(ctx, email)
 	return email, nil

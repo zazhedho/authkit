@@ -12,6 +12,7 @@ import (
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 
+	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainreset "github.com/zazhedho/authkit/internal/domain/reset"
@@ -261,6 +262,13 @@ func (h *Handler) resetPasswordByEmail(ctx *gin.Context, req dtouser.ResetPasswo
 		return
 	}
 	reqCtx := ctx.Request.Context()
+	// A weak password is refused before the token is consumed, so the user can
+	// retry with the same link.
+	if err := h.Service.ValidatePassword(req.NewPassword); err != nil {
+		statusCode, res := userMutationErrorResponse(logID, err)
+		ctx.JSON(statusCode, res)
+		return
+	}
 	email, err := h.ResetService.VerifyReset(reqCtx, req.Token)
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
@@ -332,6 +340,7 @@ func (h *Handler) buildAuthTokenResponse(accessToken, refreshToken string) map[s
 	data := map[string]any{
 		"access_token":     accessToken,
 		"token_type":       "Bearer",
+		"expires_in":       int(h.Settings.AccessTTL.Seconds()),
 		"expires_in_hours": int(h.Settings.AccessTTL.Hours()),
 	}
 
@@ -443,6 +452,12 @@ func (h *Handler) issueRefreshToken(user *domainuser.Users, logID string, imp *i
 // 500 response and returns ok=false.
 func (h *Handler) configEnabled(ctx *gin.Context, logID uuid.UUID, logPrefix, key string, fallback bool) (enabled, ok bool) {
 	enabled, err := h.isRuntimeConfigEnabled(ctx.Request.Context(), key, fallback)
+	if errors.Is(err, domainappconfig.ErrInvalidValue) {
+		// A malformed flag value must not take the auth routes down: use the
+		// default and say so in the log.
+		logus.LogContextf(ctx, logus.LevelWarn, "%s; Config %q holds an invalid value, using the default (%v): %v", logPrefix, key, fallback, err)
+		return fallback, true
+	}
 	if err != nil {
 		logus.LogContextf(ctx, logus.LevelError, "%s; Config check ERROR: %s;", logPrefix, err.Error())
 		httpshared.RespondInternalError(ctx, logID)

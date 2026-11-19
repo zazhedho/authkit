@@ -35,7 +35,7 @@ func (m *resetRepoTestDouble) SetToken(ctx context.Context, hash, email string, 
 	m.tokens[hash] = email
 	return nil
 }
-func (m *resetRepoTestDouble) GetEmailByToken(ctx context.Context, hash string) (string, error) {
+func (m *resetRepoTestDouble) ConsumeToken(ctx context.Context, hash string) (string, error) {
 	if m.getTokenErr != nil {
 		return "", m.getTokenErr
 	}
@@ -43,6 +43,8 @@ func (m *resetRepoTestDouble) GetEmailByToken(ctx context.Context, hash string) 
 	if !ok {
 		return "", domainreset.ErrNotFound
 	}
+	m.deletedHash = hash
+	delete(m.tokens, hash)
 	return email, nil
 }
 func (m *resetRepoTestDouble) DeleteToken(ctx context.Context, hash string) error {

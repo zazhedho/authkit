@@ -65,6 +65,13 @@ func (s *userServiceTestDouble) LoginUser(ctx context.Context, req dtouser.Login
 	}
 	return "access-token", nil
 }
+func (s *userServiceTestDouble) ValidatePassword(password string) error {
+	if len(password) < 8 {
+		return domainuser.ErrWeakPassword
+	}
+	return nil
+}
+
 func (s *userServiceTestDouble) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, metadata dtouser.LoginMetadata, allowRegistration bool) (domainuser.Users, bool, error) {
 	if s.googleErr != nil {
 		return domainuser.Users{}, false, s.googleErr
@@ -297,8 +304,9 @@ func (m *loginLimiterUserHandlerTestDouble) Reset(ctx context.Context, key strin
 }
 
 type resetServiceUserHandlerTestDouble struct {
-	email string
-	err   error
+	email    string
+	err      error
+	verified int
 }
 
 func (m *resetServiceUserHandlerTestDouble) RequestReset(ctx context.Context, email, appName string) error {
@@ -306,6 +314,7 @@ func (m *resetServiceUserHandlerTestDouble) RequestReset(ctx context.Context, em
 }
 
 func (m *resetServiceUserHandlerTestDouble) VerifyReset(ctx context.Context, token string) (string, error) {
+	m.verified++
 	if m.err != nil {
 		return "", m.err
 	}

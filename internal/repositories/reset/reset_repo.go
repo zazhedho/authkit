@@ -29,8 +29,10 @@ func (r *Repository) SetToken(ctx context.Context, hash, email string, ttl time.
 	return r.Redis.Set(ctx, fmt.Sprintf("%s%s", resetTokenKeyPrefix, hash), email, ttl).Err()
 }
 
-func (r *Repository) GetEmailByToken(ctx context.Context, hash string) (string, error) {
-	value, err := r.Redis.Get(ctx, fmt.Sprintf("%s%s", resetTokenKeyPrefix, hash)).Result()
+// ConsumeToken reads and deletes the token in one step (GETDEL), so two requests
+// presenting the same token cannot both succeed.
+func (r *Repository) ConsumeToken(ctx context.Context, hash string) (string, error) {
+	value, err := r.Redis.GetDel(ctx, fmt.Sprintf("%s%s", resetTokenKeyPrefix, hash)).Result()
 	return value, repositoryshared.Redis(err, domainreset.ErrNotFound)
 }
 
