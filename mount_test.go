@@ -1,7 +1,10 @@
 package authkit
 
 import (
+	"flag"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -251,5 +254,81 @@ func TestMountAppliesPermissionPerRoute(t *testing.T) {
 				t.Fatalf("user with exactly %s: got %d", want, code)
 			}
 		})
+	}
+}
+
+var updateRoutes = flag.Bool("update-routes", false, "rewrite the route table golden")
+
+const routesGolden = "internal/router/testdata/routes.golden"
+
+// chainToken names one handler of a route's chain by what it is, so the table
+// does not move when the code that builds the middleware does.
+func chainToken(name string) string {
+	switch {
+	case strings.Contains(name, "AuthMiddleware"):
+		return "auth"
+	case strings.Contains(name, "PermissionMiddleware"):
+		return "can"
+	case strings.Contains(strings.ToLower(name), "ratelimit"), strings.Contains(name, "(*limiter)"):
+		return "limit"
+	}
+	return name[strings.LastIndex(name, "/")+1:]
+}
+
+// routeTable lists every route with its full handler chain, in order.
+func routeTable(t *testing.T, kit *Kit) string {
+	t.Helper()
+	chains := map[string][]string{}
+	engine := gin.New()
+	engine.Use(func(c *gin.Context) {
+		var chain []string
+		for _, n := range c.HandlerNames()[1:] {
+			chain = append(chain, chainToken(n))
+		}
+		chains[c.Request.Method+" "+c.FullPath()] = chain
+		c.Abort()
+	})
+	kit.Mount(engine.Group("/api"))
+	for _, r := range engine.Routes() {
+		path := strings.Split(r.Path, "/")
+		for i, seg := range path {
+			if strings.HasPrefix(seg, ":") {
+				path[i] = "x"
+			}
+		}
+		do(engine, r.Method, strings.Join(path, "/"), "")
+	}
+	keys := make([]string, 0, len(chains))
+	for k := range chains {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k + " -> " + strings.Join(chains[k], " > ") + "\n")
+	}
+	return b.String()
+}
+
+func TestRouteTableIsPinned(t *testing.T) {
+	plain, _ := newTestKit(t, nil)
+	_, client := newMiniRedis(t)
+	withRedis, _ := newTestKit(t, func(c *Config) { c.Redis = client })
+	got := "# without Redis\n" + routeTable(t, plain) + "\n# with Redis\n" + routeTable(t, withRedis)
+	if *updateRoutes {
+		if err := os.MkdirAll(filepath.Dir(routesGolden), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(routesGolden, []byte(got), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(routesGolden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(want) != got {
+		t.Errorf("route table changed:\n%s", got)
 	}
 }

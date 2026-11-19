@@ -1,0 +1,90 @@
+# without Redis
+DELETE /api/permission/:id -> auth > can > permission.(*Handler).Delete-fm
+DELETE /api/role/:id -> auth > can > role.(*Handler).Delete-fm
+DELETE /api/user -> auth > user.(*Handler).Delete-fm
+DELETE /api/user/:id -> auth > can > user.(*Handler).DeleteUserByID-fm
+GET /api/audit/:id -> auth > can > audit.(*Handler).GetByID-fm
+GET /api/audits -> auth > can > audit.(*Handler).GetAll-fm
+GET /api/config/:id -> auth > can > appconfig.(*Handler).GetByID-fm
+GET /api/configs -> auth > can > appconfig.(*Handler).GetAll-fm
+GET /api/menu/:id -> auth > can > menu.(*Handler).GetByID-fm
+GET /api/menus -> auth > can > menu.(*Handler).GetAll-fm
+GET /api/menus/active -> auth > menu.(*Handler).GetActiveMenus-fm
+GET /api/menus/me -> auth > menu.(*Handler).GetUserMenus-fm
+GET /api/permission/:id -> auth > can > permission.(*Handler).GetByID-fm
+GET /api/permissions -> auth > can > permission.(*Handler).GetAll-fm
+GET /api/permissions/me -> auth > permission.(*Handler).GetUserPermissions-fm
+GET /api/role/:id -> auth > can > role.(*Handler).GetByID-fm
+GET /api/roles -> auth > can > role.(*Handler).GetAll-fm
+GET /api/user -> auth > user.(*Handler).GetUserByAuth-fm
+GET /api/user/:id -> auth > can > user.(*Handler).GetUserByID-fm
+GET /api/user/register/status -> user.(*Handler).GetRegisterStatus-fm
+GET /api/users -> auth > can > user.(*Handler).GetAllUsers-fm
+POST /api/permission -> auth > can > permission.(*Handler).Create-fm
+POST /api/role -> auth > can > role.(*Handler).Create-fm
+POST /api/role/:id/permissions -> auth > can > role.(*Handler).AssignPermissions-fm
+POST /api/user -> auth > can > user.(*Handler).AdminCreateUser-fm
+POST /api/user/:id/impersonate -> auth > can > user.(*Handler).ImpersonateUser-fm
+POST /api/user/forgot-password -> limit > user.(*Handler).ForgotPassword-fm
+POST /api/user/google/login -> limit > user.(*Handler).GoogleLogin-fm
+POST /api/user/login -> user.(*Handler).Login-fm
+POST /api/user/logout -> auth > user.(*Handler).Logout-fm
+POST /api/user/refresh-token -> limit > user.(*Handler).RefreshToken-fm
+POST /api/user/register -> limit > user.(*Handler).Register-fm
+POST /api/user/register/otp/send -> limit > user.(*Handler).SendRegisterOTP-fm
+POST /api/user/reset-password -> limit > user.(*Handler).ResetPassword-fm
+POST /api/user/stop-impersonation -> auth > user.(*Handler).StopImpersonation-fm
+PUT /api/config/:id -> auth > can > appconfig.(*Handler).Update-fm
+PUT /api/menu/:id -> auth > can > menu.(*Handler).Update-fm
+PUT /api/permission/:id -> auth > can > permission.(*Handler).Update-fm
+PUT /api/role/:id -> auth > can > role.(*Handler).Update-fm
+PUT /api/user -> auth > user.(*Handler).Update-fm
+PUT /api/user/:id -> auth > can > user.(*Handler).UpdateUserByID-fm
+PUT /api/user/change/password -> auth > limit > user.(*Handler).ChangePassword-fm
+
+# with Redis
+DELETE /api/permission/:id -> auth > can > permission.(*Handler).Delete-fm
+DELETE /api/role/:id -> auth > can > role.(*Handler).Delete-fm
+DELETE /api/user -> auth > user.(*Handler).Delete-fm
+DELETE /api/user/:id -> auth > can > user.(*Handler).DeleteUserByID-fm
+DELETE /api/user/session/:session_id -> auth > session.(*Handler).RevokeSession-fm
+GET /api/audit/:id -> auth > can > audit.(*Handler).GetByID-fm
+GET /api/audits -> auth > can > audit.(*Handler).GetAll-fm
+GET /api/config/:id -> auth > can > appconfig.(*Handler).GetByID-fm
+GET /api/configs -> auth > can > appconfig.(*Handler).GetAll-fm
+GET /api/menu/:id -> auth > can > menu.(*Handler).GetByID-fm
+GET /api/menus -> auth > can > menu.(*Handler).GetAll-fm
+GET /api/menus/active -> auth > menu.(*Handler).GetActiveMenus-fm
+GET /api/menus/me -> auth > menu.(*Handler).GetUserMenus-fm
+GET /api/permission/:id -> auth > can > permission.(*Handler).GetByID-fm
+GET /api/permissions -> auth > can > permission.(*Handler).GetAll-fm
+GET /api/permissions/me -> auth > permission.(*Handler).GetUserPermissions-fm
+GET /api/role/:id -> auth > can > role.(*Handler).GetByID-fm
+GET /api/roles -> auth > can > role.(*Handler).GetAll-fm
+GET /api/user -> auth > user.(*Handler).GetUserByAuth-fm
+GET /api/user/:id -> auth > can > user.(*Handler).GetUserByID-fm
+GET /api/user/register/status -> user.(*Handler).GetRegisterStatus-fm
+GET /api/user/sessions -> auth > session.(*Handler).GetActiveSessions-fm
+GET /api/users -> auth > can > user.(*Handler).GetAllUsers-fm
+POST /api/permission -> auth > can > permission.(*Handler).Create-fm
+POST /api/role -> auth > can > role.(*Handler).Create-fm
+POST /api/role/:id/permissions -> auth > can > role.(*Handler).AssignPermissions-fm
+POST /api/user -> auth > can > user.(*Handler).AdminCreateUser-fm
+POST /api/user/:id/impersonate -> auth > can > user.(*Handler).ImpersonateUser-fm
+POST /api/user/forgot-password -> limit > user.(*Handler).ForgotPassword-fm
+POST /api/user/google/login -> limit > user.(*Handler).GoogleLogin-fm
+POST /api/user/login -> user.(*Handler).Login-fm
+POST /api/user/logout -> auth > user.(*Handler).Logout-fm
+POST /api/user/refresh-token -> limit > user.(*Handler).RefreshToken-fm
+POST /api/user/register -> limit > user.(*Handler).Register-fm
+POST /api/user/register/otp/send -> limit > user.(*Handler).SendRegisterOTP-fm
+POST /api/user/reset-password -> limit > user.(*Handler).ResetPassword-fm
+POST /api/user/sessions/revoke-others -> auth > session.(*Handler).RevokeAllOtherSessions-fm
+POST /api/user/stop-impersonation -> auth > user.(*Handler).StopImpersonation-fm
+PUT /api/config/:id -> auth > can > appconfig.(*Handler).Update-fm
+PUT /api/menu/:id -> auth > can > menu.(*Handler).Update-fm
+PUT /api/permission/:id -> auth > can > permission.(*Handler).Update-fm
+PUT /api/role/:id -> auth > can > role.(*Handler).Update-fm
+PUT /api/user -> auth > user.(*Handler).Update-fm
+PUT /api/user/:id -> auth > can > user.(*Handler).UpdateUserByID-fm
+PUT /api/user/change/password -> auth > limit > user.(*Handler).ChangePassword-fm
