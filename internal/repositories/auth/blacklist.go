@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"time"
 
@@ -34,9 +36,10 @@ func (r *Repository) Store(ctx context.Context, blacklist domainauth.Blacklist) 
 		return ErrBlacklistExpiryRequired
 	}
 
-	if err := r.DeleteExpired(ctx, time.Now()); err != nil {
+	if err := r.purgeExpired(ctx, time.Now()); err != nil {
 		return err
 	}
+	blacklist.Token = hashToken(blacklist.Token)
 
 	return translateErr(r.Repository.Store(ctx, &blacklist))
 }
@@ -47,17 +50,23 @@ func translateErr(err error) error {
 
 // GetByToken returns one record found by token.
 func (r *Repository) GetByToken(ctx context.Context, token string) (domainauth.Blacklist, error) {
-	ret, err := r.GetOneByField(ctx, "token", token)
+	ret, err := r.GetOneByField(ctx, "token", hashToken(token))
 	return ret, translateErr(err)
 }
 
 // ExistsByToken reports whether by token exists.
 func (r *Repository) ExistsByToken(ctx context.Context, token string) (bool, error) {
-	return r.ExistsByField(ctx, "token", token)
+	return r.ExistsByField(ctx, "token", hashToken(token))
 }
 
-// DeleteExpired deletes the expired.
-func (r *Repository) DeleteExpired(ctx context.Context, now time.Time) error {
+// hashToken is what the table stores: the hex sha256 of the token, so a
+// database leak does not hand out usable tokens.
+func hashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+func (r *Repository) purgeExpired(ctx context.Context, now time.Time) error {
 	return r.DB.WithContext(ctx).
 		Where("expires_at IS NULL OR expires_at <= ?", now).
 		Delete(&domainauth.Blacklist{}).Error

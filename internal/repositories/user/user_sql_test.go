@@ -69,7 +69,7 @@ func TestUserRepositoryStoreOmitsEmptyPhone(t *testing.T) {
 	}
 
 	repo := NewRepository(db)
-	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "users" ("id","name","email","password","role","role_id","email_verified_at","phone_verified_at","last_login_at","last_login_ip","last_login_user_agent","locked_until","password_changed_at","login_provider","avatar_url","metadata","created_at","updated_at","deleted_at") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`)).
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "users" ("id","name","email","password","role","role_id","email_verified_at","phone_verified_at","last_login_at","last_login_ip","last_login_user_agent","password_changed_at","tokens_valid_after","login_provider","avatar_url","metadata","created_at","updated_at","deleted_at") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`)).
 		WithArgs(anyArgs(19)...).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 

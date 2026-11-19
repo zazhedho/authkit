@@ -2,6 +2,8 @@ package authkit
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -150,9 +152,18 @@ func testKit(t *testing.T, db *gorm.DB) *Kit {
 
 func applyBaselineDirectly(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	files, err := fs.Glob(migrationsFS, "*.up.sql")
-	if err != nil || len(files) != 4 {
-		t.Fatalf("glob: %v %v", files, err)
+	all, err := fs.Glob(migrationsFS, "*.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files []string
+	for _, f := range all {
+		if f <= "000004~" {
+			files = append(files, f)
+		}
+	}
+	if len(files) != BaselineVersion {
+		t.Fatalf("baseline files: %v", files)
 	}
 	sort.Strings(files)
 	for _, f := range files {
@@ -250,6 +261,25 @@ func lockFree(t *testing.T, admin *gorm.DB, schema string) bool {
 
 // legacyDatabase builds a database as the pre-authkit project left it: the four
 // baseline files applied directly, then admin edits that a replay would undo.
+// latestVersion is the newest embedded migration.
+const latestVersion = 7
+
+// latestSchema is baselineSchema as the later migrations leave it.
+func latestSchema() map[string][]string {
+	out := make(map[string][]string, len(baselineSchema))
+	for table, cols := range baselineSchema {
+		out[table] = append([]string(nil), cols...)
+	}
+	users := out["users"][:0]
+	for _, c := range baselineSchema["users"] {
+		if c != "locked_until" {
+			users = append(users, c)
+		}
+	}
+	out["users"] = append(users, "tokens_valid_after")
+	return out
+}
+
 func legacyDatabase(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	applyBaselineDirectly(t, db)
@@ -279,16 +309,16 @@ func TestMigrateEmptyDatabase(t *testing.T) {
 			t.Errorf("table %s missing", tb)
 		}
 	}
-	if v, dirty, rows := versionRow(t, db); v != BaselineVersion || dirty || rows != 1 {
-		t.Fatalf("version = %d dirty=%v rows=%d, want %d false 1", v, dirty, rows, BaselineVersion)
+	if v, dirty, rows := versionRow(t, db); v != latestVersion || dirty || rows != 1 {
+		t.Fatalf("version = %d dirty=%v rows=%d, want %d false 1", v, dirty, rows, latestVersion)
 	}
 	actual := actualSchema(t, db)
-	if missing := missingFromSchema(baselineSchema, actual); len(missing) != 0 {
+	if missing := missingFromSchema(latestSchema(), actual); len(missing) != 0 {
 		t.Fatalf("baselineSchema does not match the SQL, missing %v", missing)
 	}
 	// Reverse direction: everything the SQL created must be in baselineSchema.
 	delete(actual, MigrationsTable)
-	if extra := missingFromSchema(actual, baselineSchema); len(extra) != 0 {
+	if extra := missingFromSchema(actual, latestSchema()); len(extra) != 0 {
 		t.Fatalf("the SQL creates tables or columns that baselineSchema lacks: %v", extra)
 	}
 	before := counts(t, db)
@@ -326,7 +356,7 @@ func TestMigrateLegacyDatabaseIsStampedNotReplayed(t *testing.T) {
 	if err := db.Raw(`SELECT count(*) FROM menu_items WHERE name = 'audits'`).Scan(&n).Error; err != nil || n != 0 {
 		t.Fatalf("audits menu resurrected: n=%d err=%v", n, err)
 	}
-	if v, dirty, rows := versionRow(t, db); v != BaselineVersion || dirty || rows != 1 {
+	if v, dirty, rows := versionRow(t, db); v != latestVersion || dirty || rows != 1 {
 		t.Fatalf("version = %d dirty=%v rows=%d", v, dirty, rows)
 	}
 	if !lockFree(t, admin, schema) {
@@ -402,8 +432,8 @@ func extraSource(t *testing.T) func() (source.Driver, error) {
 		}
 		fsys[e.Name()] = &fstest.MapFile{Data: raw}
 	}
-	fsys["000005_extra.up.sql"] = &fstest.MapFile{Data: []byte(`CREATE TABLE authkit_extra_test (id int);`)}
-	fsys["000005_extra.down.sql"] = &fstest.MapFile{Data: []byte(`DROP TABLE authkit_extra_test;`)}
+	fsys["000008_extra.up.sql"] = &fstest.MapFile{Data: []byte(`CREATE TABLE authkit_extra_test (id int);`)}
+	fsys["000008_extra.down.sql"] = &fstest.MapFile{Data: []byte(`DROP TABLE authkit_extra_test;`)}
 	return func() (source.Driver, error) { return iofs.New(fsys, ".") }
 }
 
@@ -418,12 +448,12 @@ func TestMigrateAfterStampAppliesLaterMigration(t *testing.T) {
 	}
 	before := counts(t, db)
 	if err := migrateUp(ctx, db, extraSource(t)); err != nil {
-		t.Fatalf("migrate with 000005: %v", err)
+		t.Fatalf("migrate with 000008: %v", err)
 	}
 	if !tableExists(t, db, "authkit_extra_test") {
-		t.Fatal("000005 was not applied")
+		t.Fatal("000008 was not applied")
 	}
-	if v, dirty, _ := versionRow(t, db); v != 5 || dirty {
+	if v, dirty, _ := versionRow(t, db); v != 8 || dirty {
 		t.Fatalf("version = %d dirty=%v, want 5 false", v, dirty)
 	}
 	if after := counts(t, db); fmt.Sprint(after) != fmt.Sprint(before) {
@@ -495,7 +525,7 @@ func TestMigrateEmptyVersionTableOnLegacyDatabaseIsStamped(t *testing.T) {
 	if after := counts(t, db); fmt.Sprint(after) != fmt.Sprint(before) {
 		t.Fatalf("data changed: %v -> %v", before, after)
 	}
-	if v, dirty, rows := versionRow(t, db); v != BaselineVersion || dirty || rows != 1 {
+	if v, dirty, rows := versionRow(t, db); v != latestVersion || dirty || rows != 1 {
 		t.Fatalf("version = %d dirty=%v rows=%d", v, dirty, rows)
 	}
 }
@@ -516,7 +546,7 @@ func TestMigrateIgnoresUsersTableInOtherSchema(t *testing.T) {
 	if err := testKit(t, db).Migrate(context.Background()); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	if missing := missingFromSchema(baselineSchema, actualSchema(t, db)); len(missing) != 0 {
+	if missing := missingFromSchema(latestSchema(), actualSchema(t, db)); len(missing) != 0 {
 		t.Fatalf("schema incomplete: %v", missing)
 	}
 }
@@ -591,8 +621,8 @@ func TestMigrateConcurrentFirstStart(t *testing.T) {
 			t.Errorf("Migrate: %v", err)
 		}
 	}
-	if v, dirty, rows := versionRow(t, db); v != BaselineVersion || dirty || rows != 1 {
-		t.Fatalf("version = %d dirty=%v rows=%d, want %d false 1", v, dirty, rows, BaselineVersion)
+	if v, dirty, rows := versionRow(t, db); v != latestVersion || dirty || rows != 1 {
+		t.Fatalf("version = %d dirty=%v rows=%d, want %d false 1", v, dirty, rows, latestVersion)
 	}
 	if got := counts(t, db); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("seed counts differ from a single instance: %v vs %v", got, want)
@@ -645,5 +675,82 @@ func TestPresenceDetectionIgnoresPrivileges(t *testing.T) {
 	}
 	if missing := missingFromSchema(baselineSchema, cols); len(missing) != 0 {
 		t.Fatalf("columns hidden from the low-privilege role: %v", missing)
+	}
+}
+
+func execMigration(t *testing.T, db *gorm.DB, name string) {
+	t.Helper()
+	raw, err := fs.ReadFile(migrationsFS, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(string(raw)).Error; err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+}
+
+func TestHardeningMigrationsAreIdempotentAndReversible(t *testing.T) {
+	t.Parallel()
+	db, _, _ := testSchema(t)
+	if err := testKit(t, db).Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	names := []string{"000005_user_token_revocation", "000006_partial_unique_names", "000007_hash_blacklist_tokens"}
+	for _, n := range names {
+		execMigration(t, db, n+".up.sql") // a second run must be a no-op
+	}
+	for i := len(names) - 1; i >= 0; i-- {
+		execMigration(t, db, names[i]+".down.sql")
+	}
+	for _, n := range names {
+		execMigration(t, db, n+".up.sql")
+	}
+	for _, n := range names {
+		execMigration(t, db, n+".down.sql")
+		execMigration(t, db, n+".down.sql") // down is idempotent too
+		execMigration(t, db, n+".up.sql")
+	}
+}
+
+func TestPartialUniqueIndexesAllowReuseAfterSoftDelete(t *testing.T) {
+	t.Parallel()
+	db, _, _ := testSchema(t)
+	if err := testKit(t, db).Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	insert := `INSERT INTO users (id, name, email, phone, password) VALUES (gen_random_uuid(), 'A', 'dup@example.test', '628111', 'x')`
+	if err := db.Exec(insert).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(insert).Error; err == nil {
+		t.Fatal("two live users must not share an email or phone")
+	}
+	if err := db.Exec(`UPDATE users SET deleted_at = now() WHERE email = 'dup@example.test'`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(insert).Error; err != nil {
+		t.Fatalf("email and phone must be reusable after a soft delete: %v", err)
+	}
+	if err := db.Exec(`UPDATE roles SET deleted_at = now() WHERE name = 'viewer'`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO roles (id, name, display_name) VALUES (gen_random_uuid(), 'viewer', 'Viewer 2')`).Error; err != nil {
+		t.Fatalf("role name must be reusable after a soft delete: %v", err)
+	}
+}
+
+func TestBlacklistMigrationHashesExistingTokens(t *testing.T) {
+	t.Parallel()
+	db, _, _ := testSchema(t)
+	applyBaselineDirectly(t, db)
+	if err := db.Exec(`INSERT INTO blacklist (id, token, expires_at) VALUES (gen_random_uuid(), 'raw.jwt.token', now() + interval '1 day')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	execMigration(t, db, "000007_hash_blacklist_tokens.up.sql")
+	execMigration(t, db, "000007_hash_blacklist_tokens.up.sql")
+	sum := sha256.Sum256([]byte("raw.jwt.token"))
+	var got string
+	if err := db.Raw(`SELECT token FROM blacklist`).Scan(&got).Error; err != nil || got != hex.EncodeToString(sum[:]) {
+		t.Fatalf("token = %q err=%v", got, err)
 	}
 }

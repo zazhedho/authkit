@@ -25,8 +25,8 @@ type Users struct {
 	LastLoginAt        *time.Time     `json:"last_login_at,omitempty" gorm:"column:last_login_at"`
 	LastLoginIP        string         `json:"last_login_ip,omitempty" gorm:"column:last_login_ip"`
 	LastLoginUserAgent string         `json:"last_login_user_agent,omitempty" gorm:"column:last_login_user_agent"`
-	LockedUntil        *time.Time     `json:"locked_until,omitempty" gorm:"column:locked_until"`
 	PasswordChangedAt  *time.Time     `json:"password_changed_at,omitempty" gorm:"column:password_changed_at"`
+	TokensValidAfter   *time.Time     `json:"-" gorm:"column:tokens_valid_after"`
 	LoginProvider      string         `json:"login_provider,omitempty" gorm:"column:login_provider"`
 	AvatarURL          string         `json:"avatar_url,omitempty" gorm:"column:avatar_url"`
 	Metadata           map[string]any `json:"metadata,omitempty" gorm:"column:metadata;type:jsonb;serializer:json"`
