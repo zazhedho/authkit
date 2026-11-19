@@ -120,7 +120,6 @@ type RateLimit alias struct
 	field Window time.Duration
 func RequestLogger() github.com/gin-gonic/gin.HandlerFunc
 const RoleAdmin untyped string = "admin"
-const RoleMember untyped string = "member"
 const RoleStaff untyped string = "staff"
 const RoleSuperAdmin untyped string = "superadmin"
 const RoleViewer untyped string = "viewer"

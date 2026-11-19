@@ -147,9 +147,6 @@ func TestPermissionServicePassThroughMethods(t *testing.T) {
 	if got, total, err := svc.GetAll(context.Background(), dtoshared.ListRequest{}); err != nil || total != 1 || len(got) != 1 {
 		t.Fatalf("get all: permissions=%+v total=%d err=%v", got, total, err)
 	}
-	if got, err := svc.GetByResource(context.Background(), "users"); err != nil || len(got) != 1 {
-		t.Fatalf("get by resource: permissions=%+v err=%v", got, err)
-	}
 	if got, err := svc.GetUserPermissions(context.Background(), "user-1"); err != nil || len(got) != 1 {
 		t.Fatalf("get user permissions: permissions=%+v err=%v", got, err)
 	}

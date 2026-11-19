@@ -92,8 +92,6 @@ const (
 	RoleAdmin = domainuser.RoleAdmin
 	// RoleStaff is the staff role.
 	RoleStaff = domainuser.RoleStaff
-	// RoleMember is the member role.
-	RoleMember = domainuser.RoleMember
 	// RoleViewer is the default role of public registrations.
 	RoleViewer = domainuser.RoleViewer
 )

@@ -40,9 +40,6 @@ func TestPermissionRepositoryDryRun(t *testing.T) {
 	if _, err := repo.GetByName(ctx, "users.read"); err != nil {
 		t.Fatalf("get by name: %v", err)
 	}
-	if _, err := repo.GetByResource(ctx, "users"); err != nil {
-		t.Fatalf("get by resource: %v", err)
-	}
 	if _, _, err := repo.GetAll(ctx, dtoshared.ListRequest{
 		Search:         "users",
 		Filters:        map[string]any{"resource": "users", "action": "read"},

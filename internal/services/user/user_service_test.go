@@ -138,7 +138,6 @@ func (m *authRepoMock) ExistsByToken(ctx context.Context, token string) (bool, e
 	_, ok := m.tokens[token]
 	return ok, nil
 }
-func (m *authRepoMock) DeleteExpired(ctx context.Context, now time.Time) error { return nil }
 
 type roleRepoUserMock struct {
 	roles map[string]domainrole.Role

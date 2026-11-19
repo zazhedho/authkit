@@ -55,7 +55,6 @@ func (m *sessionRepoTestDouble) DeleteByUserID(ctx context.Context, userID strin
 	m.deleteByUserID = userID
 	return nil
 }
-func (m *sessionRepoTestDouble) DeleteExpired(ctx context.Context) error { return nil }
 
 func TestCreateSessionStoresSessionWithDerivedDeviceInfo(t *testing.T) {
 	repo := &sessionRepoTestDouble{}
