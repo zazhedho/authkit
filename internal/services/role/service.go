@@ -48,9 +48,9 @@ func (s *Service) Create(ctx context.Context, req dtorole.RoleCreate) (domainrol
 
 	data := domainrole.Role{
 		Id:          s.newID(),
-		Name:        serviceshared.StripHTML(req.Name),
-		DisplayName: serviceshared.StripHTML(req.DisplayName),
-		Description: serviceshared.StripHTML(req.Description),
+		Name:        serviceshared.CleanText(req.Name),
+		DisplayName: serviceshared.CleanText(req.DisplayName),
+		Description: serviceshared.CleanText(req.Description),
 		IsSystem:    false,
 		CreatedAt:   time.Now(),
 	}
@@ -118,9 +118,9 @@ func (s *Service) Update(ctx context.Context, id string, req dtorole.RoleUpdate)
 	}
 
 	if req.DisplayName != "" {
-		role.DisplayName = serviceshared.StripHTML(req.DisplayName)
+		role.DisplayName = serviceshared.CleanText(req.DisplayName)
 	}
-	role.Description = serviceshared.StripHTML(req.Description)
+	role.Description = serviceshared.CleanText(req.Description)
 	role.UpdatedAt = new(time.Now())
 
 	if err := s.RoleRepo.Update(ctx, role); err != nil {

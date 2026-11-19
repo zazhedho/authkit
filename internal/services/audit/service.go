@@ -59,9 +59,9 @@ func (s *Service) Store(ctx context.Context, req domainaudit.AuditEvent) error {
 		RequestID:    strings.TrimSpace(req.RequestID),
 		IPAddress:    strings.TrimSpace(req.IPAddress),
 		UserAgent:    strings.TrimSpace(req.UserAgent),
-		BeforeData:   serviceshared.JsonEncode(before),
-		AfterData:    serviceshared.JsonEncode(after),
-		Metadata:     serviceshared.JsonEncode(meta),
+		BeforeData:   serviceshared.JSONEncode(before),
+		AfterData:    serviceshared.JSONEncode(after),
+		Metadata:     serviceshared.JSONEncode(meta),
 		CreatedAt:    time.Now(),
 	}
 

@@ -109,7 +109,7 @@ func (s *Service) RegisterUser(ctx context.Context, req dtouser.UserRegister) (d
 
 	data = domainuser.Users{
 		Id:                s.newID(),
-		Name:              serviceshared.TitleCase(serviceshared.StripHTML(req.Name)),
+		Name:              serviceshared.TitleCase(serviceshared.CleanText(req.Name)),
 		Phone:             phone,
 		Email:             email,
 		Password:          string(hashedPwd),
@@ -175,7 +175,7 @@ func (s *Service) AdminCreateUser(ctx context.Context, actor domainauth.Actor, r
 
 	data = domainuser.Users{
 		Id:                s.newID(),
-		Name:              serviceshared.TitleCase(serviceshared.StripHTML(req.Name)),
+		Name:              serviceshared.TitleCase(serviceshared.CleanText(req.Name)),
 		Phone:             phone,
 		Email:             email,
 		Password:          string(hashedPwd),
@@ -348,7 +348,7 @@ func (s *Service) Update(ctx context.Context, actor domainauth.Actor, id string,
 	}
 
 	if req.Name != "" {
-		data.Name = serviceshared.TitleCase(serviceshared.StripHTML(req.Name))
+		data.Name = serviceshared.TitleCase(serviceshared.CleanText(req.Name))
 	}
 
 	if req.Phone != "" {

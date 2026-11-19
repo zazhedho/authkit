@@ -37,7 +37,7 @@ func (s *Service) Update(ctx context.Context, id string, req dtoappconfig.Update
 		return domainappconfig.AppConfig{}, err
 	}
 
-	config.Value = serviceshared.StripHTML(req.Value)
+	config.Value = serviceshared.CleanText(req.Value)
 	if req.IsActive != nil {
 		config.IsActive = *req.IsActive
 	}

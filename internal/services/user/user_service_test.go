@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -1269,5 +1270,31 @@ func TestRegisterUserUsesInjectedIDGenerator(t *testing.T) {
 	}
 	if user.Id != "user-fixed" {
 		t.Fatalf("expected injected id, got %q", user.Id)
+	}
+}
+
+// Regression: see TestRoleServiceCreateDoesNotTurnEntitiesIntoMarkup.
+func TestRegisterUserDoesNotTurnEntitiesIntoMarkup(t *testing.T) {
+	service := &Service{
+		Tokens:        testUserTokens(t),
+		UserRepo:      &userRepoMock{},
+		BlacklistRepo: &authRepoMock{},
+		RoleRepo: &roleRepoUserMock{roles: map[string]domainrole.Role{
+			domainuser.RoleViewer: {Id: "role-viewer", Name: domainuser.RoleViewer},
+		}},
+		PermissionRepo: &permissionRepoUserMock{},
+	}
+
+	user, err := service.RegisterUser(context.Background(), dtouser.UserRegister{
+		Name:     "  &lt;script&gt;alert(1)&lt;/script&gt; ",
+		Email:    "xss@example.com",
+		Phone:    "08123456780",
+		Password: "Password1!",
+	})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if strings.Contains(user.Name, "<") || strings.Contains(user.Name, ">") {
+		t.Fatalf("name must stay escaped text, got %q", user.Name)
 	}
 }

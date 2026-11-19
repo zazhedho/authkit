@@ -16,7 +16,7 @@ func TestNewIDIsUUIDv7(t *testing.T) {
 }
 
 func TestJSONAndStringHelpers(t *testing.T) {
-	if got := JsonEncode(map[string]string{"name": "Jane"}); !strings.Contains(got, "Jane") {
+	if got := JSONEncode(map[string]string{"name": "Jane"}); !strings.Contains(got, "Jane") {
 		t.Fatalf("unexpected JSON encoding: %q", got)
 	}
 	if normalizePayload(struct {
@@ -24,7 +24,7 @@ func TestJSONAndStringHelpers(t *testing.T) {
 	}{Name: "Jane"}) == nil {
 		t.Fatal("expected normalized payload")
 	}
-	if got := JsonEncode(make(chan int)); got != "" {
+	if got := JSONEncode(make(chan int)); got != "" {
 		t.Fatalf("expected empty string for unsupported JSON value, got %q", got)
 	}
 	ch := make(chan int)
@@ -91,19 +91,36 @@ func TestNormalizeKeyHumanizeAndTitleHumanized(t *testing.T) {
 	}
 }
 
-func TestStripHTML(t *testing.T) {
+func TestCleanTextOnlyTrims(t *testing.T) {
 	tests := map[string]string{
-		"<b>Hello</b>   &amp; <i>world</i>":               "Hello & world",
-		"a<script>alert(1)</script>b":                     "a b",
-		"x<STYLE type=\"text/css\">p{color:red}</style>y": "x y",
-		"<script\n>multi\nline</script> kept":             "kept",
-		"plain text":                                      "plain text",
-		"1 &lt; 2":                                        "1 < 2",
-		"":                                                "",
+		"  plain text \n":                       "plain text",
+		"<b>Hello</b>":                          "<b>Hello</b>",
+		"1 &lt; 2":                              "1 &lt; 2",
+		"&lt;script&gt;alert(1)&lt;/script&gt;": "&lt;script&gt;alert(1)&lt;/script&gt;",
+		"":                                      "",
 	}
 	for in, want := range tests {
-		if got := StripHTML(in); got != want {
-			t.Errorf("StripHTML(%q) = %q, want %q", in, got, want)
+		if got := CleanText(in); got != want {
+			t.Errorf("CleanText(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// CleanText must never turn escaped markup into live markup: the XSS the old
+// StripHTML (unescape after stripping tags) produced.
+func TestCleanTextNeverCreatesMarkup(t *testing.T) {
+	for _, in := range []string{
+		"&lt;script&gt;alert(1)&lt;/script&gt;",
+		"&amp;lt;img src=x onerror=alert(1)&amp;gt;",
+		"<<script>script>alert(1)<</script>/script>",
+		"&#60;script&#62;alert(1)&#60;/script&#62;",
+	} {
+		got := CleanText(in)
+		if strings.Contains(got, "<script") || strings.Contains(got, "<img") {
+			// Only input that already carried a literal tag may keep one.
+			if !strings.Contains(in, "<") {
+				t.Errorf("CleanText(%q) = %q created live markup", in, got)
+			}
 		}
 	}
 }

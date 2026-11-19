@@ -3,6 +3,7 @@ package role
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
@@ -271,5 +272,27 @@ func TestRoleServiceCreateRejectsDuplicateAndInvalidPermission(t *testing.T) {
 	err := service.AssignPermissions(context.Background(), roleActor("user-1", "Admin User", domainuser.RoleAdmin), "role-1", dtorole.AssignPermissions{PermissionIds: []string{"missing"}})
 	if err == nil || err.Error() != "invalid permission ID: missing" {
 		t.Fatalf("expected invalid permission error, got %v", err)
+	}
+}
+
+// Regression: the old StripHTML unescaped entities after stripping tags, so
+// this input was stored as a live <script> element. Text is now stored as the
+// trimmed raw input and never HTML-processed.
+func TestRoleServiceCreateDoesNotTurnEntitiesIntoMarkup(t *testing.T) {
+	roleRepo := &roleRepoMock{}
+	service := NewService(roleRepo, &permissionRepoMock{}, &menuRepoMock{})
+
+	payload := "&lt;script&gt;alert(1)&lt;/script&gt;"
+	_, err := service.Create(context.Background(), dtorole.RoleCreate{Name: "  " + payload + " ", DisplayName: payload, Description: " " + payload})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	for field, got := range map[string]string{"name": roleRepo.stored.Name, "display_name": roleRepo.stored.DisplayName, "description": roleRepo.stored.Description} {
+		if got != payload {
+			t.Errorf("%s = %q, want the trimmed raw input %q", field, got, payload)
+		}
+		if strings.Contains(got, "<script") {
+			t.Errorf("%s holds live markup: %q", field, got)
+		}
 	}
 }

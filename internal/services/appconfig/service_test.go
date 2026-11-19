@@ -3,6 +3,7 @@ package appconfig
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -297,5 +298,20 @@ func TestAppConfigServiceUpdateErrorsAndFallbacks(t *testing.T) {
 	var target map[string]any
 	if err := service.DecodeJSON(context.Background(), "jobs.rules", &target); err == nil {
 		t.Fatal("expected json decode error")
+	}
+}
+
+// Regression: see TestRoleServiceCreateDoesNotTurnEntitiesIntoMarkup.
+func TestAppConfigUpdateDoesNotTurnEntitiesIntoMarkup(t *testing.T) {
+	repo := &appConfigRepoMock{byID: domainappconfig.AppConfig{Id: "cfg-1", ConfigKey: "feature.example", Value: "old", IsActive: true}}
+	service := NewService(repo)
+
+	payload := "&lt;script&gt;alert(1)&lt;/script&gt;"
+	updated, err := service.Update(context.Background(), "cfg-1", dtoappconfig.UpdateAppConfig{Value: " " + payload + " "})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if updated.Value != payload || strings.Contains(repo.update.Value, "<script") {
+		t.Fatalf("value = %q, stored %q; want the trimmed raw input", updated.Value, repo.update.Value)
 	}
 }
