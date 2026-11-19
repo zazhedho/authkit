@@ -511,7 +511,15 @@ func respondUserMutationError(ctx *gin.Context, logID uuid.UUID, err error) {
 	ctx.JSON(statusCode, res)
 }
 
-// userSnapshot is the audit view of a created user.
+// updateSnapshot is the audit view of an update request: the fields it may
+// change, never the current password.
+func updateSnapshot(req dtouser.Update) map[string]any {
+	return map[string]any{"name": req.Name, "email": req.Email, "phone": req.Phone, "role": req.Role}
+}
+
+// userSnapshot is the audit view of a user: an allow-list of fields, so login
+// bookkeeping, metadata and anything added to the entity later stay out of the
+// audit trail.
 func userSnapshot(u domainuser.Users) map[string]any {
 	return map[string]any{
 		"id":    u.ID,
@@ -553,8 +561,8 @@ func (h *Handler) updateUser(ctx *gin.Context, logID uuid.UUID, logPrefix, id st
 			Status:       domainaudit.StatusFailed,
 			Message:      failedMessage,
 			ErrorMessage: err.Error(),
-			BeforeData:   before,
-			AfterData:    req,
+			BeforeData:   userSnapshot(before),
+			AfterData:    updateSnapshot(req),
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.Update; ERROR: %s;", logPrefix, err)
 		respondUserMutationError(ctx, logID, err)
@@ -566,8 +574,8 @@ func (h *Handler) updateUser(ctx *gin.Context, logID uuid.UUID, logPrefix, id st
 		ResourceID: data.ID,
 		Status:     domainaudit.StatusSuccess,
 		Message:    successMessage,
-		BeforeData: before,
-		AfterData:  data,
+		BeforeData: userSnapshot(before),
+		AfterData:  userSnapshot(data),
 	})
 
 	res := gokit.Response(http.StatusOK, "User updated successfully", logID, data)
@@ -589,7 +597,7 @@ func (h *Handler) deleteUser(ctx *gin.Context, logID uuid.UUID, logPrefix, id, f
 			Status:       domainaudit.StatusFailed,
 			Message:      failedMessage,
 			ErrorMessage: err.Error(),
-			BeforeData:   before,
+			BeforeData:   userSnapshot(before),
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.Delete; ERROR: %s;", logPrefix, err)
 		respondUserMutationError(ctx, logID, err)
@@ -606,7 +614,7 @@ func (h *Handler) deleteUser(ctx *gin.Context, logID uuid.UUID, logPrefix, id, f
 		ResourceID: id,
 		Status:     domainaudit.StatusSuccess,
 		Message:    successMessage,
-		BeforeData: before,
+		BeforeData: userSnapshot(before),
 	})
 
 	res := gokit.Response(http.StatusOK, "User deleted successfully", logID, nil)

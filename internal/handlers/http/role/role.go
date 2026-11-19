@@ -32,6 +32,7 @@ var roleResource = httpshared.Resource[domainrole.Role]{
 	Name:          "role",
 	Audit:         "role",
 	ID:            func(r domainrole.Role) string { return r.ID },
+	Strict:        true,
 	MutationError: roleMutationErrorResponse,
 }
 
@@ -147,7 +148,7 @@ func handleRoleRelationAssignment[T any](h *Handler, ctx *gin.Context, req *T, a
 		return
 	}
 
-	h.WriteAudit(ctx, domainaudit.AuditEvent{
+	if err := h.WriteAuditStrict(ctx, domainaudit.AuditEvent{
 		Action:     domainaudit.ActionAssign,
 		Resource:   assignment.resource,
 		ResourceID: id,
@@ -155,7 +156,11 @@ func handleRoleRelationAssignment[T any](h *Handler, ctx *gin.Context, req *T, a
 		Message:    assignment.successMessage,
 		BeforeData: beforeData,
 		AfterData:  *req,
-	})
+	}); err != nil {
+		logus.LogContextf(ctx, logus.LevelError, "%s; audit; Error: %+v", assignment.logPrefix, err)
+		httpshared.RespondInternalError(ctx, logID)
+		return
+	}
 
 	res := gokit.Response(http.StatusOK, assignment.responseMsg, logID, nil)
 	logus.LogContextf(ctx, logus.LevelDebug, "%s; %s", assignment.logPrefix, assignment.debugMsg)

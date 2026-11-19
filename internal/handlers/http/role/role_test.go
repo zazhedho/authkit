@@ -243,3 +243,21 @@ func TestRoleRoutesRejectANonUUIDID(t *testing.T) {
 		}
 	}
 }
+
+type failingRoleAudit struct{ auditServiceRoleTestDouble }
+
+func (failingRoleAudit) Store(context.Context, domainaudit.AuditEvent) error {
+	return errors.New("audit down")
+}
+
+func TestRBACChangesFailWhenTheAuditRecordCannotBeWritten(t *testing.T) {
+	handler := New(&roleServiceHandlerTestDouble{}, &failingRoleAudit{})
+	rec := performRoleRequest(http.MethodPost, "/roles", "/roles", dtorole.Create{Name: "staff", DisplayName: "Staff"}, handler.Create)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("create: got %d, want 500 when the change cannot be audited", rec.Code)
+	}
+	rec = performRoleRequest(http.MethodPost, "/roles/:id/permissions", "/roles/550e8400-e29b-41d4-a716-446655440000/permissions", dtorole.AssignPermissions{PermissionIDs: []string{}}, handler.AssignPermissions)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("assign: got %d, want 500", rec.Code)
+	}
+}

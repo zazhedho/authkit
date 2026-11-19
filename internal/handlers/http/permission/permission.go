@@ -25,6 +25,7 @@ var permissionResource = httpshared.Resource[domainpermission.Permission]{
 	Name:          "permission",
 	Audit:         "permission",
 	ID:            func(p domainpermission.Permission) string { return p.ID },
+	Strict:        true,
 	MutationError: permissionMutationErrorResponse,
 }
 

@@ -867,7 +867,8 @@ func (h *Handler) ImpersonateUser(ctx *gin.Context) {
 		return
 	}
 
-	h.WriteAudit(ctx, domainaudit.AuditEvent{
+	// The token is released only once the start is on record.
+	if err := h.WriteAuditStrict(ctx, domainaudit.AuditEvent{
 		Action:     domainaudit.ActionLogin,
 		Resource:   "user_impersonation",
 		ResourceID: id,
@@ -881,7 +882,10 @@ func (h *Handler) ImpersonateUser(ctx *gin.Context) {
 			"impersonation_action": "start",
 			"target_user_id":       id,
 		},
-	})
+	}); err != nil {
+		respondStepFailed(ctx, logID, logPrefix, "audit", err)
+		return
+	}
 
 	res := gokit.Response(http.StatusOK, "Impersonation started successfully", logID, h.buildAuthTokenResponse(token, ""))
 	ctx.JSON(http.StatusOK, res)
@@ -917,11 +921,24 @@ func (h *Handler) StopImpersonation(ctx *gin.Context) {
 		return
 	}
 
+	// The impersonation token must stop working before the original identity
+	// is handed back; a failure here is an error, not a log line.
 	if tokenString, ok := ctx.Get("token"); ok {
-		_ = h.Service.LogoutUser(reqCtx, tokenString.(string))
+		if err := h.Service.LogoutUser(reqCtx, tokenString.(string)); err != nil && !errors.Is(err, domainauth.ErrDuplicate) {
+			h.WriteAudit(ctx, domainaudit.AuditEvent{
+				Action:       domainaudit.ActionLogout,
+				Resource:     "user_impersonation",
+				ResourceID:   originalUserID,
+				Status:       domainaudit.StatusFailed,
+				Message:      "Failed to revoke the impersonation token",
+				ErrorMessage: err.Error(),
+			})
+			respondStepFailed(ctx, logID, logPrefix, "Service.LogoutUser", err)
+			return
+		}
 	}
 
-	h.WriteAudit(ctx, domainaudit.AuditEvent{
+	if err := h.WriteAuditStrict(ctx, domainaudit.AuditEvent{
 		Action:     domainaudit.ActionLogout,
 		Resource:   "user_impersonation",
 		ResourceID: originalUserID,
@@ -931,7 +948,10 @@ func (h *Handler) StopImpersonation(ctx *gin.Context) {
 			"impersonation_action": "stop",
 			"restored_user_id":     originalUserID,
 		},
-	})
+	}); err != nil {
+		respondStepFailed(ctx, logID, logPrefix, "audit", err)
+		return
+	}
 
 	res := gokit.Response(http.StatusOK, "Impersonation stopped successfully", logID, h.buildAuthTokenResponse(token, ""))
 	ctx.JSON(http.StatusOK, res)
@@ -1033,7 +1053,7 @@ func (h *Handler) ChangePassword(ctx *gin.Context) {
 			Status:       domainaudit.StatusFailed,
 			Message:      "Failed to change password",
 			ErrorMessage: err.Error(),
-			BeforeData:   before,
+			BeforeData:   userSnapshot(before),
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.ChangePassword; ERROR: %s;", logPrefix, err)
 		if errors.Is(err, domainuser.ErrPasswordIncorrect) {

@@ -9,9 +9,15 @@ import (
 	"testing"
 
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
+	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
+	dtouser "github.com/zazhedho/authkit/internal/dto/user"
+
+	"github.com/gin-gonic/gin"
+	"github.com/zazhedho/gokit"
 )
 
 func TestSensitiveSelfRoutesAreClosedWhileImpersonating(t *testing.T) {
@@ -177,4 +183,60 @@ func TestAMalformedFlagValueDoesNotBreakTheAuthRoutes(t *testing.T) {
 	ctx, rec = newUserHandlerTestContext(t, http.MethodGet, "/register/status", "", nil)
 	handler.GetRegisterStatus(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
+}
+
+type failingAudit struct{}
+
+func (failingAudit) Store(context.Context, domainaudit.AuditEvent) error {
+	return errors.New("audit down")
+}
+func (failingAudit) GetAll(context.Context, gokit.BaseParams) ([]dtoaudit.AuditTrailResponse, int64, error) {
+	return nil, 0, nil
+}
+func (failingAudit) GetByID(context.Context, string) (dtoaudit.AuditTrailResponse, error) {
+	return dtoaudit.AuditTrailResponse{}, nil
+}
+
+func TestImpersonationStartIsNotReleasedWithoutAnAuditRecord(t *testing.T) {
+	handler := New(&userServiceTestDouble{}, nil, nil, failingAudit{}, testHandlerOptions())
+	target := "550e8400-e29b-41d4-a716-446655440000"
+	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/users/"+target+"/impersonate", `{"reason":"support case"}`, nil)
+	ctx.Params = gin.Params{{Key: "id", Value: target}}
+	handler.ImpersonateUser(ctx)
+	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
+	if strings.Contains(rec.Body.String(), "access_token") {
+		t.Fatalf("a token was released without an audit record: %s", rec.Body.String())
+	}
+}
+
+func TestStopImpersonationFailsWhenTheTokenCannotBeRevoked(t *testing.T) {
+	scope := domainauth.New("target", "Target", "viewer", nil)
+	scope.IsImpersonated = true
+	scope.OriginalUserID = "admin"
+	handler := New(&userServiceTestDouble{logoutErr: errors.New("blacklist down")}, nil, nil, nil, testHandlerOptions())
+	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/stop-impersonation", "", &scope)
+	ctx.Set("token", "impersonation-token")
+	handler.StopImpersonation(ctx)
+	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
+	if strings.Contains(rec.Body.String(), "restored-token") {
+		t.Fatalf("the original identity was handed back with a live impersonation token: %s", rec.Body.String())
+	}
+}
+
+func TestUserAuditSnapshotIsAnAllowList(t *testing.T) {
+	u := domainuser.Users{ID: "1", Name: "N", Email: "e@example.test", Phone: "628", Role: "viewer",
+		LastLoginIP: "10.0.0.1", LastLoginUserAgent: "ua", Metadata: map[string]any{"secret": "x"}, Password: "hash"}
+	got := userSnapshot(u)
+	for _, banned := range []string{"last_login_ip", "last_login_user_agent", "metadata", "password"} {
+		if _, ok := got[banned]; ok {
+			t.Errorf("snapshot contains %q", banned)
+		}
+	}
+	if len(got) != 5 {
+		t.Errorf("snapshot = %v, want id, name, email, phone, role", got)
+	}
+	upd := updateSnapshot(dtouser.Update{Name: "N", CurrentPassword: "secret"})
+	if _, ok := upd["current_password"]; ok {
+		t.Error("the update snapshot must not carry the current password")
+	}
 }
