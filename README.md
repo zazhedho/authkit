@@ -146,15 +146,15 @@ func main() {}
 
 ### Authentication flows
 
-Send the access token as `Authorization: Bearer <token>`. Token responses carry `access_token`, `token_type`, `expires_in_hours` and, where a refresh token is issued, `refresh_token` and `refresh_expires_in_hours`.
+Send the access token as `Authorization: Bearer <token>`. Token responses carry `access_token`, `token_type`, `expires_in` (seconds), `expires_in_hours` (whole hours, 0 below one hour) and, where a refresh token is issued, `refresh_token` and `refresh_expires_in_hours`.
 
 - **Register.** `POST /user/register` with `name`, `email`, `phone`, `password` (8 to 64 characters with a lowercase letter, an uppercase letter, a digit and a symbol) and `otp_code`. The user gets `Config.DefaultRole`. It is allowed while the `auth.public_registration_enabled` flag is on (the default); otherwise it answers 403. `GET /user/register/status` reports `enabled`, `otp_enabled` and `otp_cooldown`.
 - **Registration OTP.** When the `auth.register_otp_enabled` flag is on, call `POST /user/register/otp/send` with `email` first; the 6 digit code is then required as `otp_code` on register. Needs Redis, a mailer and `OTP.Secret`; otherwise those routes answer 503.
 - **Login.** `POST /user/login` with `identifier` (e-mail or phone, or the older `email` field) and `password`. Failures are counted per client IP and identifier; after `Login.Limit` failures within `Login.Window` the pair is blocked for `Login.BlockDuration` and gets 429 with `Retry-After`. Needs Redis.
 - **Google.** `POST /user/google/login` with `id_token`. Requires `GoogleClientIDs`, otherwise 503. A first-time Google user is registered only while public registration is on.
 - **Refresh.** `POST /user/refresh-token` with `refresh_token` issues a new pair and blacklists the old refresh token. With Redis the token must belong to a live session.
-- **Logout.** `POST /user/logout` blacklists the presented access token and destroys its session.
-- **Passwords.** `PUT /user/change/password` takes `current_password` and `new_password`. With the `auth.password_reset_email_enabled` flag on, `POST /user/forgot-password` with `email` mails a reset token (Redis, a mailer and `Reset.Secret` required) and always answers success, so it does not reveal which e-mails exist. `POST /user/reset-password` takes `token` and `new_password` and ends all of the user's sessions. If `Reset.URLTemplate` is set, the mail links to it: `{token}` is replaced, otherwise `?token=` (or `&token=`) is appended.
+- **Logout.** `POST /user/logout` blacklists the presented access token and destroys its session. An optional JSON body `{"refresh_token": "..."}` also blacklists that refresh token (only when it belongs to the caller). A session that cannot be destroyed or a token that cannot be blacklisted is an error, not a silent success.
+- **Passwords.** `PUT /user/change/password` takes `current_password` and `new_password`, is rate limited per user, ends the user's other sessions and revokes older tokens (the caller's own session stays). With the `auth.password_reset_email_enabled` flag on, `POST /user/forgot-password` with `email` mails a reset token (Redis, a mailer and `Reset.Secret` required). It always answers the same `200`, whether or not the e-mail is registered, throttled, deliverable or the flag is off; lookup, throttling and delivery happen after the response and only log. `POST /user/reset-password` takes `token` and `new_password`: the password is validated first (a weak one does not burn the token), the token is then consumed once, all of the user's sessions and older tokens end. If `Reset.URLTemplate` is set, the mail links to it: `{token}` is replaced, otherwise `?token=` (or `&token=`) is appended. The old JWT reset flow and its development fallback are gone.
 - **Sessions** (Redis only). `GET /user/sessions` lists the caller's sessions, `DELETE /user/session/:session_id` revokes one, `POST /user/sessions/revoke-others` revokes all but the current one.
 - **Admin-created users.** `POST /user` (`users:create`) takes a `role`; assigning one needs `users:assign_role`.
 
@@ -209,7 +209,7 @@ func main() {}
 - Permission checks for non-superadmin users are cached in Redis for `PermissionCacheTTL`. Grants changed through the API invalidate the cache; changes made directly in SQL can be stale for up to that long.
 - `Scope`, `NewScope` and `WithScope` build a scope by hand, for tests: `authkit.WithScope(ctx, authkit.NewScope("u1", "Ada", authkit.RoleStaff, []string{"trips:view"}))`.
 - `kit.IssueAccessToken(userID, name, role)` signs an access token that passes `Auth`, without checking the user exists. It is meant for tests and tooling.
-- Roles: `RoleSuperAdmin`, `RoleAdmin`, `RoleStaff` and `RoleViewer` exist after `Migrate`. `RoleMember` is only a name; create that role before using it.
+- Roles: `RoleSuperAdmin`, `RoleAdmin`, `RoleStaff` and `RoleViewer` exist after `Migrate`. There is no built-in member role; create any other role yourself.
 
 ### Impersonation
 
@@ -439,7 +439,7 @@ List endpoints take `page`, `limit`, `search`, `order_by`, `order_direction` and
 
 - Zero or negative numbers and durations mean "use the default", so a limiter cannot be disabled by setting its variable to 0.
 - Variables ending in `_SECONDS` are whole seconds. The duration-form variables (`OTP_TTL`, ...) accept `30s`, `5m`, `1h` or bare seconds, and win over their `_SECONDS` form when positive.
-- A value that cannot be parsed falls back to its default and is reported by `gokit.EnvErrors()`. Call it after `ConfigFromEnv` and refuse to start when it is non-nil.
+- A value that cannot be parsed falls back to its default. `ConfigFromEnvStrict()` returns the config together with an error naming every such variable (it wraps `gokit.EnvErrors()`); prefer it at startup and refuse to start on an error. `ConfigFromEnv()` keeps the old behavior of reporting through `gokit.EnvErrors()` only.
 - Printing a `Config` with `%v`, `%+v` or `%#v` reports `JWTKey`, `OTP.Secret` and `Reset.Secret` only as set or unset.
 - `Config.Validate()` runs inside `New`.
 
@@ -448,11 +448,15 @@ List endpoints take `page`, `limit`, `search`, `order_by`, `order_direction` and
 | `DB` | none | none | yes |
 | `Redis` | none | nil | no |
 | `Mailer` | none | nil | no |
+| `OTPMailer`, `ResetMailer` | none | nil (`Mailer` is used) | no |
 | `AppName` | `APP_NAME` | none | yes |
 | `AppEnv` | `APP_ENV` | empty | no |
 | `JWTKey` | `JWT_KEY` | none | yes, at least 32 characters |
-| `AccessTokenTTL` | `JWT_EXP` (hours) | 24h | no |
+| `AccessTokenTTL` | `JWT_EXP_MINUTES`, else `JWT_EXP` (hours) | 15m | no |
 | `RefreshTokenTTL` | `REFRESH_TOKEN_EXP_HOURS` | 168h | no |
+| `SessionMaxLifetime` | `SESSION_MAX_LIFETIME_HOURS` | 720h (30 days) | no |
+| `FailClosedLimiters` | `LIMITER_FAIL_CLOSED` | false (fail open) | no |
+| `PhoneLogin` | `LOGIN_WITH_PHONE` | false | no |
 | `DefaultRole` | none | `viewer` | no (not `superadmin` or `admin`) |
 | `GoogleClientIDs` | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_IDS` (comma list) | none (Google login off) | no |
 | `EmailAppName` | `AUTH_EMAIL_APP_NAME` | `AppName` | no |
@@ -462,13 +466,15 @@ List endpoints take `page`, `limit`, `search`, `order_by`, `order_direction` and
 | `Login.BlockDuration` | `LOGIN_BLOCK_DURATION_SECONDS` | 300s | no |
 | `Register.Limit` | `REGISTER_RATE_LIMIT` | 5 | no |
 | `Register.Window` | `REGISTER_RATE_WINDOW_SECONDS` | 60s | no |
-| `OTP.Secret` | `OTP_SECRET` | none | yes when Redis and Mailer are set |
+| `AuthRate.Limit` | `AUTH_RATE_LIMIT` | 30 | no |
+| `AuthRate.Window` | `AUTH_RATE_WINDOW_SECONDS` | 60s | no |
+| `OTP.Secret` | `OTP_SECRET` | none | yes when Redis and an OTP mailer are set; at least 32 characters |
 | `OTP.TTL` | `OTP_TTL`, `OTP_TTL_SECONDS` | 300s | no |
 | `OTP.Cooldown` | `OTP_COOLDOWN`, `OTP_COOLDOWN_SECONDS` | 60s | no |
 | `OTP.RateLimit` | `OTP_RATE_LIMIT` | 5 | no |
 | `OTP.RateWindow` | `OTP_RATE_WINDOW`, `OTP_RATE_WINDOW_SECONDS` | `OTP.TTL` | no |
 | `OTP.MaxAttempts` | `OTP_MAX_ATTEMPTS` | 5 | no |
-| `Reset.Secret` | `RESET_SECRET` | none | yes when Redis and Mailer are set |
+| `Reset.Secret` | `RESET_SECRET` | none | yes when Redis and a reset mailer are set; at least 32 characters |
 | `Reset.TTL` | `RESET_TTL`, `RESET_TTL_SECONDS` | 900s | no |
 | `Reset.Cooldown` | `RESET_COOLDOWN`, `RESET_COOLDOWN_SECONDS` | 60s | no |
 | `Reset.RateLimit` | `RESET_RATE_LIMIT` | 5 | no |
@@ -485,16 +491,19 @@ List endpoints take `page`, `limit`, `search`, `order_by`, `order_direction` and
 Read these before exposing the routes.
 
 - **Trusted proxies and client IP.** The login limiter (keyed by client IP plus identifier), the register limiter (keyed by client IP), the audit trail's `ip_address` and the request log all use gin's `c.ClientIP()`. gin trusts every proxy by default and then believes `X-Forwarded-For` and `X-Real-IP`, so any client can pick its own IP: it dodges both limiters and forges audit IPs. Call `engine.SetTrustedProxies(nil)` when clients connect directly, or pass the CIDRs of your reverse proxies.
-- **Rate limiting fails open.** If Redis is unreachable, the register limiter lets the request through and the login limiter treats the caller as not blocked and does not count failures; both only log. Without Redis there is no login or register limiting at all. Password reset and OTP requests return an error response instead of skipping their throttling. Permission-cache errors fall back to the database.
+- **Rate limiting fails open by default.** If Redis is unreachable, the IP limiters let the request through and the login limiter treats the caller as not blocked and does not count failures; both only log. Set `FailClosedLimiters` to answer 503 instead. Login failures are counted per client and identifier and also per identifier alone; `AuthRate` limits google login, refresh, forgot and reset password and change-password per IP. Counters start their window in one atomic step. Without Redis there is no login or register limiting at all. Password reset and OTP requests return an error response instead of skipping their throttling. Permission-cache errors fall back to the database.
 - **`limit=-1` and page size.** Every list caps the page size at 100. Only the small reference lists a UI loads whole, `GET /roles`, `/permissions` and `/menus`, accept `limit=-1`, which returns every matching row. On `/users`, `/configs` and `/audits`, `-1` and any limit above 100 are clamped to 100, and the response `limit` field reports the page size actually applied. The routes still need their `:list` permission.
 - **CORS.** authkit sets no CORS headers. Configure CORS in your application and allow only your own origins. If you use gokit's `gokit.CORS()` helper, note that it answers `Access-Control-Allow-Origin: *` and allows only `GET, POST, PUT, DELETE`.
-- **Token revocation.** Revocation is a blacklist in the `blacklist` table, checked on every `Auth`. Logout blacklists only the presented access token, and refresh blacklists the old refresh token. Not revoked: tokens of a user whose password changed (password reset ends Redis sessions, a password change does not), whose role changed, who was deleted, or whose session was revoked through the session routes; they work until they expire. `Auth` does not look the user up, and the permission lookup used by `Can` does not exclude soft-deleted users. Without Redis sessions, a refresh token stays valid after logout until it expires. Refresh fails for a deleted user. The `role` claim, including the superadmin bypass, is trusted until expiry, so keep `AccessTokenTTL` short (the default is 24h). `expires_in_hours` is in whole hours and reads 0 below one hour.
+- **Permission-subset role rule.** An actor may update, delete or impersonate a user, or assign a role, only when every permission of the target's role (or of the assigned role) is also held by the actor; `roles:assign_permissions` can only grant permissions the actor holds. A superadmin is above everything. Nobody changes their own role, and the last superadmin can never be deleted or demoted. Deleting a user revokes their tokens and sessions. A self-service change of email or phone needs the current password; an admin changing someone's email clears `email_verified_at`. A role that users still hold cannot be deleted, and a permission that a role holds cannot change its resource or action. Impersonation needs a `reason`, which is audited together with the start and stop events (those audit writes are strict: a failed write fails the request).
+- **Trust model of `Auth`.** `Auth` verifies the HS256 signature (only HS256), `iss`, `aud`, a required `exp`, `iat` and the strict `Bearer ` prefix, then looks the user up: a deleted user is rejected, the role is the current one from the database (cached, dropped on change) and not the token's `role` claim, and a token issued before the user's `tokens_valid_after` is rejected. `tokens_valid_after` is bumped on delete, role change, password change, password reset and email change. With Redis the token's session must still exist (looked up by the sha256 of the token), so revoking a session ends its access token. Logout and refresh also blacklist tokens (hashed). Refresh rotates: the old refresh token is claimed once, a replay of a rotated token revokes the session. Sessions end at `SessionMaxLifetime` from login however often they are refreshed. Impersonation tokens last at most 15 minutes, carry no session, and cannot call change-password, profile update or account delete. Keep `AccessTokenTTL` short (default 15 minutes).
 - **JWT key.** Tokens are HS256. `JWTKey` must be at least 32 characters (checked after trimming whitespace); use 32 or more random bytes, not a phrase, and keep it out of the repository. Tokens carry `AppName` as `iss` and `aud` and are rejected unless both match, so give each application its own `AppName`: a token from one application is then not accepted by another that shares a key. Changing `AppName` or `JWTKey` invalidates every issued token.
-- **OTP and reset secrets.** Registration OTPs (6 digits) and reset tokens are stored in Redis only as `sha256(value + secret)`, so `OTP.Secret` and `Reset.Secret` are what keep a leaked Redis from being brute-forced; a 6 digit code is trivial to recover without the secret. They are required when both Redis and a mailer are set (`New` fails without them), and the services refuse to work with an empty one. Use long random values, distinct from `JWTKey`, outside the repository. Changing one invalidates pending codes or tokens. Wrong OTP guesses are capped by `OTP.MaxAttempts`.
-- **Development password reset.** When `AppEnv` is `development`, `local` or `test` and `auth.password_reset_email_enabled` is off, `POST /user/forgot-password` returns a valid reset token in the response for any registered e-mail. Never use those values on a reachable deployment. With a production `AppEnv` and the flag off the route answers 503, and with the flag on but Redis, a mailer or `Reset.Secret` missing it answers 503 too. `New` logs a warning for a development `AppEnv`.
+- **OTP and reset secrets.** Registration OTPs (6 digits) are stored in Redis as `HMAC-SHA256(OTP.Secret, "register" + email + code)` and reset tokens as `sha256(token + Reset.Secret)`, so the secrets are what keep a leaked Redis from being brute-forced. Both must be at least 32 characters (`Validate` rejects shorter ones, even when unused) and are required when Redis and the matching mailer are set. Use long random values, distinct from `JWTKey`, outside the repository. Changing one invalidates pending codes or tokens. Wrong OTP guesses are capped by `OTP.MaxAttempts` and the count carries over resends until its window ends.
+- **No account enumeration.** `POST /user/register/otp/send` and `POST /user/forgot-password` always answer the same `200`; the work happens after the response. `POST /user/register` answers a generic `409 email or phone already exists` that does not say which one. Login answers the same `400` for an unknown user and a wrong password, and spends the same hashing time. Passwords are bcrypt cost 12 (older hashes are upgraded on login) and may be at most 72 bytes.
+- **Phone numbers are unverified.** Login by phone is off unless `PhoneLogin` is set, because nothing proves a user owns the number they registered. Treat `phone` as contact data, not as an identity.
+- **Google sign-in.** ID tokens are verified offline against Google's cached keys (`iss`, `aud`, `exp`, `email_verified`, RS256). Accounts are matched by `sub`, stored in `users.google_subject`; an email already linked to another `sub` is refused. Linking an existing account whose email was never verified replaces its password with a random one, ends its sessions and tokens.
 - **`DefaultRole`.** It is what public registrations receive. It cannot be `superadmin` or `admin`, and registration fails if the role does not exist.
-- **Redis keys are not namespaced.** Use a separate Redis database, or an ACL key prefix, per application. Sharing one shares the limiter counters and the OTP and reset throttling, and one application's permission-cache invalidation evicts the others'.
-- **Stored tokens.** Blacklisted tokens and Redis session tokens are stored as issued, not hashed. Treat database and Redis access as access to live tokens.
+- **Redis keys are not namespaced.** Use a separate Redis database, or an ACL key prefix, per application. Sharing one shares the limiter counters and the OTP and reset throttling, and one application's permission-cache invalidation evicts the others'. There is no `KeyPrefix` option.
+- **Stored tokens.** Blacklisted tokens and Redis session tokens are stored as their sha256, never as issued; session records hold hashes only.
 
 ## Versioning
 

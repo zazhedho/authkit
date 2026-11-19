@@ -10,6 +10,7 @@
 
 # Output of the go coverage tool
 *.out
+coverage.out
 
 # Dependency directories
 vendor/
@@ -22,6 +23,8 @@ vendor/
 
 # Environment files
 .env
+.env.*
+!.env.example
 *.env.local
 
 # OS generated files
