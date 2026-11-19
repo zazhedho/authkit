@@ -88,6 +88,9 @@ func (m *auditServicePermissionTestDouble) GetByID(ctx context.Context, id strin
 	return dtoaudit.AuditTrailResponse{}, nil
 }
 
+// testID is a valid UUID standing in for the :id path segment.
+const testID = "550e8400-e29b-41d4-a716-446655440000"
+
 func performPermissionRequest(
 	method string,
 	path string,
@@ -112,7 +115,7 @@ func performPermissionRequest(
 		raw, _ := json.Marshal(body)
 		reqBody = bytes.NewReader(raw)
 	}
-	req := httptest.NewRequest(method, path, reqBody)
+	req := httptest.NewRequest(method, strings.Replace(path, "/:id", "/"+testID, 1), reqBody)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -127,7 +130,7 @@ func performPermissionRawRequest(method, path, body string, handler gin.HandlerF
 	router := gin.New()
 	routePath, _, _ := strings.Cut(path, "?")
 	router.Handle(method, routePath, handler)
-	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req := httptest.NewRequest(method, strings.Replace(path, "/:id", "/"+testID, 1), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -215,15 +218,15 @@ func TestGetAllPermissionsReturnsServiceError(t *testing.T) {
 
 func TestUpdatePermissionMapsDuplicateError(t *testing.T) {
 	handler := New(
-		&permissionServiceTestDouble{err: errors.New("permission with this name already exists")},
+		&permissionServiceTestDouble{err: domainpermission.ErrDuplicate},
 		&auditServicePermissionTestDouble{},
 	)
 
 	rec := performPermissionRequest(http.MethodPut, "/permissions/:id", dtopermission.Update{
 		DisplayName: "List Users",
 	}, handler.Update, domainauth.Scope{})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	rec = performPermissionRawRequest(http.MethodPut, "/permissions/:id", `{`, handler.Update)
@@ -240,8 +243,8 @@ func TestDeletePermissionDelegatesToService(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if service.deleteID != ":id" {
-		t.Fatalf("expected delete id from route param placeholder, got %q", service.deleteID)
+	if service.deleteID != testID {
+		t.Fatalf("expected delete id from the route param, got %q", service.deleteID)
 	}
 
 	handler = New(&permissionServiceTestDouble{err: errors.New("database down")}, &auditServicePermissionTestDouble{})
@@ -268,5 +271,15 @@ func TestGetUserPermissionsUsesAuthScopeUserID(t *testing.T) {
 	rec := performPermissionRequest(http.MethodGet, "/permissions/me", nil, handler.GetUserPermissions, domainauth.New("user-1", "Jane", "viewer", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPermissionRoutesRejectANonUUIDID(t *testing.T) {
+	handler := New(&permissionServiceTestDouble{}, &auditServicePermissionTestDouble{})
+	for name, call := range map[string]gin.HandlerFunc{"get": handler.GetByID, "update": handler.Update, "delete": handler.Delete} {
+		rec := performPermissionRawRequest(http.MethodGet, "/permissions/not-a-uuid", `{}`, call)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: got %d, want 400", name, rec.Code)
+		}
 	}
 }

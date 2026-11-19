@@ -48,6 +48,10 @@ func GetByID[T any](f Flow, name, step, id string, get func(context.Context, str
 	data, err := get(f.ReqCtx(), id)
 	if err != nil {
 		f.LogError(step, err)
+		if !IsNotFound(err) {
+			RespondInternalError(f.Ctx, f.LogID)
+			return
+		}
 		RespondNotFound(f.Ctx, f.LogID, name)
 		return
 	}

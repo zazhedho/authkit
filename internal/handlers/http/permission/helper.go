@@ -3,7 +3,6 @@ package permission
 import (
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/zazhedho/gokit"
 
@@ -18,12 +17,10 @@ func permissionMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.AP
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logID, "permission not found")
 	}
 	if errors.Is(err, domainpermission.ErrDuplicate) {
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logID, "permission with this name already exists")
+		return http.StatusConflict, gokit.ErrorResponse(http.StatusConflict, gokit.MsgExists, logID, "permission with this name already exists")
 	}
-
-	errMsg := err.Error()
-	if strings.Contains(errMsg, "already exists") {
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logID, errMsg)
+	if errors.Is(err, domainpermission.ErrInUse) {
+		return http.StatusConflict, gokit.ErrorResponse(http.StatusConflict, gokit.MsgSomethingWrong, logID, err.Error())
 	}
 
 	return http.StatusInternalServerError, gokit.InternalServerError(logID)

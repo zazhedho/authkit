@@ -113,3 +113,12 @@ func (r *Repository) GetByRoleName(ctx context.Context, roleName string) (ret []
 	}
 	return ret, nil
 }
+
+// CountGrants counts the live roles the permission is granted to.
+func (r *Repository) CountGrants(ctx context.Context, id string) (int64, error) {
+	var n int64
+	err := r.DB.WithContext(ctx).Table("role_permissions").
+		Joins("JOIN roles ON roles.id = role_permissions.role_id AND roles.deleted_at IS NULL").
+		Where("role_permissions.permission_id = ?", id).Count(&n).Error
+	return n, err
+}

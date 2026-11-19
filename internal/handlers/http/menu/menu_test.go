@@ -99,7 +99,7 @@ func TestMenuReadHandlers(t *testing.T) {
 		total: 1,
 	}, &auditServiceMenuTestDouble{})
 
-	if rec := performMenuRequest(http.MethodGet, "/menus/:id", "/menus/menu-1", nil, handler.GetByID, domainauth.Scope{}); rec.Code != http.StatusOK {
+	if rec := performMenuRequest(http.MethodGet, "/menus/:id", "/menus/550e8400-e29b-41d4-a716-446655440000", nil, handler.GetByID, domainauth.Scope{}); rec.Code != http.StatusOK {
 		t.Fatalf("expected get by id 200, got %d", rec.Code)
 	}
 	if rec := performMenuRequest(http.MethodGet, "/menus", "/menus?page=1&limit=10", nil, handler.GetAll, domainauth.Scope{}); rec.Code != http.StatusOK {
@@ -122,7 +122,7 @@ func TestMenuReadHandlersMapServiceErrors(t *testing.T) {
 		scope     domainauth.Scope
 		want      int
 	}{
-		{name: "get by id", method: http.MethodGet, routePath: "/menus/:id", path: "/menus/menu-1", call: handler.GetByID, want: http.StatusNotFound},
+		{name: "get by id", method: http.MethodGet, routePath: "/menus/:id", path: "/menus/550e8400-e29b-41d4-a716-446655440000", call: handler.GetByID, want: http.StatusInternalServerError},
 		{name: "get all", method: http.MethodGet, routePath: "/menus", path: "/menus", call: handler.GetAll, want: http.StatusInternalServerError},
 		{name: "get active", method: http.MethodGet, routePath: "/menus/active", path: "/menus/active", call: handler.GetActiveMenus, want: http.StatusInternalServerError},
 		{name: "get user menus", method: http.MethodGet, routePath: "/menus/me", path: "/menus/me", call: handler.GetUserMenus, scope: domainauth.New("user-1", "Jane", "viewer", nil), want: http.StatusInternalServerError},
@@ -155,7 +155,7 @@ func TestGetUserMenusRequiresScope(t *testing.T) {
 func TestUpdateMenuMapsSuccessAndError(t *testing.T) {
 	service := &menuServiceHandlerTestDouble{menu: domainmenu.Item{ID: "menu-1", Name: "users"}}
 	handler := New(service, &auditServiceMenuTestDouble{})
-	rec := performMenuRequest(http.MethodPut, "/menus/:id", "/menus/menu-1", dtomenu.Update{DisplayName: "Users"}, handler.Update, domainauth.Scope{})
+	rec := performMenuRequest(http.MethodPut, "/menus/:id", "/menus/550e8400-e29b-41d4-a716-446655440000", dtomenu.Update{DisplayName: "Users"}, handler.Update, domainauth.Scope{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -164,13 +164,23 @@ func TestUpdateMenuMapsSuccessAndError(t *testing.T) {
 	}
 
 	handler = New(&menuServiceHandlerTestDouble{err: errors.New("database down")}, &auditServiceMenuTestDouble{})
-	rec = performMenuRequest(http.MethodPut, "/menus/:id", "/menus/menu-1", dtomenu.Update{DisplayName: "Users"}, handler.Update, domainauth.Scope{})
+	rec = performMenuRequest(http.MethodPut, "/menus/:id", "/menus/550e8400-e29b-41d4-a716-446655440000", dtomenu.Update{DisplayName: "Users"}, handler.Update, domainauth.Scope{})
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
 	}
 
-	rec = performMenuRequest(http.MethodPut, "/menus/:id", "/menus/menu-1", map[string]any{"is_active": "bad"}, handler.Update, domainauth.Scope{})
+	rec = performMenuRequest(http.MethodPut, "/menus/:id", "/menus/550e8400-e29b-41d4-a716-446655440000", map[string]any{"is_active": "bad"}, handler.Update, domainauth.Scope{})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected invalid update 400, got %d", rec.Code)
+	}
+}
+
+func TestMenuRoutesRejectANonUUIDID(t *testing.T) {
+	handler := New(&menuServiceHandlerTestDouble{}, &auditServiceMenuTestDouble{})
+	if rec := performMenuRequest(http.MethodGet, "/menus/:id", "/menus/not-a-uuid", nil, handler.GetByID, domainauth.Scope{}); rec.Code != http.StatusBadRequest {
+		t.Errorf("get: got %d, want 400", rec.Code)
+	}
+	if rec := performMenuRequest(http.MethodPut, "/menus/:id", "/menus/not-a-uuid", dtomenu.Update{DisplayName: "x"}, handler.Update, domainauth.Scope{}); rec.Code != http.StatusBadRequest {
+		t.Errorf("update: got %d, want 400", rec.Code)
 	}
 }

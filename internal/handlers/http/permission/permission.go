@@ -39,7 +39,11 @@ func (h *Handler) Create(ctx *gin.Context) {
 
 func (h *Handler) GetByID(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[PermissionHandler][GetByID]")
-	httpshared.GetByID(f, "permission", "Service.GetByID", f.ID(), h.Service.GetByID)
+	id, ok := f.UUIDParam()
+	if !ok {
+		return
+	}
+	httpshared.GetByID(f, "permission", "Service.GetByID", id, h.Service.GetByID)
 }
 
 func (h *Handler) GetAll(ctx *gin.Context) {
@@ -49,16 +53,24 @@ func (h *Handler) GetAll(ctx *gin.Context) {
 
 func (h *Handler) Update(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[PermissionHandler][Update]")
+	id, ok := f.UUIDParam()
+	if !ok {
+		return
+	}
 	req, ok := httpshared.Bind[dtopermission.Update](f)
 	if !ok {
 		return
 	}
-	httpshared.Update(f, h.AuditWriter, permissionResource, f.ID(), req, h.Service.GetByID, h.Service.Update)
+	httpshared.Update(f, h.AuditWriter, permissionResource, id, req, h.Service.GetByID, h.Service.Update)
 }
 
 func (h *Handler) Delete(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[PermissionHandler][Delete]")
-	httpshared.Delete(f, h.AuditWriter, permissionResource, f.ID(), h.Service.GetByID, h.Service.Delete)
+	id, ok := f.UUIDParam()
+	if !ok {
+		return
+	}
+	httpshared.Delete(f, h.AuditWriter, permissionResource, id, h.Service.GetByID, h.Service.Delete)
 }
 
 func (h *Handler) GetUserPermissions(ctx *gin.Context) {

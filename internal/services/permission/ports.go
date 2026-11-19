@@ -15,6 +15,8 @@ type Repository interface {
 	Update(ctx context.Context, data domainpermission.Permission) error
 	Delete(ctx context.Context, id string) error
 	GetByName(ctx context.Context, name string) (domainpermission.Permission, error)
+	// CountGrants counts the roles the permission is granted to.
+	CountGrants(ctx context.Context, id string) (int64, error)
 	GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error)
 }
 

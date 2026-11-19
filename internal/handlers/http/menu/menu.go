@@ -1,8 +1,10 @@
 package menu
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/zazhedho/gokit"
 
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
@@ -29,12 +31,16 @@ var menuResource = httpshared.Resource[domainmenu.Item]{
 	Name:          "menu",
 	Audit:         "menu",
 	ID:            func(m domainmenu.Item) string { return m.ID },
-	MutationError: httpshared.InternalErrorResponse,
+	MutationError: menuMutationError,
 }
 
 func (h *Handler) GetByID(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[MenuHandler][GetByID]")
-	httpshared.GetByID(f, "menu", "Service.GetByID", f.ID(), h.Service.GetByID)
+	id, ok := f.UUIDParam()
+	if !ok {
+		return
+	}
+	httpshared.GetByID(f, "menu", "Service.GetByID", id, h.Service.GetByID)
 }
 
 func (h *Handler) GetAll(ctx *gin.Context) {
@@ -64,9 +70,20 @@ func (h *Handler) GetUserMenus(ctx *gin.Context) {
 
 func (h *Handler) Update(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[MenuHandler][Update]")
+	id, ok := f.UUIDParam()
+	if !ok {
+		return
+	}
 	req, ok := httpshared.Bind[dtomenu.Update](f)
 	if !ok {
 		return
 	}
-	httpshared.Update(f, h.AuditWriter, menuResource, f.ID(), req, h.Service.GetByID, h.Service.Update)
+	httpshared.Update(f, h.AuditWriter, menuResource, id, req, h.Service.GetByID, h.Service.Update)
+}
+
+func menuMutationError(logID uuid.UUID, err error) (int, *gokit.APIResponse) {
+	if errors.Is(err, domainmenu.ErrInvalidParent) {
+		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgInvalidRequest, logID, err.Error())
+	}
+	return httpshared.InternalErrorResponse(logID, err)
 }

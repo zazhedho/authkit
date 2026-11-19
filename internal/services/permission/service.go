@@ -30,9 +30,12 @@ func NewService(permissionRepo Repository, invalidators ...Cache) *Service {
 }
 
 func (s *Service) Create(ctx context.Context, req dtopermission.Create) (domainpermission.Permission, error) {
-	existing, _ := s.PermissionRepo.GetByName(ctx, req.Name)
-	if existing.ID != "" {
-		return domainpermission.Permission{}, errors.New("permission with this name already exists")
+	existing, err := s.PermissionRepo.GetByName(ctx, req.Name)
+	if err != nil && !errors.Is(err, domainpermission.ErrNotFound) {
+		return domainpermission.Permission{}, err
+	}
+	if err == nil && existing.ID != "" {
+		return domainpermission.Permission{}, domainpermission.ErrDuplicate
 	}
 
 	data := domainpermission.Permission{
@@ -69,6 +72,19 @@ func (s *Service) Update(ctx context.Context, id string, req dtopermission.Updat
 	permission, err := s.PermissionRepo.GetByID(ctx, id)
 	if err != nil {
 		return domainpermission.Permission{}, err
+	}
+
+	repoints := (req.Resource != "" && req.Resource != permission.Resource) || (req.Action != "" && req.Action != permission.Action)
+	if repoints {
+		// Changing resource or action silently changes what every role that
+		// holds the permission can do.
+		grants, err := s.PermissionRepo.CountGrants(ctx, id)
+		if err != nil {
+			return domainpermission.Permission{}, err
+		}
+		if grants > 0 {
+			return domainpermission.Permission{}, domainpermission.ErrInUse
+		}
 	}
 
 	if req.DisplayName != "" {

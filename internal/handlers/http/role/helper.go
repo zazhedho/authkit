@@ -20,7 +20,7 @@ func roleMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIRespo
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logID, "role not found")
 	}
 	if errors.Is(err, domainrole.ErrDuplicate) {
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logID, "role with this name already exists")
+		return http.StatusConflict, gokit.ErrorResponse(http.StatusConflict, gokit.MsgExists, logID, "role with this name already exists")
 	}
 
 	if errors.Is(err, domainuser.ErrRoleAboveActor) {
@@ -32,8 +32,6 @@ func roleMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIRespo
 
 	errMsg := err.Error()
 	switch {
-	case strings.Contains(errMsg, "already exists"):
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logID, errMsg)
 	case strings.HasPrefix(errMsg, "cannot update system"),
 		strings.HasPrefix(errMsg, "cannot delete system"),
 		strings.HasPrefix(errMsg, "access denied:"):

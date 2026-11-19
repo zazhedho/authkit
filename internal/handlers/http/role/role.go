@@ -46,7 +46,11 @@ func (h *Handler) Create(ctx *gin.Context) {
 
 func (h *Handler) GetByID(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[RoleHandler][GetByID]")
-	httpshared.GetByID(f, "role", "Service.GetByIDWithDetails", f.ID(), h.Service.GetByIDWithDetails)
+	id, ok := f.UUIDParam()
+	if !ok {
+		return
+	}
+	httpshared.GetByID(f, "role", "Service.GetByIDWithDetails", id, h.Service.GetByIDWithDetails)
 }
 
 func (h *Handler) GetAll(ctx *gin.Context) {
@@ -59,16 +63,24 @@ func (h *Handler) GetAll(ctx *gin.Context) {
 
 func (h *Handler) Update(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[RoleHandler][Update]")
+	id, ok := f.UUIDParam()
+	if !ok {
+		return
+	}
 	req, ok := httpshared.Bind[dtorole.Update](f)
 	if !ok {
 		return
 	}
-	httpshared.Update(f, h.AuditWriter, roleResource, f.ID(), req, h.Service.GetByID, h.Service.Update)
+	httpshared.Update(f, h.AuditWriter, roleResource, id, req, h.Service.GetByID, h.Service.Update)
 }
 
 func (h *Handler) Delete(ctx *gin.Context) {
 	f := httpshared.NewFlow(ctx, "[RoleHandler][Delete]")
-	httpshared.Delete(f, h.AuditWriter, roleResource, f.ID(), h.Service.GetByID, h.Service.Delete)
+	id, ok := f.UUIDParam()
+	if !ok {
+		return
+	}
+	httpshared.Delete(f, h.AuditWriter, roleResource, id, h.Service.GetByID, h.Service.Delete)
 }
 
 func (h *Handler) AssignPermissions(ctx *gin.Context) {
@@ -103,8 +115,11 @@ type roleRelationAssignment[T any] struct {
 }
 
 func handleRoleRelationAssignment[T any](h *Handler, ctx *gin.Context, req *T, assignment roleRelationAssignment[T]) {
-	id := ctx.Param("id")
 	logID := gokit.RequestID(ctx)
+	id, err := gokit.ValidateUUIDParam(ctx, logID)
+	if err != nil {
+		return
+	}
 	reqCtx := ctx.Request.Context()
 
 	if !gokit.BindJSON(ctx, logID, assignment.logPrefix, req) {

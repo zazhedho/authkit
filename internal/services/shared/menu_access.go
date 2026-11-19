@@ -43,7 +43,13 @@ func ResolveAccessibleMenus(activeMenus []domainmenu.Item, resources []string) [
 func addMenuAncestors(menu domainmenu.Item, menuByID map[string]domainmenu.Item, allowedIDs map[string]struct{}) {
 	allowedIDs[menu.ID] = struct{}{}
 	parentID := menu.ParentID
+	// visited stops a parent loop (a -> b -> a) from spinning forever.
+	visited := map[string]struct{}{menu.ID: {}}
 	for parentID != nil && *parentID != "" {
+		if _, seen := visited[*parentID]; seen {
+			return
+		}
+		visited[*parentID] = struct{}{}
 		parentMenu, exists := menuByID[*parentID]
 		if !exists || !parentMenu.IsActive || parentMenu.DeletedAt.Valid {
 			return

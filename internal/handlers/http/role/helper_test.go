@@ -24,7 +24,7 @@ func TestRoleMutationErrorResponseMapsDomainErrors(t *testing.T) {
 		{"actor row deleted", domainuser.ErrNotFound, http.StatusNotFound},
 		{"wrapped actor row deleted", fmt.Errorf("check: %w", domainuser.ErrNotFound), http.StatusNotFound},
 		{"unrelated error", fmt.Errorf("boom"), http.StatusInternalServerError},
-		{"duplicate role", domainrole.ErrDuplicate, http.StatusBadRequest},
+		{"duplicate role", domainrole.ErrDuplicate, http.StatusConflict},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

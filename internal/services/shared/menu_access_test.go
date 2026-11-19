@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainmenu "github.com/zazhedho/authkit/internal/domain/menu"
@@ -95,5 +96,23 @@ func TestHasPermissionUsesScopeAndRepositoryFallback(t *testing.T) {
 	ok, err = HasPermission(context.Background(), &permissionRepoSharedTestDouble{}, domainauth.Actor{}, "users", "delete")
 	if err != nil || ok {
 		t.Fatalf("expected anonymous context to deny without repo lookup, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestResolveAccessibleMenusSurvivesAParentLoop(t *testing.T) {
+	a, b := "a", "b"
+	menus := []domainmenu.Item{
+		{ID: "a", Name: "a", ParentID: &b, IsActive: true},
+		{ID: "b", Name: "b", ParentID: &a, IsActive: true},
+	}
+	done := make(chan []domainmenu.Item, 1)
+	go func() { done <- ResolveAccessibleMenus(menus, []string{"a"}) }()
+	select {
+	case got := <-done:
+		if len(got) != 2 {
+			t.Fatalf("got %d menus, want both members of the loop once", len(got))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ResolveAccessibleMenus did not return on a parent loop")
 	}
 }

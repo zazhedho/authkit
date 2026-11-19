@@ -13,12 +13,19 @@ import (
 
 type menuRepoTestDouble struct {
 	menu        domainmenu.Item
+	byID        map[string]domainmenu.Item
 	activeMenus []domainmenu.Item
 	updated     domainmenu.Item
 }
 
 func (m *menuRepoTestDouble) Store(ctx context.Context, data domainmenu.Item) error { return nil }
 func (m *menuRepoTestDouble) GetByID(ctx context.Context, id string) (domainmenu.Item, error) {
+	if m.byID != nil {
+		if item, ok := m.byID[id]; ok {
+			return item, nil
+		}
+		return domainmenu.Item{}, domainmenu.ErrNotFound
+	}
 	if m.menu.ID == "" {
 		return domainmenu.Item{}, errors.New("not found")
 	}
@@ -108,15 +115,16 @@ func TestGetUserMenusDerivesMenusFromPermissionResources(t *testing.T) {
 
 func TestUpdateOnlyAppliesProvidedMenuFields(t *testing.T) {
 	orderIndex := 42
-	parentID := "parent-1"
-	repo := &menuRepoTestDouble{menu: domainmenu.Item{
+	parentID := "550e8400-e29b-41d4-a716-4466554400a1"
+	existing := domainmenu.Item{
 		ID:          "menu-1",
 		Name:        "users",
 		DisplayName: "Users",
 		Path:        "/users",
 		Icon:        "old-icon",
 		IsActive:    true,
-	}}
+	}
+	repo := &menuRepoTestDouble{menu: existing, byID: map[string]domainmenu.Item{"menu-1": existing, parentID: {ID: parentID}}}
 	svc := NewService(repo, &permissionRepoMenuTestDouble{})
 
 	got, err := svc.Update(context.Background(), "menu-1", dtomenu.Update{
@@ -160,5 +168,37 @@ func TestMenuServicePassThroughMethods(t *testing.T) {
 	}
 	if got, err := svc.GetActiveMenus(context.Background()); err != nil || len(got) != 1 {
 		t.Fatalf("get active menus: menus=%+v err=%v", got, err)
+	}
+}
+
+func TestUpdateValidatesTheParent(t *testing.T) {
+	const a, b, c = "550e8400-e29b-41d4-a716-4466554400a1", "550e8400-e29b-41d4-a716-4466554400b2", "550e8400-e29b-41d4-a716-4466554400c3"
+	pa, pb := a, b
+	repo := &menuRepoTestDouble{byID: map[string]domainmenu.Item{
+		a: {ID: a},
+		b: {ID: b, ParentID: &pa}, // b is a child of a
+		c: {ID: c, ParentID: &pb}, // c is a child of b
+	}}
+	svc := NewService(repo, &permissionRepoMenuTestDouble{})
+	set := func(id, parent string) error {
+		_, err := svc.Update(context.Background(), id, dtomenu.Update{ParentID: &parent})
+		return err
+	}
+	for name, tc := range map[string]struct{ id, parent string }{
+		"not a uuid":           {a, "nope"},
+		"itself":               {a, a},
+		"missing parent":       {a, "550e8400-e29b-41d4-a716-4466554400ff"},
+		"direct loop":          {a, b},
+		"loop through a chain": {a, c},
+	} {
+		if err := set(tc.id, tc.parent); !errors.Is(err, domainmenu.ErrInvalidParent) {
+			t.Errorf("%s: err = %v, want ErrInvalidParent", name, err)
+		}
+	}
+	if err := set(c, a); err != nil {
+		t.Errorf("a valid re-parent failed: %v", err)
+	}
+	if err := set(b, ""); err != nil || repo.updated.ParentID != nil {
+		t.Errorf("an empty parent_id must clear the parent: err=%v parent=%v", err, repo.updated.ParentID)
 	}
 }

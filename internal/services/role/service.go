@@ -46,8 +46,8 @@ func (s *Service) Create(ctx context.Context, req dtorole.Create) (domainrole.Ro
 	if err != nil && !errors.Is(err, domainrole.ErrNotFound) {
 		return domainrole.Role{}, err
 	}
-	if existing.ID != "" {
-		return domainrole.Role{}, errors.New("role with this name already exists")
+	if err == nil && existing.ID != "" {
+		return domainrole.Role{}, domainrole.ErrDuplicate
 	}
 
 	data := domainrole.Role{

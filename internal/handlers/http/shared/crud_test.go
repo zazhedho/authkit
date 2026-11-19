@@ -99,11 +99,21 @@ func TestGetByIDAnswersFoundAndNotFound(t *testing.T) {
 
 	f, rec = newTestFlow(http.MethodGet, "/widgets/w-1", "")
 	GetByID(f, "audit trail", "Service.GetByID", f.ID(), func(context.Context, string) (widget, error) {
-		return widget{}, errors.New("boom")
+		return widget{}, domainauth.ErrNotFound
 	})
 	body = decode(t, rec)
 	if rec.Code != http.StatusNotFound || body["message"] != "Audit trail not found" || errorMessage(t, body) != "audit trail not found" {
 		t.Fatalf("unexpected not-found response %d %v", rec.Code, body)
+	}
+}
+
+func TestGetByIDAnswers500ForAStorageFailure(t *testing.T) {
+	f, rec := newTestFlow(http.MethodGet, "/widgets/w-1", "")
+	GetByID(f, "widget", "Service.GetByID", f.ID(), func(context.Context, string) (widget, error) {
+		return widget{}, errors.New("database down")
+	})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("a failure that is not a missing record answered %d", rec.Code)
 	}
 }
 
