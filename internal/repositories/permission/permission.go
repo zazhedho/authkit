@@ -83,7 +83,7 @@ func (r *Repository) GetUserPermissions(ctx context.Context, userID string) (ret
 		RoleID *string
 		Role   string
 	}
-	if err = r.DB.WithContext(ctx).Table("users").Select("role_id, role").Where("id = ?", userID).First(&user).Error; err != nil {
+	if err = r.DB.WithContext(ctx).Table("users").Select("role_id, role").Where("id = ? AND deleted_at IS NULL", userID).First(&user).Error; err != nil {
 		return nil, repositoryshared.Gorm(err, domainuser.ErrNotFound, nil)
 	}
 
@@ -102,6 +102,7 @@ func (r *Repository) GetUserPermissions(ctx context.Context, userID string) (ret
 		SELECT DISTINCT p.*
 		FROM permissions p
 		INNER JOIN role_permissions rp ON p.id = rp.permission_id
+		INNER JOIN roles r ON r.id = rp.role_id AND r.deleted_at IS NULL
 		WHERE rp.role_id = ? AND p.deleted_at IS NULL
 		ORDER BY p.resource, p.action
 	`
@@ -109,5 +110,21 @@ func (r *Repository) GetUserPermissions(ctx context.Context, userID string) (ret
 		return nil, err
 	}
 
+	return ret, nil
+}
+
+// GetByRoleName returns the live permissions of the live role with that name.
+func (r *Repository) GetByRoleName(ctx context.Context, roleName string) (ret []domainpermission.Permission, err error) {
+	query := `
+		SELECT DISTINCT p.*
+		FROM permissions p
+		INNER JOIN role_permissions rp ON p.id = rp.permission_id
+		INNER JOIN roles r ON r.id = rp.role_id AND r.deleted_at IS NULL
+		WHERE r.name = ? AND p.deleted_at IS NULL
+		ORDER BY p.resource, p.action
+	`
+	if err = r.DB.WithContext(ctx).Raw(query, roleName).Scan(&ret).Error; err != nil {
+		return nil, err
+	}
 	return ret, nil
 }

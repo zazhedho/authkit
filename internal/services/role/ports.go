@@ -20,6 +20,7 @@ type Repository interface {
 	GetByName(ctx context.Context, name string) (domainrole.Role, error)
 	AssignPermissions(ctx context.Context, roleID string, permissionIDs []string) error
 	GetRolePermissions(ctx context.Context, roleID string) ([]string, error)
+	CountUsers(ctx context.Context, roleID string) (int64, error)
 }
 
 // PermissionRepository validates permission ids and resolves a user's grants.

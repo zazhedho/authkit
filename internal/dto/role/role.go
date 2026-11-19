@@ -15,7 +15,7 @@ type Update struct {
 
 // AssignPermissions is the role request body for assign permissions.
 type AssignPermissions struct {
-	PermissionIDs []string `json:"permission_ids" binding:"required,min=1"`
+	PermissionIDs []string `json:"permission_ids" binding:"required"`
 }
 
 // WithDetails is a role response payload.

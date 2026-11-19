@@ -28,6 +28,11 @@ type roleRepoMock struct {
 	stored              domainrole.Role
 	updated             domainrole.Role
 	deletedID           string
+	usersWithRole       int64
+}
+
+func (m *roleRepoMock) CountUsers(ctx context.Context, roleID string) (int64, error) {
+	return m.usersWithRole, nil
 }
 
 func (m *roleRepoMock) Store(ctx context.Context, data domainrole.Role) error {
@@ -171,7 +176,7 @@ func TestAssignPermissionsAllowsSystemRoleWhenPermissionPresent(t *testing.T) {
 		MenuRepo: &menuRepoMock{},
 	}
 
-	err := service.AssignPermissions(context.Background(), roleActor("user-1", "Admin User", domainuser.RoleAdmin, "roles:manage_system"), "role-1", dtorole.AssignPermissions{PermissionIDs: []string{"perm-1"}})
+	err := service.AssignPermissions(context.Background(), roleActor("user-1", "Admin User", domainuser.RoleAdmin, "roles:manage_system", "users:view"), "role-1", dtorole.AssignPermissions{PermissionIDs: []string{"perm-1"}})
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -294,5 +299,77 @@ func TestRoleServiceCreateDoesNotTurnEntitiesIntoMarkup(t *testing.T) {
 		if strings.Contains(got, "<script") {
 			t.Errorf("%s holds live markup: %q", field, got)
 		}
+	}
+}
+
+func TestAssignPermissionsMayOnlyGrantWhatTheActorHolds(t *testing.T) {
+	roleRepo := &roleRepoMock{role: domainrole.Role{ID: "role-1", Name: "custom"}}
+	service := &Service{
+		RoleRepo: roleRepo,
+		PermissionRepo: &permissionRepoMock{permissionsByID: map[string]domainpermission.Permission{
+			"p-view":  {ID: "p-view", Resource: "users", Action: "view"},
+			"p-super": {ID: "p-super", Resource: "roles", Action: "manage_system"},
+		}},
+		MenuRepo: &menuRepoMock{},
+	}
+	actor := roleActor("u", "U", domainuser.RoleStaff, "users:view", "roles:assign_permissions")
+
+	err := service.AssignPermissions(context.Background(), actor, "role-1", dtorole.AssignPermissions{PermissionIDs: []string{"p-view", "p-super"}})
+	if !errors.Is(err, domainuser.ErrRoleAboveActor) {
+		t.Fatalf("got %v, want ErrRoleAboveActor", err)
+	}
+	if roleRepo.assignedPermissions != nil {
+		t.Fatal("nothing may be assigned when one permission is not held")
+	}
+}
+
+func TestAssignPermissionsDedupesAndAllowsAnEmptyList(t *testing.T) {
+	roleRepo := &roleRepoMock{role: domainrole.Role{ID: "role-1", Name: "custom"}}
+	service := &Service{
+		RoleRepo: roleRepo,
+		PermissionRepo: &permissionRepoMock{permissionsByID: map[string]domainpermission.Permission{
+			"p-view": {ID: "p-view", Resource: "users", Action: "view"},
+		}},
+		MenuRepo: &menuRepoMock{},
+	}
+	actor := roleActor("u", "U", domainuser.RoleStaff, "users:view")
+	if err := service.AssignPermissions(context.Background(), actor, "role-1", dtorole.AssignPermissions{PermissionIDs: []string{"p-view", "p-view"}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(roleRepo.assignedPermissions) != 1 {
+		t.Fatalf("got %v, want one id", roleRepo.assignedPermissions)
+	}
+	roleRepo.assignedPermissions = []string{"stale"}
+	if err := service.AssignPermissions(context.Background(), actor, "role-1", dtorole.AssignPermissions{PermissionIDs: []string{}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(roleRepo.assignedPermissions) != 0 {
+		t.Fatalf("empty list must clear the role, got %v", roleRepo.assignedPermissions)
+	}
+}
+
+func TestDeleteRefusesARoleThatUsersStillHold(t *testing.T) {
+	roleRepo := &roleRepoMock{role: domainrole.Role{ID: "role-1", Name: "custom"}, usersWithRole: 2}
+	service := &Service{RoleRepo: roleRepo, PermissionRepo: &permissionRepoMock{}, MenuRepo: &menuRepoMock{}}
+	if err := service.Delete(context.Background(), "role-1"); !errors.Is(err, domainrole.ErrInUse) {
+		t.Fatalf("got %v, want ErrInUse", err)
+	}
+	if roleRepo.deletedID != "" {
+		t.Fatal("role must not be deleted")
+	}
+}
+
+func TestCreateLowercasesTheRoleName(t *testing.T) {
+	roleRepo := &roleRepoMock{}
+	service := &Service{RoleRepo: roleRepo, PermissionRepo: &permissionRepoMock{}, MenuRepo: &menuRepoMock{}}
+	got, err := service.Create(context.Background(), dtorole.Create{Name: " Support Lead ", DisplayName: "Support"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "support_lead" && got.Name != "support lead" {
+		t.Fatalf("unexpected name %q", got.Name)
+	}
+	if got.Name != strings.ToLower(got.Name) {
+		t.Fatalf("name %q is not lowercase", got.Name)
 	}
 }

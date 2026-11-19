@@ -74,31 +74,29 @@ func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret
 
 // AssignPermissions assigns the permissions.
 func (r *Repository) AssignPermissions(ctx context.Context, roleID string, permissionIDs []string) error {
-	tx := r.DB.WithContext(ctx).Begin()
-	defer func() {
-		if recover() != nil {
-			tx.Rollback()
-		}
-	}()
-
-	if err := tx.Where(roleIDFilter, roleID).Delete(&domainrole.Permission{}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	for _, permissionID := range permissionIDs {
-		rolePermission := domainrole.Permission{
-			ID:           gokit.CreateUUID(),
-			RoleID:       roleID,
-			PermissionID: permissionID,
-		}
-		if err := tx.Create(&rolePermission).Error; err != nil {
-			tx.Rollback()
+	return r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where(roleIDFilter, roleID).Delete(&domainrole.Permission{}).Error; err != nil {
 			return err
 		}
-	}
+		for _, permissionID := range permissionIDs {
+			rolePermission := domainrole.Permission{
+				ID:           gokit.CreateUUID(),
+				RoleID:       roleID,
+				PermissionID: permissionID,
+			}
+			if err := tx.Create(&rolePermission).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
 
-	return tx.Commit().Error
+// CountUsers counts the live users that hold the role.
+func (r *Repository) CountUsers(ctx context.Context, roleID string) (int64, error) {
+	var n int64
+	err := r.DB.WithContext(ctx).Table("users").Where("role_id = ? AND deleted_at IS NULL", roleID).Count(&n).Error
+	return n, err
 }
 
 // GetRolePermissions returns the role permissions.

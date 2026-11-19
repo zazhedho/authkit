@@ -45,6 +45,10 @@ type userRepoMock struct {
 	updateErr error
 	deleteErr error
 	getAllErr error
+
+	superAdmins int64
+	fields      map[string]any
+	fieldsID    string
 }
 
 func (m *userRepoMock) Store(ctx context.Context, data domainuser.Users) error {
@@ -79,6 +83,19 @@ func (m *userRepoMock) Delete(ctx context.Context, id string) error {
 func (m *userRepoMock) SoftDelete(ctx context.Context, id, deletedBy string) error {
 	m.deletedID = id
 	return m.deleteErr
+}
+func (m *userRepoMock) CountByRole(ctx context.Context, role string) (int64, error) {
+	return m.superAdmins, nil
+}
+func (m *userRepoMock) UpdateFields(ctx context.Context, id string, fields map[string]any) error {
+	m.fieldsID = id
+	if m.fields == nil {
+		m.fields = map[string]any{}
+	}
+	for k, v := range fields {
+		m.fields[k] = v
+	}
+	return m.updateErr
 }
 func (m *userRepoMock) GetByEmail(ctx context.Context, email string) (domainuser.Users, error) {
 	if m.emailErr != nil {
@@ -155,7 +172,15 @@ func (m *roleRepoUserMock) GetRolePermissions(ctx context.Context, roleID string
 
 type permissionRepoUserMock struct {
 	userPermissions []domainpermission.Permission
+	rolePermissions map[string][]domainpermission.Permission
 	err             error
+}
+
+func (m *permissionRepoUserMock) GetByRoleName(ctx context.Context, role string) ([]domainpermission.Permission, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.rolePermissions[role], nil
 }
 
 func (m *permissionRepoUserMock) Store(ctx context.Context, data domainpermission.Permission) error {
@@ -245,7 +270,7 @@ func TestUpdateRejectsSuperadminAssignmentForNonSuperadmin(t *testing.T) {
 	}
 
 	_, err := service.Update(context.Background(), authActor("editor-1", "Editor User", domainuser.RoleAdmin, "users:assign_role"), "user-1", dtouser.Update{Role: domainuser.RoleSuperAdmin})
-	if err == nil || err.Error() != "cannot assign superadmin role" {
+	if !errors.Is(err, domainuser.ErrRoleAboveActor) {
 		t.Fatalf("expected superadmin assignment error, got %v", err)
 	}
 }
@@ -316,7 +341,7 @@ func TestUpdateNormalizesEmailToLowercase(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	user, err := service.Update(context.Background(), authActor("user-1", "Jane Doe", domainuser.RoleViewer), "user-1", dtouser.Update{
+	user, err := service.Update(context.Background(), authActor("root", "Root", domainuser.RoleSuperAdmin), "user-1", dtouser.Update{
 		Email: "Jane.Doe@Example.COM",
 	})
 	if err != nil {
@@ -440,7 +465,7 @@ func TestImpersonateUserGeneratesTokenWithOriginalUserClaims(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	token, err := service.ImpersonateUser(context.Background(), authActor("admin-1", "Admin User", domainuser.RoleAdmin), "target-1", "log-1")
+	token, err := service.ImpersonateUser(context.Background(), authActor("admin-1", "Admin User", domainuser.RoleAdmin), "target-1", "support case", "log-1")
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -478,8 +503,8 @@ func TestImpersonateUserRejectsSuperadminTargetForNonSuperadmin(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	_, err := service.ImpersonateUser(context.Background(), authActor("admin-1", "Admin User", domainuser.RoleAdmin), "target-1", "log-1")
-	if err == nil || err.Error() != "cannot impersonate superadmin users" {
+	_, err := service.ImpersonateUser(context.Background(), authActor("admin-1", "Admin User", domainuser.RoleAdmin), "target-1", "support case", "log-1")
+	if !errors.Is(err, domainuser.ErrRoleAboveActor) {
 		t.Fatalf("expected superadmin impersonation error, got %v", err)
 	}
 }
@@ -739,7 +764,7 @@ func TestUserServicePassThroughAndFilteringMethods(t *testing.T) {
 	if err := service.LogoutUser(context.Background(), logoutToken); err != nil {
 		t.Fatalf("logout: %v", err)
 	}
-	if err := service.Delete(context.Background(), "user-1"); err != nil {
+	if err := service.Delete(context.Background(), authActor("root", "Root", domainuser.RoleSuperAdmin), "user-1"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if userRepo.deletedID != "user-1" {
@@ -868,7 +893,7 @@ func TestAdminCreateUserValidationBranches(t *testing.T) {
 		Password: "Password1!",
 		Role:     domainuser.RoleSuperAdmin,
 	})
-	if err == nil || err.Error() != "only superadmin can create superadmin users" {
+	if err == nil || !errors.Is(err, domainuser.ErrRoleAboveActor) {
 		t.Fatalf("expected superadmin creation guard, got %v", err)
 	}
 
@@ -924,7 +949,7 @@ func TestUserServiceLoginAndChangePasswordErrors(t *testing.T) {
 func TestUserServiceUpdateErrorBranches(t *testing.T) {
 	service := newTestUserService(t, &userRepoMock{user: domainuser.Users{ID: "root", Role: domainuser.RoleSuperAdmin}}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
 	_, err := service.Update(context.Background(), authActor("admin-1", "Admin", domainuser.RoleAdmin), "root", dtouser.Update{Name: "Root"})
-	if err == nil || err.Error() != "cannot modify superadmin users" {
+	if err == nil || !errors.Is(err, domainuser.ErrRoleAboveActor) {
 		t.Fatalf("expected superadmin modify guard, got %v", err)
 	}
 
@@ -1008,13 +1033,13 @@ func TestUserServiceLogoutAndListErrors(t *testing.T) {
 
 func TestImpersonationValidationBranches(t *testing.T) {
 	service := newTestUserService(t, &userRepoMock{}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	if _, err := service.ImpersonateUser(context.Background(), impersonatedActor("target-1", "Target", domainuser.RoleViewer, "admin-1", "Admin", domainuser.RoleAdmin), "target-2", "log-1"); err == nil || err.Error() != "cannot start nested impersonation" {
+	if _, err := service.ImpersonateUser(context.Background(), impersonatedActor("target-1", "Target", domainuser.RoleViewer, "admin-1", "Admin", domainuser.RoleAdmin), "target-2", "support case", "log-1"); err == nil || err.Error() != "cannot start nested impersonation" {
 		t.Fatalf("expected nested impersonation error, got %v", err)
 	}
-	if _, err := service.ImpersonateUser(context.Background(), authActor("user-1", "Jane", domainuser.RoleViewer), "", "log-1"); err == nil || err.Error() != "target user id is required" {
+	if _, err := service.ImpersonateUser(context.Background(), authActor("user-1", "Jane", domainuser.RoleViewer), "", "support case", "log-1"); err == nil || err.Error() != "target user id is required" {
 		t.Fatalf("expected missing target error, got %v", err)
 	}
-	if _, err := service.ImpersonateUser(context.Background(), authActor("user-1", "Jane", domainuser.RoleViewer), "user-1", "log-1"); err == nil || err.Error() != "cannot impersonate your own account" {
+	if _, err := service.ImpersonateUser(context.Background(), authActor("user-1", "Jane", domainuser.RoleViewer), "user-1", "support case", "log-1"); err == nil || err.Error() != "cannot impersonate your own account" {
 		t.Fatalf("expected self impersonation error, got %v", err)
 	}
 

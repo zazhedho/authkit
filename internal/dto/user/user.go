@@ -43,6 +43,8 @@ type Update struct {
 	Email string `json:"email" binding:"omitempty,email"`
 	Phone string `json:"phone" binding:"omitempty,min=9,max=15"`
 	Role  string `json:"role" binding:"omitempty"`
+	// CurrentPassword is required when the caller changes their own email or phone.
+	CurrentPassword string `json:"current_password" binding:"omitempty,max=72"`
 }
 
 // ChangePassword is the user request body for change password.
@@ -71,4 +73,9 @@ type RefreshTokenRequest struct {
 type SendRegisterOTPRequest struct {
 	Email string `json:"email" binding:"required,email"`
 	Phone string `json:"phone" binding:"omitempty,min=9,max=15"`
+}
+
+// Impersonate is the request body for starting an impersonation.
+type Impersonate struct {
+	Reason string `json:"reason" binding:"required,min=3,max=500"`
 }

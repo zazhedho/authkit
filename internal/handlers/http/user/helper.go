@@ -320,6 +320,16 @@ func userMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIRespo
 		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logID, "email or phone already exists")
 	}
 
+	switch {
+	case errors.Is(err, domainuser.ErrRoleAboveActor), errors.Is(err, domainuser.ErrSelfRoleChange):
+		return http.StatusForbidden, gokit.Forbidden(logID, gokit.MsgAccessDenied)
+	case errors.Is(err, domainuser.ErrLastSuperAdmin):
+		return http.StatusConflict, gokit.ErrorResponse(http.StatusConflict, gokit.MsgSomethingWrong, logID, err.Error())
+	case errors.Is(err, domainuser.ErrEmailRequired), errors.Is(err, domainuser.ErrPasswordRequired),
+		errors.Is(err, domainuser.ErrPasswordIncorrect), errors.Is(err, domainuser.ErrReasonRequired):
+		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, err.Error())
+	}
+
 	errMsg := err.Error()
 	switch {
 	case errMsg == userNotFoundMessage:
@@ -343,6 +353,13 @@ func userMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIRespo
 func impersonationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIResponse) {
 	if httpshared.IsNotFound(err) {
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logID, userNotFoundMessage)
+	}
+
+	if errors.Is(err, domainuser.ErrRoleAboveActor) {
+		return http.StatusForbidden, gokit.Forbidden(logID, gokit.MsgAccessDenied)
+	}
+	if errors.Is(err, domainuser.ErrReasonRequired) {
+		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, err.Error())
 	}
 
 	errMsg := err.Error()
@@ -517,7 +534,7 @@ func (h *Handler) deleteUser(ctx *gin.Context, logID uuid.UUID, logPrefix, id, f
 	reqCtx := ctx.Request.Context()
 	before, _ := h.Service.GetUserByID(reqCtx, id)
 
-	if err := h.Service.Delete(reqCtx, id); err != nil {
+	if err := h.Service.Delete(reqCtx, httpshared.ActorFrom(reqCtx), id); err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionDelete,
 			Resource:     "user",
@@ -528,8 +545,13 @@ func (h *Handler) deleteUser(ctx *gin.Context, logID uuid.UUID, logPrefix, id, f
 			BeforeData:   before,
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.Delete; ERROR: %s;", logPrefix, err)
-		respondUserLookupError(ctx, logID, err)
+		respondUserMutationError(ctx, logID, err)
 		return
+	}
+	if err := h.revokeAllSessions(reqCtx, id); err != nil {
+		// The account is already deleted and its tokens are invalid; the
+		// leftover sessions expire on their own.
+		logus.LogContextf(ctx, logus.LevelError, "%s; revoke sessions of deleted user; ERROR: %s;", logPrefix, err)
 	}
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
 		Action:     domainaudit.ActionDelete,

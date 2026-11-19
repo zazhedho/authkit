@@ -19,7 +19,7 @@ type Service interface {
 	LoginUser(ctx context.Context, req dtouser.Login, logID string, metadata dtouser.LoginMetadata) (string, error)
 	LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, metadata dtouser.LoginMetadata, allowRegistration bool) (domainuser.Users, bool, error)
 	LogoutUser(ctx context.Context, token string) error
-	ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID string, logID string) (string, error)
+	ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason, logID string) (string, error)
 	StopImpersonation(ctx context.Context, actor domainauth.Actor, logID string) (string, error)
 	GetUserByID(ctx context.Context, id string) (domainuser.Users, error)
 	GetUserByEmail(ctx context.Context, email string) (domainuser.Users, error)
@@ -31,7 +31,7 @@ type Service interface {
 	ForgotPassword(ctx context.Context, req dtouser.ForgotPasswordRequest) (string, error)
 	ResetPassword(ctx context.Context, req dtouser.ResetPasswordRequest) error
 	ResetPasswordByEmail(ctx context.Context, email, newPassword string) error
-	Delete(ctx context.Context, id string) error
+	Delete(ctx context.Context, actor domainauth.Actor, id string) error
 	// IsTokenRevoked reports whether a token was revoked at logout.
 	IsTokenRevoked(ctx context.Context, token string) (bool, error)
 }

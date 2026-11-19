@@ -2,6 +2,7 @@ package permission
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -74,7 +75,7 @@ func newPermissionMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock) {
 }
 
 func expectPermissionUserRole(mock sqlmock.Sqlmock, roleID any, role string) {
-	mock.ExpectQuery(`SELECT role_id, role FROM "users" WHERE id = \$1 ORDER BY .* LIMIT \$2`).
+	mock.ExpectQuery(`SELECT role_id, role FROM "users" WHERE id = \$1 AND deleted_at IS NULL ORDER BY .* LIMIT \$2`).
 		WithArgs("user-1", 1).
 		WillReturnRows(sqlmock.NewRows([]string{"role_id", "role"}).AddRow(roleID, role))
 }
@@ -118,7 +119,7 @@ func TestPermissionRepositoryGetUserPermissionsByRole(t *testing.T) {
 	roleID := "role-1"
 	now := time.Now()
 	expectPermissionUserRole(mock, roleID, domainuser.RoleViewer)
-	mock.ExpectQuery(`SELECT DISTINCT p\.\*[\s\S]+FROM permissions p[\s\S]+INNER JOIN role_permissions rp[\s\S]+WHERE rp\.role_id = \$1 AND p\.deleted_at IS NULL[\s\S]+ORDER BY p\.resource, p\.action`).
+	mock.ExpectQuery(`SELECT DISTINCT p\.\*[\s\S]+FROM permissions p[\s\S]+INNER JOIN role_permissions rp[\s\S]+INNER JOIN roles r ON r\.id = rp\.role_id AND r\.deleted_at IS NULL[\s\S]+WHERE rp\.role_id = \$1 AND p\.deleted_at IS NULL[\s\S]+ORDER BY p\.resource, p\.action`).
 		WithArgs(roleID).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "display_name", "description", "resource", "action", "created_at", "updated_at", "deleted_at",
@@ -130,5 +131,28 @@ func TestPermissionRepositoryGetUserPermissionsByRole(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestPermissionRepositoryIgnoresDeletedUsersAndRoles(t *testing.T) {
+	db, mock := newPermissionMockDB(t)
+	repo := NewRepository(db)
+	// A soft-deleted user must not resolve: the lookup finds no row.
+	mock.ExpectQuery(`FROM "users" WHERE id = \$1 AND deleted_at IS NULL`).
+		WithArgs("gone", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"role_id", "role"}))
+	if _, err := repo.GetUserPermissions(context.Background(), "gone"); !errors.Is(err, domainuser.ErrNotFound) {
+		t.Fatalf("got %v, want ErrNotFound", err)
+	}
+
+	// Permissions of a soft-deleted role are not granted.
+	mock.ExpectQuery(`INNER JOIN roles r ON r\.id = rp\.role_id AND r\.deleted_at IS NULL[\s\S]+WHERE r\.name = \$1`).
+		WithArgs("ghost").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	if _, err := repo.GetByRoleName(context.Background(), "ghost"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }

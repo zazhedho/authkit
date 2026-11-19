@@ -44,14 +44,18 @@ func NewService(
 
 // Create creates the record.
 func (s *Service) Create(ctx context.Context, req dtorole.Create) (domainrole.Role, error) {
-	existing, _ := s.RoleRepo.GetByName(ctx, req.Name)
+	name := serviceshared.NormalizeKey(serviceshared.CleanText(req.Name))
+	existing, err := s.RoleRepo.GetByName(ctx, name)
+	if err != nil && !errors.Is(err, domainrole.ErrNotFound) {
+		return domainrole.Role{}, err
+	}
 	if existing.ID != "" {
 		return domainrole.Role{}, errors.New("role with this name already exists")
 	}
 
 	data := domainrole.Role{
 		ID:          s.newID(),
-		Name:        serviceshared.CleanText(req.Name),
+		Name:        name,
 		DisplayName: serviceshared.CleanText(req.DisplayName),
 		Description: serviceshared.CleanText(req.Description),
 		IsSystem:    false,
@@ -147,6 +151,13 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	if role.IsSystem {
 		return errors.New("cannot delete system roles")
 	}
+	users, err := s.RoleRepo.CountUsers(ctx, id)
+	if err != nil {
+		return err
+	}
+	if users > 0 {
+		return domainrole.ErrInUse
+	}
 
 	if err := s.RoleRepo.Delete(ctx, id); err != nil {
 		return err
@@ -175,13 +186,20 @@ func (s *Service) AssignPermissions(ctx context.Context, actor domainauth.Actor,
 		}
 	}
 
-	for _, permID := range req.PermissionIDs {
-		if _, err := s.PermissionRepo.GetByID(ctx, permID); err != nil {
+	permissionIDs := dedupe(req.PermissionIDs)
+	for _, permID := range permissionIDs {
+		permission, err := s.PermissionRepo.GetByID(ctx, permID)
+		if err != nil {
 			return errors.New("invalid permission ID: " + permID)
+		}
+		// An actor may only grant what they hold, so assign_permissions cannot
+		// be used to climb above the actor's own role.
+		if !actor.Has(permission.Resource, permission.Action) {
+			return domainuser.ErrRoleAboveActor
 		}
 	}
 
-	if err := s.RoleRepo.AssignPermissions(ctx, roleID, req.PermissionIDs); err != nil {
+	if err := s.RoleRepo.AssignPermissions(ctx, roleID, permissionIDs); err != nil {
 		return err
 	}
 	s.invalidatePermissionCache(ctx)
@@ -228,4 +246,17 @@ func (s *Service) newID() string {
 		return s.NewID()
 	}
 	return serviceshared.NewID()
+}
+
+func dedupe(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }

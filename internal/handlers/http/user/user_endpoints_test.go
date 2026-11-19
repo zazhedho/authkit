@@ -76,7 +76,7 @@ func (s *userServiceTestDouble) LogoutUser(ctx context.Context, token string) er
 	s.logoutToken = token
 	return s.err
 }
-func (s *userServiceTestDouble) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID string, logID string) (string, error) {
+func (s *userServiceTestDouble) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason, logID string) (string, error) {
 	if s.err != nil {
 		return "", s.err
 	}
@@ -160,7 +160,7 @@ func (s *userServiceTestDouble) ResetPassword(ctx context.Context, req dtouser.R
 func (s *userServiceTestDouble) ResetPasswordByEmail(ctx context.Context, email, newPassword string) error {
 	return s.err
 }
-func (s *userServiceTestDouble) Delete(ctx context.Context, id string) error {
+func (s *userServiceTestDouble) Delete(ctx context.Context, actor domainauth.Actor, id string) error {
 	return s.err
 }
 func (s *userServiceTestDouble) IsTokenRevoked(ctx context.Context, token string) (bool, error) {
@@ -524,7 +524,7 @@ func TestUserHandlerPasswordAndSessionFlows(t *testing.T) {
 	handler.Logout(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusOK)
 
-	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/users/"+userID+"/impersonate", "", nil)
+	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/users/"+userID+"/impersonate", `{"reason":"support case"}`, nil)
 	ctx.Params = gin.Params{{Key: "id", Value: userID}}
 	handler.ImpersonateUser(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusOK)
@@ -865,7 +865,7 @@ func TestUserHandlerNotFoundAndValidationErrorBranches(t *testing.T) {
 	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
 
 	handler = New(&userServiceTestDouble{err: errors.New("cannot impersonate superadmin users")}, nil, nil, nil, testHandlerOptions())
-	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/users/"+userID+"/impersonate", "", nil)
+	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/users/"+userID+"/impersonate", `{"reason":"support case"}`, nil)
 	ctx.Params = gin.Params{{Key: "id", Value: userID}}
 	handler.ImpersonateUser(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusForbidden)

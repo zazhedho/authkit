@@ -781,7 +781,13 @@ func (h *Handler) ImpersonateUser(ctx *gin.Context) {
 		return
 	}
 
-	token, err := h.Service.ImpersonateUser(reqCtx, httpshared.ActorFrom(reqCtx), id, logID.String())
+	var body dtouser.Impersonate
+	if !gokit.BindJSON(ctx, logID, logPrefix, &body) {
+		return
+	}
+	reason := strings.TrimSpace(body.Reason)
+
+	token, err := h.Service.ImpersonateUser(reqCtx, httpshared.ActorFrom(reqCtx), id, reason, logID.String())
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionLogin,
@@ -792,6 +798,7 @@ func (h *Handler) ImpersonateUser(ctx *gin.Context) {
 			ErrorMessage: err.Error(),
 			AfterData: map[string]any{
 				"target_user_id": id,
+				"reason":         reason,
 			},
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.ImpersonateUser; ERROR: %s;", logPrefix, err)
@@ -809,6 +816,7 @@ func (h *Handler) ImpersonateUser(ctx *gin.Context) {
 		Message:    "Started impersonation session",
 		AfterData: map[string]any{
 			"target_user_id": id,
+			"reason":         reason,
 		},
 		Metadata: map[string]any{
 			"impersonation_action": "start",
@@ -1114,6 +1122,10 @@ func (h *Handler) ResetPassword(ctx *gin.Context) {
 }
 
 func (h *Handler) revokePasswordResetSessions(ctx context.Context, userID string) error {
+	return h.revokeAllSessions(ctx, userID)
+}
+
+func (h *Handler) revokeAllSessions(ctx context.Context, userID string) error {
 	if h.SessionSvc == nil || strings.TrimSpace(userID) == "" {
 		return nil
 	}

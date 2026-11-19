@@ -21,6 +21,9 @@ type Repository interface {
 	Delete(ctx context.Context, id string) error
 	GetByEmail(ctx context.Context, email string) (domainuser.Users, error)
 	GetByPhone(ctx context.Context, phone string) (domainuser.Users, error)
+	CountByRole(ctx context.Context, role string) (int64, error)
+	// UpdateFields writes only the named columns.
+	UpdateFields(ctx context.Context, id string, fields map[string]any) error
 }
 
 // TokenRevocations stores revoked access tokens and answers whether one was
@@ -38,6 +41,7 @@ type RoleRepository interface {
 // PermissionRepository loads a user's permissions for authorisation checks.
 type PermissionRepository interface {
 	GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error)
+	GetByRoleName(ctx context.Context, roleName string) ([]domainpermission.Permission, error)
 }
 
 // TokenIssuer issues and reads the JWTs the user flows need.
