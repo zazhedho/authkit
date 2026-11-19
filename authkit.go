@@ -116,6 +116,7 @@ func New(cfg Config) (*Kit, error) {
 		Tokens:          tokens,
 		DefaultRole:     cfg.DefaultRole,
 		GoogleClientIDs: cfg.GoogleClientIDs,
+		PhoneLogin:      cfg.PhoneLogin,
 		PermissionCache: invalidator,
 	})
 
@@ -126,8 +127,8 @@ func New(cfg Config) (*Kit, error) {
 		sessionSvc   httpuser.SessionService // stays a nil interface without Redis
 		sessionHdlr  *httpsession.Handler
 		sessionRepo  *repositorysession.Repository
-		otpSvc       = serviceotp.NewService(nil, nil, serviceotp.Config(cfg.OTP))
-		resetSvc     = servicereset.NewService(nil, nil, servicereset.Config(cfg.Reset))
+		otpSvc       httpuser.OTPService   // nil interface until Redis and a Mailer exist
+		resetSvc     httpuser.ResetService // likewise
 	)
 	if cfg.Redis != nil {
 		loginLimiter = ratelimit.NewRedisLoginLimiter(cfg.Redis, cfg.Login.Limit, cfg.Login.Window, cfg.Login.BlockDuration)

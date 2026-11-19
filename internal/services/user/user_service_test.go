@@ -386,7 +386,7 @@ func TestLoginUserAcceptsEmailIdentifier(t *testing.T) {
 	if token == "" {
 		t.Fatal("expected non-empty token")
 	}
-	if service.UserRepo.(*userRepoMock).updated.LastLoginAt == nil {
+	if _, ok := service.UserRepo.(*userRepoMock).fields["last_login_at"]; !ok {
 		t.Fatal("expected last login timestamp to be updated")
 	}
 }
@@ -399,7 +399,8 @@ func TestLoginUserAcceptsPhoneIdentifier(t *testing.T) {
 	}
 
 	service := &Service{
-		Tokens: testUserTokens(t),
+		Tokens:     testUserTokens(t),
+		PhoneLogin: true,
 		UserRepo: &userRepoMock{
 			phoneUser: domainuser.Users{
 				ID:       "user-1",
@@ -803,7 +804,7 @@ func TestRegisterUserValidationAndRepositoryErrors(t *testing.T) {
 		Phone:    "08123456789",
 		Password: "Password1!",
 	})
-	if err == nil || err.Error() != "email already exists" {
+	if !errors.Is(err, domainuser.ErrDuplicate) {
 		t.Fatalf("expected duplicate email error, got %v", err)
 	}
 
@@ -816,7 +817,7 @@ func TestRegisterUserValidationAndRepositoryErrors(t *testing.T) {
 		Phone:    "08123456789",
 		Password: "Password1!",
 	})
-	if err == nil || err.Error() != "phone number already exists" {
+	if !errors.Is(err, domainuser.ErrDuplicate) {
 		t.Fatalf("expected duplicate phone error, got %v", err)
 	}
 
@@ -855,7 +856,7 @@ func TestAdminCreateUserValidationBranches(t *testing.T) {
 		Password: "Password1!",
 		Role:     domainuser.RoleViewer,
 	})
-	if err == nil || err.Error() != "email already exists" {
+	if !errors.Is(err, domainuser.ErrDuplicate) {
 		t.Fatalf("expected duplicate email, got %v", err)
 	}
 
@@ -867,7 +868,7 @@ func TestAdminCreateUserValidationBranches(t *testing.T) {
 		Password: "Password1!",
 		Role:     domainuser.RoleViewer,
 	})
-	if err == nil || err.Error() != "phone number already exists" {
+	if !errors.Is(err, domainuser.ErrDuplicate) {
 		t.Fatalf("expected duplicate phone, got %v", err)
 	}
 

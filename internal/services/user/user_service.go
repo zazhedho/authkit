@@ -26,6 +26,9 @@ type Service struct {
 	// DefaultRole is the role given to public registrations; empty means viewer.
 	DefaultRole     string
 	GoogleClientIDs []string
+	// PhoneLogin lets a user sign in with a phone number. Phone numbers are
+	// not verified, so it is off by default.
+	PhoneLogin bool
 	// NewID makes record ids; nil uses a UUID v7.
 	NewID func() string
 }
@@ -35,6 +38,7 @@ type Options struct {
 	Tokens          TokenIssuer
 	DefaultRole     string
 	GoogleClientIDs []string
+	PhoneLogin      bool
 	PermissionCache PermissionCache
 	// NewID makes record ids; nil uses a UUID v7.
 	NewID func() string
@@ -50,6 +54,7 @@ func NewService(userRepo Repository, blacklistRepo TokenRevocations, roleRepo Ro
 		Tokens:          opts.Tokens,
 		DefaultRole:     opts.DefaultRole,
 		GoogleClientIDs: opts.GoogleClientIDs,
+		PhoneLogin:      opts.PhoneLogin,
 		NewID:           opts.NewID,
 	}
 }
@@ -76,21 +81,18 @@ func (s *Service) RegisterUser(ctx context.Context, req dtouser.Register) (domai
 	phone := domainuser.NormalizePhoneTo62(req.Phone)
 	email := domainuser.SanitizeEmail(req.Email)
 
-	data, _ := s.UserRepo.GetByEmail(ctx, email)
-	if data.ID != "" {
-		return domainuser.Users{}, errors.New("email already exists")
+	if email == "" {
+		return domainuser.Users{}, domainuser.ErrEmailRequired
 	}
-
-	phoneData, _ := s.UserRepo.GetByPhone(ctx, phone)
-	if phoneData.ID != "" {
-		return domainuser.Users{}, errors.New("phone number already exists")
+	if err := s.ensureIdentifiersFree(ctx, email, phone); err != nil {
+		return domainuser.Users{}, err
 	}
 
 	if err := ValidatePasswordStrength(req.Password); err != nil {
 		return domainuser.Users{}, err
 	}
 
-	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	hashedPwd, err := hashPassword(req.Password)
 	if err != nil {
 		return domainuser.Users{}, err
 	}
@@ -108,12 +110,12 @@ func (s *Service) RegisterUser(ctx context.Context, req dtouser.Register) (domai
 		emailVerifiedAt = new(time.Now())
 	}
 
-	data = domainuser.Users{
+	data := domainuser.Users{
 		ID:                s.newID(),
 		Name:              serviceshared.TitleCase(serviceshared.CleanText(req.Name)),
 		Phone:             phone,
 		Email:             email,
-		Password:          string(hashedPwd),
+		Password:          hashedPwd,
 		Role:              roleName,
 		RoleID:            roleID,
 		EmailVerifiedAt:   emailVerifiedAt,
@@ -134,23 +136,18 @@ func (s *Service) AdminCreateUser(ctx context.Context, actor domainauth.Actor, r
 	phone := domainuser.NormalizePhoneTo62(req.Phone)
 	email := domainuser.SanitizeEmail(req.Email)
 
-	data, _ := s.UserRepo.GetByEmail(ctx, email)
-	if data.ID != "" {
-		return domainuser.Users{}, errors.New("email already exists")
+	if email == "" {
+		return domainuser.Users{}, domainuser.ErrEmailRequired
 	}
-
-	if phone != "" {
-		phoneData, _ := s.UserRepo.GetByPhone(ctx, phone)
-		if phoneData.ID != "" {
-			return domainuser.Users{}, errors.New("phone number already exists")
-		}
+	if err := s.ensureIdentifiersFree(ctx, email, phone); err != nil {
+		return domainuser.Users{}, err
 	}
 
 	if err := ValidatePasswordStrength(req.Password); err != nil {
 		return domainuser.Users{}, err
 	}
 
-	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	hashedPwd, err := hashPassword(req.Password)
 	if err != nil {
 		return domainuser.Users{}, err
 	}
@@ -174,12 +171,12 @@ func (s *Service) AdminCreateUser(ctx context.Context, actor domainauth.Actor, r
 		return domainuser.Users{}, errors.New("invalid role: " + roleName)
 	}
 
-	data = domainuser.Users{
+	data := domainuser.Users{
 		ID:                s.newID(),
 		Name:              serviceshared.TitleCase(serviceshared.CleanText(req.Name)),
 		Phone:             phone,
 		Email:             email,
-		Password:          string(hashedPwd),
+		Password:          hashedPwd,
 		Role:              roleName,
 		RoleID:            roleID,
 		PasswordChangedAt: new(time.Now()),
@@ -205,35 +202,68 @@ func (s *Service) LoginUser(ctx context.Context, req dtouser.Login, logID string
 		data     domainuser.Users
 		loginErr error
 	)
-	if strings.Contains(identifier, "@") {
+	switch {
+	case strings.Contains(identifier, "@"):
 		data, loginErr = s.UserRepo.GetByEmail(ctx, identifier)
-	} else {
+	case s.PhoneLogin:
 		data, loginErr = s.UserRepo.GetByPhone(ctx, identifier)
+	default:
+		loginErr = domainuser.ErrNotFound
+	}
+	if loginErr != nil && !errors.Is(loginErr, domainuser.ErrNotFound) {
+		return "", loginErr
 	}
 	if loginErr != nil {
-		return "", loginErr
+		// Spend the same time as a wrong password.
+		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(req.Password))
+		return "", domainuser.ErrInvalidCredentials
 	}
 
 	if err = bcrypt.CompareHashAndPassword([]byte(data.Password), []byte(req.Password)); err != nil {
-		return "", err
+		return "", domainuser.ErrInvalidCredentials
 	}
 
-	data.LastLoginAt = new(time.Now())
-	data.LastLoginIP = metadata.IP
-	data.LastLoginUserAgent = metadata.UserAgent
+	fields := map[string]any{
+		"last_login_at":         time.Now(),
+		"last_login_ip":         metadata.IP,
+		"last_login_user_agent": metadata.UserAgent,
+	}
 	if data.LoginProvider == "" {
-		data.LoginProvider = "local"
+		fields["login_provider"] = "local"
 	}
-	if err = s.UserRepo.Update(ctx, data); err != nil {
+	if cost, costErr := bcrypt.Cost([]byte(data.Password)); costErr == nil && cost < passwordCost {
+		if rehashed, hashErr := hashPassword(req.Password); hashErr == nil {
+			fields["password"] = rehashed
+		}
+	}
+	if err = s.UserRepo.UpdateFields(ctx, data.ID, fields); err != nil {
 		return "", err
 	}
 
-	token, err := s.Tokens.Generate(data.ID, data.Name, data.Role, logID)
-	if err != nil {
-		return "", err
-	}
+	return s.Tokens.Generate(data.ID, data.Name, data.Role, logID)
+}
 
-	return token, nil
+// ensureIdentifiersFree returns ErrDuplicate when the email or phone belongs
+// to a live user, without saying which; a failed lookup is returned as is.
+func (s *Service) ensureIdentifiersFree(ctx context.Context, email, phone string) error {
+	existing, err := s.UserRepo.GetByEmail(ctx, email)
+	if err != nil && !errors.Is(err, domainuser.ErrNotFound) {
+		return err
+	}
+	if err == nil && existing.ID != "" {
+		return domainuser.ErrDuplicate
+	}
+	if phone == "" {
+		return nil
+	}
+	existing, err = s.UserRepo.GetByPhone(ctx, phone)
+	if err != nil && !errors.Is(err, domainuser.ErrNotFound) {
+		return err
+	}
+	if err == nil && existing.ID != "" {
+		return domainuser.ErrDuplicate
+	}
+	return nil
 }
 
 func (s *Service) LogoutUser(ctx context.Context, token string) error {

@@ -61,6 +61,8 @@ type Handler struct {
 
 // Options are the optional dependencies and settings of the user handler.
 type Options struct {
+	// Async runs background work; nil starts a goroutine.
+	Async            func(func())
 	AppConfigService AppConfigService
 	OTPService       OTPService
 	ResetService     ResetService
@@ -85,6 +87,7 @@ func New(
 		ResetService:     options.ResetService,
 		Tokens:           options.Tokens,
 		Settings:         options.Settings,
+		Async:            options.Async,
 	}
 }
 
@@ -235,49 +238,31 @@ func (h *Handler) SendRegisterOTP(ctx *gin.Context) {
 		httpshared.RespondInternalError(ctx, logID)
 		return
 	}
-	if conflict != "" {
-		res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logID, conflict)
-		ctx.JSON(http.StatusBadRequest, res)
-		return
-	}
 
-	if err := h.OTPService.SendRegisterOTP(ctx.Request.Context(), normalizedEmail, h.Settings.EmailAppName); err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			Action:       domainaudit.ActionCreate,
-			Resource:     "user_registration_otp",
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to send registration OTP",
-			ErrorMessage: err.Error(),
-			AfterData: map[string]any{
-				"email": normalizedEmail,
-			},
+	// The answer never depends on whether the address is taken, throttled or
+	// deliverable, so the route cannot be used to find out which emails exist.
+	// The send itself happens after the response and only logs failures.
+	if conflict == "" && normalizedEmail != "" {
+		appName := h.Settings.EmailAppName
+		h.runAsync(func() {
+			bg, cancel := context.WithTimeout(context.Background(), resetRequestTimeout)
+			defer cancel()
+			if err := h.OTPService.SendRegisterOTP(bg, normalizedEmail, appName); err != nil {
+				logus.Logf(logus.LevelError, "%s; OTPService.SendRegisterOTP; ERROR: %s;", logPrefix, err)
+			}
 		})
-		if throttle, ok := errors.AsType[*domainotp.ThrottleError](err); ok {
-			h.respondThrottle(ctx, logID, throttle.RetryAfter, "OTP request is throttled. Please try again later.")
-			return
-		}
-		if errors.Is(err, domainotp.ErrNotConfigured) || errors.Is(err, domainotp.ErrDeliveryFailed) {
-			statusCode := http.StatusServiceUnavailable
-			res := gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logID, "Registration OTP service is temporarily unavailable.")
-			ctx.JSON(statusCode, res)
-			return
-		}
-
-		httpshared.RespondInternalError(ctx, logID)
-		return
 	}
 
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
 		Action:   domainaudit.ActionCreate,
 		Resource: "user_registration_otp",
 		Status:   domainaudit.StatusSuccess,
-		Message:  "Sent registration OTP",
+		Message:  "Requested registration OTP",
 		AfterData: map[string]any{
 			"email": normalizedEmail,
 		},
 	})
-	res := gokit.Response(http.StatusOK, "Registration OTP sent successfully", logID, nil)
-	logus.LogContextf(ctx, logus.LevelInfo, "%s; Registration OTP sent successfully", logPrefix)
+	res := gokit.Response(http.StatusOK, registrationOTPAcceptedMessage, logID, nil)
 	ctx.JSON(http.StatusOK, res)
 }
 
@@ -343,7 +328,8 @@ func (h *Handler) Login(ctx *gin.Context) {
 	}
 
 	loginIdentifier := fmt.Sprintf("%s:%s", ctx.ClientIP(), normalizedIdentifier)
-	if h.rejectBlockedLogin(ctx, logID, logPrefix, loginIdentifier, normalizedIdentifier) {
+	if h.rejectBlockedLogin(ctx, logID, logPrefix, loginIdentifier, normalizedIdentifier) ||
+		h.rejectBlockedLogin(ctx, logID, logPrefix, identifierKey(normalizedIdentifier), normalizedIdentifier) {
 		return
 	}
 
@@ -365,22 +351,24 @@ func (h *Handler) Login(ctx *gin.Context) {
 	} else {
 		loggedInUser, userErr = h.Service.GetUserByPhone(reqCtx, normalizedIdentifier)
 	}
-	loginUserID := ""
-	if userErr == nil {
-		loginUserID = loggedInUser.ID
+	if userErr != nil {
+		respondStepFailed(ctx, logID, logPrefix, "Service.GetUser", userErr)
+		return
 	}
+	loginUserID := loggedInUser.ID
 
-	refreshToken := ""
-	if userErr == nil {
-		refreshToken, err = h.Tokens.GenerateRefresh(loggedInUser.ID, loggedInUser.Name, loggedInUser.Role, logID.String())
-		if err != nil {
-			respondStepFailed(ctx, logID, logPrefix, "GenerateRefreshJwt", err)
-			return
-		}
+	refreshToken, err := h.Tokens.GenerateRefresh(loggedInUser.ID, loggedInUser.Name, loggedInUser.Role, logID.String())
+	if err != nil {
+		respondStepFailed(ctx, logID, logPrefix, "GenerateRefreshJwt", err)
+		return
 	}
 
 	h.resetLoginLimiter(ctx, logPrefix, loginIdentifier)
-	h.createLoginSession(ctx, reqCtx, &loggedInUser, userErr, token, refreshToken, logPrefix)
+	h.resetLoginLimiter(ctx, logPrefix, identifierKey(normalizedIdentifier))
+	if err := h.createLoginSession(ctx, reqCtx, &loggedInUser, token, refreshToken, logPrefix); err != nil {
+		respondStepFailed(ctx, logID, logPrefix, "SessionSvc.CreateSession", err)
+		return
+	}
 
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
 		ActorUserID: loginUserID,

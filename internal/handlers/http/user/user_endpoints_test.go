@@ -275,7 +275,9 @@ type loginLimiterUserHandlerTestDouble struct {
 	registerErr     error
 	resetErr        error
 	registeredKey   string
+	registeredKeys  []string
 	resetKey        string
+	resetKeys       []string
 }
 
 func (m *loginLimiterUserHandlerTestDouble) IsBlocked(ctx context.Context, key string) (bool, time.Duration, error) {
@@ -284,11 +286,13 @@ func (m *loginLimiterUserHandlerTestDouble) IsBlocked(ctx context.Context, key s
 
 func (m *loginLimiterUserHandlerTestDouble) RegisterFailure(ctx context.Context, key string) (bool, time.Duration, error) {
 	m.registeredKey = key
+	m.registeredKeys = append(m.registeredKeys, key)
 	return m.registerBlocked, m.ttl, m.registerErr
 }
 
 func (m *loginLimiterUserHandlerTestDouble) Reset(ctx context.Context, key string) error {
 	m.resetKey = key
+	m.resetKeys = append(m.resetKeys, key)
 	return m.resetErr
 }
 
@@ -717,7 +721,7 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 	handler.Login(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusTooManyRequests)
 
-	handler = New(&userServiceTestDouble{loginErr: errors.New(ErrHashPassword)}, nil, nil, nil, testHandlerOptions())
+	handler = New(&userServiceTestDouble{loginErr: domainuser.ErrInvalidCredentials}, nil, nil, nil, testHandlerOptions())
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/login", `{"identifier":"jane@example.com","password":"secret123"}`, nil)
 	handler.Login(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
@@ -810,10 +814,15 @@ func TestUserHandlerOTPErrorBranches(t *testing.T) {
 	handler.Register(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusServiceUnavailable)
 
-	handler.OTPService = &otpServiceUserHandlerTestDouble{}
+	// A taken address gets the same answer as a free one, and no code is sent.
+	taken := &otpServiceUserHandlerTestDouble{}
+	handler.OTPService = taken
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/register/otp/send", `{"email":"jane@example.com"}`, nil)
 	handler.SendRegisterOTP(ctx)
-	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
+	assertUserHandlerStatus(t, rec, http.StatusOK)
+	if taken.sentEmail != "" {
+		t.Fatalf("a code was sent to a registered address: %q", taken.sentEmail)
+	}
 
 	handler.OTPService = nil
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/register/otp/send", `{"email":"new@example.com"}`, nil)
@@ -823,17 +832,17 @@ func TestUserHandlerOTPErrorBranches(t *testing.T) {
 	handler.OTPService = &otpServiceUserHandlerTestDouble{err: &domainotp.ThrottleError{Reason: "rate_limit", RetryAfter: time.Second}}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/register/otp/send", `{"email":"new@example.com"}`, nil)
 	handler.SendRegisterOTP(ctx)
-	assertUserHandlerStatus(t, rec, http.StatusTooManyRequests)
+	assertUserHandlerStatus(t, rec, http.StatusOK)
 
 	handler.OTPService = &otpServiceUserHandlerTestDouble{err: domainotp.ErrDeliveryFailed}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/register/otp/send", `{"email":"new@example.com"}`, nil)
 	handler.SendRegisterOTP(ctx)
-	assertUserHandlerStatus(t, rec, http.StatusServiceUnavailable)
+	assertUserHandlerStatus(t, rec, http.StatusOK)
 
 	handler.OTPService = &otpServiceUserHandlerTestDouble{err: errors.New("redis down")}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/register/otp/send", `{"email":"new@example.com"}`, nil)
 	handler.SendRegisterOTP(ctx)
-	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
+	assertUserHandlerStatus(t, rec, http.StatusOK)
 }
 
 func TestUserHandlerNotFoundAndValidationErrorBranches(t *testing.T) {
@@ -869,7 +878,7 @@ func TestUserHandlerNotFoundAndValidationErrorBranches(t *testing.T) {
 		})
 	}
 
-	handler = New(&userServiceTestDouble{err: errors.New(ErrHashPassword)}, nil, nil, nil, testHandlerOptions())
+	handler = New(&userServiceTestDouble{err: domainuser.ErrPasswordIncorrect}, nil, nil, nil, testHandlerOptions())
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPatch, "/me/password", `{"current_password":"bad","new_password":"secret456"}`, &scope)
 	handler.ChangePassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
@@ -940,7 +949,7 @@ func TestUserHandlerEmailPasswordResetBranches(t *testing.T) {
 	handler = New(&userServiceTestDouble{err: domainuser.ErrDuplicate}, nil, nil, nil, Options{Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: &resetServiceUserHandlerTestDouble{email: "jane@example.com"}})
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"reset-token","new_password":"secret456"}`, nil)
 	handler.ResetPassword(ctx)
-	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
+	assertUserHandlerStatus(t, rec, http.StatusConflict)
 }
 
 func TestUserHandlerResetPasswordRevokesSessions(t *testing.T) {
@@ -981,7 +990,7 @@ func testUserSettings() Settings {
 }
 
 func testHandlerOptions() Options {
-	return Options{Tokens: testHandlerTokens(), Settings: testUserSettings()}
+	return Options{Tokens: testHandlerTokens(), Settings: testUserSettings(), Async: func(fn func()) { fn() }}
 }
 
 func otherAppTokens() *token.Tokens {

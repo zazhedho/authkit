@@ -3,6 +3,7 @@ package user
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
@@ -104,4 +105,26 @@ func TestRefreshRejectsAnAlreadyUsedRefreshToken(t *testing.T) {
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/refresh-token", `{"refresh_token":"`+refresh+`"}`, nil)
 	handler.RefreshToken(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusUnauthorized)
+}
+
+func TestFailedLoginCountsPerClientAndPerIdentifier(t *testing.T) {
+	limiter := &loginLimiterUserHandlerTestDouble{}
+	handler := New(&userServiceTestDouble{loginErr: domainuser.ErrInvalidCredentials}, nil, limiter, nil, testHandlerOptions())
+	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/login", `{"identifier":"jane@example.com","password":"secret123"}`, nil)
+	handler.Login(ctx)
+	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
+	if len(limiter.registeredKeys) != 2 || limiter.registeredKeys[1] != "identifier:jane@example.com" {
+		t.Fatalf("registered keys = %v, want the per-client key and identifier:jane@example.com", limiter.registeredKeys)
+	}
+}
+
+func TestLoginFailsWhenTheSessionCannotBeStored(t *testing.T) {
+	sessions := &sessionServiceUserHandlerTestDouble{createErr: errors.New("redis down")}
+	handler := New(&userServiceTestDouble{user: domainuser.Users{ID: "u1", Email: "jane@example.com", Role: "viewer"}}, sessions, nil, nil, testHandlerOptions())
+	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/login", `{"identifier":"jane@example.com","password":"secret123"}`, nil)
+	handler.Login(ctx)
+	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
+	if strings.Contains(rec.Body.String(), "access_token") {
+		t.Fatalf("tokens must not be returned: %s", rec.Body.String())
+	}
 }

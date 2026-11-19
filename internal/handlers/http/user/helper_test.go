@@ -84,7 +84,9 @@ func TestUserMutationErrorResponseMapping(t *testing.T) {
 	}{
 		{domainuser.ErrNotFound, http.StatusNotFound},
 		{fmt.Errorf("load role: %w", domainrole.ErrNotFound), http.StatusNotFound},
-		{domainuser.ErrDuplicate, http.StatusBadRequest},
+		{domainuser.ErrDuplicate, http.StatusConflict},
+		{domainuser.ErrWeakPassword, http.StatusBadRequest},
+		{domainuser.ErrPasswordTooLong, http.StatusBadRequest},
 		{errors.New("email already exists"), http.StatusBadRequest},
 		{errors.New("access denied: missing permission"), http.StatusForbidden},
 		{errors.New("invalid role: admin"), http.StatusBadRequest},

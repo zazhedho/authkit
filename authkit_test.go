@@ -232,8 +232,17 @@ func (m *recordingMailer) SendPasswordReset(to, token, appName, resetURL string,
 	return nil
 }
 
+// lastOTP waits briefly: the code is sent after the route has answered.
 func (m *recordingMailer) lastOTP(t *testing.T) sentOTP {
 	t.Helper()
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		m.mu.Lock()
+		n := len(m.otps)
+		m.mu.Unlock()
+		if n > 0 {
+			break
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.otps) == 0 {
@@ -494,20 +503,24 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 			}
 		}
 
-		resetRegisterLimit(mr)
-		if rec, _ := doJSON(engine, http.MethodPost, "/api/user/register/otp/send", "", send); rec.Code != http.StatusTooManyRequests {
-			t.Fatalf("send during cooldown: %d, want 429", rec.Code)
+		// Throttled sends still answer 200 (the route never reveals throttling)
+		// but send nothing; only the mail count shows the limits at work.
+		sendOTP := func(wantMails int) {
+			t.Helper()
+			resetRegisterLimit(mr)
+			if rec, _ := doJSON(engine, http.MethodPost, "/api/user/register/otp/send", "", send); rec.Code != http.StatusOK {
+				t.Fatalf("send: %d, want 200", rec.Code)
+			}
+			time.Sleep(300 * time.Millisecond)
+			if n := mailer.otpCount(); n != wantMails {
+				t.Fatalf("mails sent = %d, want %d", n, wantMails)
+			}
 		}
+		sendOTP(1) // cooldown
 		mr.FastForward(23 * time.Second)
-		resetRegisterLimit(mr)
-		if rec, _ := doJSON(engine, http.MethodPost, "/api/user/register/otp/send", "", send); rec.Code != http.StatusOK {
-			t.Fatalf("second send (RateLimit=2): %d", rec.Code)
-		}
+		sendOTP(2) // second send (RateLimit=2)
 		mr.FastForward(23 * time.Second)
-		resetRegisterLimit(mr)
-		if rec, _ := doJSON(engine, http.MethodPost, "/api/user/register/otp/send", "", send); rec.Code != http.StatusTooManyRequests {
-			t.Fatalf("third send (OTP.RateLimit=2): %d, want 429", rec.Code)
-		}
+		sendOTP(2) // third send is rate limited
 	})
 
 	t.Run("OTP max attempts", func(t *testing.T) {
@@ -589,6 +602,12 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 			t.Fatalf("resets sent = %d, want 3 (Reset.RateLimit=3)", n)
 		}
 	})
+}
+
+func (m *recordingMailer) otpCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.otps)
 }
 
 func (m *recordingMailer) resetCount() int {

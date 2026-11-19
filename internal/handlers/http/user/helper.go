@@ -109,7 +109,7 @@ func (h *Handler) rejectBlockedLogin(ctx *gin.Context, logID uuid.UUID, logPrefi
 
 func (h *Handler) handleLoginFailure(ctx *gin.Context, logID uuid.UUID, logPrefix, normalizedIdentifier, loginIdentifier string, err error) {
 	logus.LogContextf(ctx, logus.LevelError, "%s; Service.LoginUser; ERROR: %s;", logPrefix, err)
-	if !httpshared.IsNotFound(err) && err.Error() != ErrHashPassword {
+	if !httpshared.IsNotFound(err) && !errors.Is(err, domainuser.ErrInvalidCredentials) {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionLogin,
 			Resource:     "auth",
@@ -123,9 +123,20 @@ func (h *Handler) handleLoginFailure(ctx *gin.Context, logID uuid.UUID, logPrefi
 	}
 
 	if h.LoginLimiter != nil {
-		blocked, ttl, limiterErr := h.LoginLimiter.RegisterFailure(ctx.Request.Context(), loginIdentifier)
-		if limiterErr != nil {
-			logus.LogContextf(ctx, logus.LevelError, "%s; LoginLimiter.RegisterFailure error: %v", logPrefix, limiterErr)
+		// Both counters advance: per client and identifier, and per identifier
+		// alone so many clients cannot guess one account's password.
+		var (
+			blocked bool
+			ttl     time.Duration
+		)
+		for _, key := range []string{loginIdentifier, identifierKey(normalizedIdentifier)} {
+			b, t, limiterErr := h.LoginLimiter.RegisterFailure(ctx.Request.Context(), key)
+			if limiterErr != nil {
+				logus.LogContextf(ctx, logus.LevelError, "%s; LoginLimiter.RegisterFailure error: %v", logPrefix, limiterErr)
+			}
+			if b && !blocked {
+				blocked, ttl = true, t
+			}
 		}
 		if blocked {
 			h.WriteAudit(ctx, domainaudit.AuditEvent{
@@ -156,6 +167,10 @@ func (h *Handler) handleLoginFailure(ctx *gin.Context, logID uuid.UUID, logPrefi
 	ctx.JSON(http.StatusBadRequest, res)
 }
 
+// identifierKey is the limiter key that counts failures per account whatever
+// the client.
+func identifierKey(normalizedIdentifier string) string { return "identifier:" + normalizedIdentifier }
+
 func (h *Handler) resetLoginLimiter(ctx *gin.Context, logPrefix, loginIdentifier string) {
 	if h.LoginLimiter == nil {
 		return
@@ -165,20 +180,25 @@ func (h *Handler) resetLoginLimiter(ctx *gin.Context, logPrefix, loginIdentifier
 	}
 }
 
-func (h *Handler) createLoginSession(ctx *gin.Context, reqCtx context.Context, user *domainuser.Users, userErr error, token, refreshToken, logPrefix string) {
-	if h.SessionSvc == nil || userErr != nil || refreshToken == "" {
-		return
+// createLoginSession stores the login's session. A login whose session cannot
+// be stored is an error: with sessions on, Auth would reject its tokens anyway.
+func (h *Handler) createLoginSession(ctx *gin.Context, reqCtx context.Context, user *domainuser.Users, token, refreshToken, logPrefix string) error {
+	if h.SessionSvc == nil {
+		return nil
 	}
 	session, err := h.SessionSvc.CreateSession(reqCtx, user, token, refreshToken, domainsession.RequestMeta{
 		IP:        ctx.ClientIP(),
 		UserAgent: ctx.GetHeader("User-Agent"),
 	})
 	if err != nil {
-		logus.LogContextf(ctx, logus.LevelError, "%s; Failed to create session: %v", logPrefix, err)
-		return
+		return err
 	}
 	logus.LogContextf(ctx, logus.LevelInfo, "%s; Session created: %s", logPrefix, session.SessionID)
+	return nil
 }
+
+// registrationOTPAcceptedMessage is the one answer the OTP-send route gives.
+const registrationOTPAcceptedMessage = "If the address can register, a verification code has been sent."
 
 // forgotPasswordMessage is the one answer the forgot-password route gives.
 //
@@ -323,7 +343,7 @@ func userMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIRespo
 		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logID, userNotFoundMessage)
 	}
 	if errors.Is(err, domainuser.ErrDuplicate) {
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logID, "email or phone already exists")
+		return http.StatusConflict, gokit.ErrorResponse(http.StatusConflict, gokit.MsgExists, logID, "email or phone already exists")
 	}
 
 	switch {
@@ -331,7 +351,8 @@ func userMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIRespo
 		return http.StatusForbidden, gokit.Forbidden(logID, gokit.MsgAccessDenied)
 	case errors.Is(err, domainuser.ErrLastSuperAdmin):
 		return http.StatusConflict, gokit.ErrorResponse(http.StatusConflict, gokit.MsgSomethingWrong, logID, err.Error())
-	case errors.Is(err, domainuser.ErrEmailRequired), errors.Is(err, domainuser.ErrPasswordRequired),
+	case errors.Is(err, domainuser.ErrWeakPassword), errors.Is(err, domainuser.ErrPasswordTooLong),
+		errors.Is(err, domainuser.ErrEmailRequired), errors.Is(err, domainuser.ErrPasswordRequired),
 		errors.Is(err, domainuser.ErrPasswordIncorrect), errors.Is(err, domainuser.ErrReasonRequired):
 		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, err.Error())
 	}
