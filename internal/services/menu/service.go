@@ -68,13 +68,13 @@ func (s *Service) Update(ctx context.Context, id string, req dtomenu.Update) (do
 	}
 
 	if req.DisplayName != "" {
-		menu.DisplayName = req.DisplayName
+		menu.DisplayName = serviceshared.CleanText(req.DisplayName)
 	}
 	if req.Path != "" {
-		menu.Path = req.Path
+		menu.Path = serviceshared.CleanText(req.Path)
 	}
 	if req.Icon != "" {
-		menu.Icon = req.Icon
+		menu.Icon = serviceshared.CleanText(req.Icon)
 	}
 	if req.ParentID != nil {
 		parentID, err := s.validParent(ctx, menu.ID, *req.ParentID)

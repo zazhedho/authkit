@@ -3,9 +3,11 @@ package role
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
+	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
@@ -118,13 +120,15 @@ func (s *Service) Update(ctx context.Context, id string, req dtorole.Update) (do
 	}
 
 	if role.IsSystem {
-		return domainrole.Role{}, errors.New("cannot update system roles")
+		return domainrole.Role{}, domainrole.ErrSystemRole
 	}
 
 	if req.DisplayName != "" {
 		role.DisplayName = serviceshared.CleanText(req.DisplayName)
 	}
-	role.Description = serviceshared.CleanText(req.Description)
+	if req.Description != nil {
+		role.Description = serviceshared.CleanText(*req.Description)
+	}
 	role.UpdatedAt = new(time.Now())
 
 	if err := s.RoleRepo.Update(ctx, role); err != nil {
@@ -141,7 +145,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	}
 
 	if role.IsSystem {
-		return errors.New("cannot delete system roles")
+		return domainrole.ErrSystemRole
 	}
 	users, err := s.RoleRepo.CountUsers(ctx, id)
 	if err != nil {
@@ -170,18 +174,27 @@ func (s *Service) AssignPermissions(ctx context.Context, actor domainauth.Actor,
 			return err
 		}
 		if !canManageSystem {
-			return errors.New("access denied: missing permission roles:manage_system")
+			return fmt.Errorf("%w: missing permission roles:manage_system", domainuser.ErrAccessDenied)
 		}
 		if role.Name == domainuser.RoleSuperAdmin && actor.Role != domainuser.RoleSuperAdmin {
-			return errors.New("access denied: cannot modify superadmin role")
+			return fmt.Errorf("%w: cannot modify superadmin role", domainuser.ErrAccessDenied)
 		}
+	}
+
+	// The call replaces the whole set, so it can also strip permissions: the
+	// actor must cover the role being rewritten, not only what it is given.
+	if err := serviceshared.CheckRoleCoverage(ctx, s.PermissionRepo, actor, role.Name); err != nil {
+		return err
 	}
 
 	permissionIDs := dedupe(req.PermissionIDs)
 	for _, permID := range permissionIDs {
 		permission, err := s.PermissionRepo.GetByID(ctx, permID)
 		if err != nil {
-			return errors.New("invalid permission ID: " + permID)
+			if errors.Is(err, domainpermission.ErrNotFound) {
+				return fmt.Errorf("%w: %s", domainrole.ErrInvalidPermission, permID)
+			}
+			return err
 		}
 		// An actor may only grant what they hold, so assign_permissions cannot
 		// be used to climb above the actor's own role.

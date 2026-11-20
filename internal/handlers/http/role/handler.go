@@ -127,7 +127,7 @@ func handleRoleRelationAssignment[T any](h *Handler, ctx *gin.Context, req *T, a
 		return
 	}
 
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Request: %+v;", assignment.logPrefix, gokit.JSONEncode(*req))
+	logus.LogContextf(ctx, logus.LevelDebug, "%s; Request: %+v;", assignment.logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(*req)))
 
 	beforeIDs, _ := assignment.getBefore(reqCtx, id)
 	beforeData := map[string]any{assignment.beforeDataKey: beforeIDs}

@@ -71,6 +71,7 @@ func (m *roleRepoMock) GetRolePermissions(ctx context.Context, roleID string) ([
 type permissionRepoMock struct {
 	permissionsByID map[string]domainpermission.Permission
 	userPermissions []domainpermission.Permission
+	byRole          map[string][]domainpermission.Permission
 }
 
 func (m *permissionRepoMock) Store(ctx context.Context, data domainpermission.Permission) error {
@@ -79,7 +80,7 @@ func (m *permissionRepoMock) Store(ctx context.Context, data domainpermission.Pe
 func (m *permissionRepoMock) GetByID(ctx context.Context, id string) (domainpermission.Permission, error) {
 	permission, ok := m.permissionsByID[id]
 	if !ok {
-		return domainpermission.Permission{}, errors.New("not found")
+		return domainpermission.Permission{}, domainpermission.ErrNotFound
 	}
 	return permission, nil
 }
@@ -98,6 +99,9 @@ func (m *permissionRepoMock) GetByName(ctx context.Context, name string) (domain
 }
 func (m *permissionRepoMock) GetByResource(ctx context.Context, resource string) ([]domainpermission.Permission, error) {
 	return nil, nil
+}
+func (m *permissionRepoMock) GetByRoleName(ctx context.Context, name string) ([]domainpermission.Permission, error) {
+	return append([]domainpermission.Permission{}, m.byRole[name]...), nil
 }
 func (m *permissionRepoMock) GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error) {
 	return append([]domainpermission.Permission{}, m.userPermissions...), nil
@@ -234,7 +238,7 @@ func TestRoleServiceCRUDAndDetails(t *testing.T) {
 		t.Fatalf("expected superadmin filtered for non-superadmin, roles=%+v total=%d", roles, total)
 	}
 
-	updated, err := service.Update(context.Background(), "role-1", dtorole.Update{DisplayName: "Updated", Description: "Updated desc"})
+	updated, err := service.Update(context.Background(), "role-1", dtorole.Update{DisplayName: "Updated", Description: ptr("Updated desc")})
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -275,7 +279,7 @@ func TestRoleServiceCreateRejectsDuplicateAndInvalidPermission(t *testing.T) {
 
 	service := NewService(&roleRepoMock{role: domainrole.Role{ID: "role-1", Name: "manager"}}, &permissionRepoMock{}, &menuRepoMock{})
 	err := service.AssignPermissions(context.Background(), roleActor("user-1", "Admin User", domainuser.RoleAdmin), "role-1", dtorole.AssignPermissions{PermissionIDs: []string{"missing"}})
-	if err == nil || err.Error() != "invalid permission ID: missing" {
+	if !errors.Is(err, domainrole.ErrInvalidPermission) {
 		t.Fatalf("expected invalid permission error, got %v", err)
 	}
 }
@@ -373,3 +377,59 @@ func TestCreateLowercasesTheRoleName(t *testing.T) {
 		t.Fatalf("name %q is not lowercase", got.Name)
 	}
 }
+
+func TestAssignPermissionsRequiresCoverageOfTheTargetRoleToo(t *testing.T) {
+	roleRepo := &roleRepoMock{role: domainrole.Role{ID: "role-1", Name: "custom"}}
+	service := &Service{
+		RoleRepo: roleRepo,
+		PermissionRepo: &permissionRepoMock{
+			permissionsByID: map[string]domainpermission.Permission{"p-view": {ID: "p-view", Resource: "users", Action: "view"}},
+			byRole:          map[string][]domainpermission.Permission{"custom": {{Resource: "reports", Action: "view"}}},
+		},
+		MenuRepo: &menuRepoMock{},
+	}
+	actor := roleActor("u", "U", domainuser.RoleStaff, "users:view", "roles:assign_permissions")
+
+	err := service.AssignPermissions(context.Background(), actor, "role-1", dtorole.AssignPermissions{PermissionIDs: []string{"p-view"}})
+	if !errors.Is(err, domainuser.ErrRoleAboveActor) {
+		t.Fatalf("replacing the set of a role holding reports:view the actor lacks must be refused, got %v", err)
+	}
+	if roleRepo.assignedPermissions != nil {
+		t.Fatal("nothing may be assigned")
+	}
+}
+
+func TestSystemRoleErrorsAreSentinels(t *testing.T) {
+	roleRepo := &roleRepoMock{role: domainrole.Role{ID: "r", Name: "admin", IsSystem: true}}
+	service := &Service{RoleRepo: roleRepo, PermissionRepo: &permissionRepoMock{}, MenuRepo: &menuRepoMock{}}
+	if _, err := service.Update(context.Background(), "r", dtorole.Update{DisplayName: "X"}); !errors.Is(err, domainrole.ErrSystemRole) {
+		t.Fatalf("update: %v", err)
+	}
+	if err := service.Delete(context.Background(), "r"); !errors.Is(err, domainrole.ErrSystemRole) {
+		t.Fatalf("delete: %v", err)
+	}
+	err := service.AssignPermissions(context.Background(), roleActor("u", "U", domainuser.RoleStaff), "r", dtorole.AssignPermissions{})
+	if !errors.Is(err, domainuser.ErrAccessDenied) {
+		t.Fatalf("assign: %v", err)
+	}
+}
+
+func TestRoleUpdateKeepsAnOmittedDescription(t *testing.T) {
+	roleRepo := &roleRepoMock{role: domainrole.Role{ID: "r", Name: "custom", DisplayName: "Old", Description: "keep me"}}
+	service := &Service{RoleRepo: roleRepo, PermissionRepo: &permissionRepoMock{}, MenuRepo: &menuRepoMock{}}
+	if _, err := service.Update(context.Background(), "r", dtorole.Update{DisplayName: "New"}); err != nil {
+		t.Fatal(err)
+	}
+	if roleRepo.updated.Description != "keep me" {
+		t.Fatalf("description blanked: %q", roleRepo.updated.Description)
+	}
+	empty := ""
+	if _, err := service.Update(context.Background(), "r", dtorole.Update{Description: &empty}); err != nil {
+		t.Fatal(err)
+	}
+	if roleRepo.updated.Description != "" {
+		t.Fatalf("an explicit empty description must clear it, got %q", roleRepo.updated.Description)
+	}
+}
+
+func ptr(s string) *string { return &s }

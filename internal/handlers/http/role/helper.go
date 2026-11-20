@@ -3,7 +3,6 @@ package role
 import (
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/zazhedho/gokit"
 
@@ -30,15 +29,11 @@ func roleMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIRespo
 		return http.StatusConflict, gokit.ErrorResponse(http.StatusConflict, gokit.MsgSomethingWrong, logID, err.Error())
 	}
 
-	errMsg := err.Error()
 	switch {
-	case strings.HasPrefix(errMsg, "cannot update system"),
-		strings.HasPrefix(errMsg, "cannot delete system"),
-		strings.HasPrefix(errMsg, "access denied:"):
+	case errors.Is(err, domainrole.ErrSystemRole), errors.Is(err, domainuser.ErrAccessDenied):
 		return http.StatusForbidden, gokit.Forbidden(logID, gokit.MsgAccessDenied)
-	case strings.HasPrefix(errMsg, "invalid permission ID:"),
-		strings.Contains(errMsg, "menu access is derived"):
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, errMsg)
+	case errors.Is(err, domainrole.ErrInvalidPermission):
+		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, err.Error())
 	default:
 		return http.StatusInternalServerError, gokit.InternalServerError(logID)
 	}

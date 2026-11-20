@@ -15,6 +15,20 @@ var (
 	ErrReasonRequired    = errors.New("a reason is required")
 	ErrPasswordRequired  = errors.New("current password is required")
 	ErrPasswordIncorrect = errors.New("current password is incorrect")
+	ErrAccessDenied      = errors.New("access denied")
+	ErrInvalidRole       = errors.New("invalid role")
+	ErrSessionRevocation = errors.New("sessions could not be ended")
+	ErrSamePassword      = errors.New("new password must be different from current password")
+)
+
+// Impersonation failures; handlers map them to 403, 400 or 401.
+var (
+	ErrNestedImpersonation = errors.New("cannot start nested impersonation")
+	ErrSelfImpersonation   = errors.New("cannot impersonate your own account")
+	ErrTargetRequired      = errors.New("target user id is required")
+	ErrOriginalRequired    = errors.New("original user id is required")
+	ErrNotImpersonated     = errors.New("current session is not impersonated")
+	ErrImpersonatorRevoked = errors.New("the impersonating user's session is no longer valid")
 )
 
 // CheckRoleCoverage is the one role rule: an actor may update, delete,

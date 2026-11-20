@@ -202,3 +202,17 @@ func TestUpdateValidatesTheParent(t *testing.T) {
 		t.Errorf("an empty parent_id must clear the parent: err=%v parent=%v", err, repo.updated.ParentID)
 	}
 }
+
+func TestUpdateCleansTextFields(t *testing.T) {
+	existing := domainmenu.Item{ID: "menu-1", Name: "users", DisplayName: "Users"}
+	repo := &menuRepoTestDouble{menu: existing}
+	svc := NewService(repo, &permissionRepoMenuTestDouble{})
+
+	got, err := svc.Update(context.Background(), "menu-1", dtomenu.Update{DisplayName: "  Team ", Path: " /team\t", Icon: " bi-x\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DisplayName != "Team" || got.Path != "/team" || got.Icon != "bi-x" {
+		t.Fatalf("fields not cleaned: %+v", got)
+	}
+}

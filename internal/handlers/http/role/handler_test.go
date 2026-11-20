@@ -203,7 +203,7 @@ func TestRoleHandlersServiceErrorBranches(t *testing.T) {
 		t.Fatalf("expected get all 500, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = New(&roleServiceHandlerTestDouble{err: errors.New("cannot update system role")}, &auditServiceRoleTestDouble{})
+	handler = New(&roleServiceHandlerTestDouble{err: domainrole.ErrSystemRole}, &auditServiceRoleTestDouble{})
 	rec = performRoleRequest(http.MethodPut, "/roles/:id", "/roles/550e8400-e29b-41d4-a716-446655440000", dtorole.Update{DisplayName: "System"}, handler.Update)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected update forbidden, got %d: %s", rec.Code, rec.Body.String())
@@ -215,7 +215,7 @@ func TestRoleHandlersServiceErrorBranches(t *testing.T) {
 		t.Fatalf("expected delete 404, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = New(&roleServiceHandlerTestDouble{assignPermissionsErr: errors.New("invalid permission ID: perm-x")}, &auditServiceRoleTestDouble{})
+	handler = New(&roleServiceHandlerTestDouble{assignPermissionsErr: fmt.Errorf("%w: perm-x", domainrole.ErrInvalidPermission)}, &auditServiceRoleTestDouble{})
 	rec = performRoleRequest(http.MethodPost, "/roles/:id/permissions", "/roles/550e8400-e29b-41d4-a716-446655440000/permissions", dtorole.AssignPermissions{PermissionIDs: []string{"perm-x"}}, handler.AssignPermissions)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected assign permissions 400, got %d: %s", rec.Code, rec.Body.String())

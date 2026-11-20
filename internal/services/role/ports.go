@@ -26,6 +26,7 @@ type Repository interface {
 type PermissionRepository interface {
 	GetByID(ctx context.Context, id string) (domainpermission.Permission, error)
 	GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error)
+	GetByRoleName(ctx context.Context, roleName string) ([]domainpermission.Permission, error)
 }
 
 // MenuRepository lists the menus a role's permissions can reach.
