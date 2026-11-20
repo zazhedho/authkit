@@ -3,6 +3,7 @@ package moduleseed
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -79,14 +80,32 @@ func (d Definition) Validate() error {
 		return errors.New("at least one action is required")
 	}
 
+	// Values end up inside a DO block and quoted literals, so they are held to a
+	// plain alphabet. Module, resource, parent and role names may use "-"
+	// (kebab-case); actions are part of permission names and may not.
+	for field, value := range map[string]string{"name": d.Name, "resource": d.Resource, "parent_name": d.ParentName} {
+		if value != "" && !reName.MatchString(value) {
+			return fmt.Errorf("%s %q must match %s", field, value, reName)
+		}
+	}
+	for _, role := range d.GrantRoles {
+		if !reName.MatchString(role) {
+			return fmt.Errorf("grant role %q must match %s", role, reName)
+		}
+	}
 	for _, action := range d.Actions {
-		if strings.TrimSpace(action) == "" {
-			return errors.New("actions must not contain empty values")
+		if !reAction.MatchString(action) {
+			return fmt.Errorf("action %q must match %s", action, reAction)
 		}
 	}
 
 	return nil
 }
+
+var (
+	reName   = regexp.MustCompile(`^[a-z0-9_-]+$`)
+	reAction = regexp.MustCompile(`^[a-z0-9_]+$`)
+)
 
 func RenderSQL(input Definition) (string, error) {
 	def := input.Normalize()
@@ -138,16 +157,15 @@ func renderMenuInsert(def Definition) string {
 	)
 }
 
-// renderCollisionGuard makes the migration stop when a permission with one of
-// the generated names already exists for a different resource or action. Without
-// it, ON CONFLICT DO NOTHING would skip the row silently and the role grants
-// (which join on the resource) would hand out the wrong permission.
+// renderCollisionGuard stops the migration when a generated permission name
+// exists for another resource or action; ON CONFLICT DO NOTHING would skip it
+// and the role grants would hand out the wrong permission.
 func renderCollisionGuard(def Definition) string {
 	expected := make([]string, 0, len(def.Actions))
 	for _, action := range def.Actions {
 		expected = append(expected, fmt.Sprintf("(%s, %s, %s)", quote(permissionName(action, def.Name)), quote(def.Resource), quote(action)))
 	}
-	return fmt.Sprintf(`DO $$
+	return fmt.Sprintf(`DO $authkit$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM permissions p
@@ -157,7 +175,7 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'module-seed: a permission named like one of this module''s already exists for another resource or action';
   END IF;
-END$$;`, quotedNames(def), strings.Join(expected, ", "))
+END$authkit$;`, quotedNames(def), strings.Join(expected, ", "))
 }
 
 func quotedNames(def Definition) string {

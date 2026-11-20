@@ -71,3 +71,41 @@ func TestRenderSQLUsesTheLiveUniqueIndexAndGuardsNameCollisions(t *testing.T) {
 		t.Fatalf("the collision guard is missing:\n%s", sql)
 	}
 }
+
+func TestRenderSQLRejectsNamesThatCouldBreakOutOfTheGuardBlock(t *testing.T) {
+	good := Definition{Name: "trips", DisplayName: "Trips", Path: "/trips"}
+	for name, mutate := range map[string]func(*Definition){
+		"dollar quote in name":     func(d *Definition) { d.Name = "trips$$; DROP TABLE users; --" },
+		"dollar quote in resource": func(d *Definition) { d.Resource = "x$$y" },
+		"tagged quote in action":   func(d *Definition) { d.Actions = []string{"list$authkit$"} },
+		"quote in parent":          func(d *Definition) { d.ParentName = "a'b" },
+		"space in role":            func(d *Definition) { d.GrantRoles = []string{"ad min"} },
+		"semicolon in name":        func(d *Definition) { d.Name = "a;b" },
+		"hyphen in action":         func(d *Definition) { d.Actions = []string{"bulk-delete"} },
+	} {
+		d := good
+		mutate(&d)
+		if _, err := RenderSQL(d); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	for name, d := range map[string]Definition{
+		"kebab name":     {Name: "trip-plans", DisplayName: "Trips", Path: "/t"},
+		"underscore":     {Name: "trip_plans", DisplayName: "Trips", Path: "/t", Actions: []string{"bulk_delete"}},
+		"kebab resource": {Name: "trips", Resource: "trip-plans", DisplayName: "Trips", Path: "/t", GrantRoles: []string{"custom-role"}},
+	} {
+		if _, err := RenderSQL(d); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestRenderSQLUsesATaggedQuoteForTheGuardBlock(t *testing.T) {
+	sql, err := RenderSQL(Definition{Name: "trips", DisplayName: "Trips", Path: "/trips"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(sql, "$$") || !strings.Contains(sql, "DO $authkit$") || !strings.Contains(sql, "END$authkit$;") {
+		t.Fatalf("the DO block must use the $authkit$ tag:\n%s", sql)
+	}
+}
