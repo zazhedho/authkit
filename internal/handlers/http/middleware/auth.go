@@ -172,6 +172,25 @@ func (m *Middleware) checkLiveUser(ctx *gin.Context, logID uuid.UUID, logPrefix,
 		if original.TokensValidAfter != nil && domainauth.RevokedBy(claims, *original.TokensValidAfter) {
 			return reject("Your session is no longer valid. Please login again.")
 		}
+		// The actor logging out (or having the session revoked) ends the impersonation.
+		if hash := gokit.InterfaceString(claims["actor_th"]); hash != "" {
+			gone, err := m.BlacklistRepo.ExistsByTokenHash(ctx.Request.Context(), hash)
+			if err != nil {
+				return fail("BlacklistRepo.ExistsByTokenHash(actor)", err)
+			}
+			if gone {
+				return reject("Your session is no longer valid. Please login again.")
+			}
+		}
+		if sid := gokit.InterfaceString(claims["actor_sid"]); sid != "" && m.sessions != nil {
+			live, err := m.sessions.HasSession(ctx.Request.Context(), sid)
+			if err != nil {
+				return fail("Sessions.HasSession(actor)", err)
+			}
+			if !live {
+				return reject("Your session is no longer valid. Please login again.")
+			}
+		}
 	}
 
 	if m.sessions != nil && !httpshared.InterfaceBool(claims["no_session"]) {

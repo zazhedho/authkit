@@ -131,16 +131,20 @@ type memBlacklist struct {
 func (b *memBlacklist) Store(_ context.Context, m domainauth.Blacklist) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.seen[m.Token] {
+	hash := sha256Hex(m.Token)
+	if b.seen[hash] {
 		return domainauth.ErrDuplicate
 	}
-	b.seen[m.Token] = true
+	b.seen[hash] = true
 	return nil
 }
-func (b *memBlacklist) ExistsByToken(_ context.Context, tok string) (bool, error) {
+func (b *memBlacklist) ExistsByToken(ctx context.Context, tok string) (bool, error) {
+	return b.ExistsByTokenHash(ctx, sha256Hex(tok))
+}
+func (b *memBlacklist) ExistsByTokenHash(_ context.Context, hash string) (bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.seen[tok], nil
+	return b.seen[hash], nil
 }
 
 type noRoles struct{}
@@ -228,6 +232,7 @@ func newE2E(t *testing.T, withRedis bool) *e2e {
 		s := domainauth.FromContext(c.Request.Context())
 		c.JSON(http.StatusOK, gin.H{"id": s.UserID, "impersonated": s.IsImpersonated})
 	})
+	auth.POST("/logout", handler.Logout)
 	auth.POST("/password", handler.ChangePassword)
 	auth.POST("/impersonate/:id", handler.ImpersonateUser)
 	auth.POST("/stop", handler.StopImpersonation)
@@ -416,3 +421,42 @@ func TestChangePasswordKeepsOnlyTheCallersSession(t *testing.T) {
 }
 
 var _ = errors.New
+
+// Ending the actor's login (logout, or with Redis a revoked session) ends the
+// impersonation started from it, with Redis on and off.
+func TestImpersonationEndsWithTheActorsLogin(t *testing.T) {
+	for name, withRedis := range map[string]bool{"redis on": true, "redis off": false} {
+		t.Run(name+"/logout", func(t *testing.T) {
+			h := newE2E(t, withRedis)
+			admin := h.login(t, "admin@x.io")
+			code, body := h.call(http.MethodPost, "/impersonate/"+h.targetID, admin.Access, `{"reason":"support case"}`)
+			imp := pair(t, code, body)
+			if got := h.me(imp.Access); got != http.StatusOK {
+				t.Fatalf("before logout: %d", got)
+			}
+			if code, _ := h.call(http.MethodPost, "/logout", admin.Access, ""); code != http.StatusOK {
+				t.Fatalf("logout: %d", code)
+			}
+			if got := h.me(imp.Access); got != http.StatusUnauthorized {
+				t.Fatalf("after the actor logged out: %d, want 401", got)
+			}
+			if code, _ := h.call(http.MethodPost, "/stop", imp.Access, ""); code != http.StatusUnauthorized {
+				t.Fatalf("stop after logout: %d, want 401", code)
+			}
+		})
+	}
+	t.Run("redis on/session revoked without logout", func(t *testing.T) {
+		h := newE2E(t, true)
+		admin := h.login(t, "admin@x.io")
+		code, body := h.call(http.MethodPost, "/impersonate/"+h.targetID, admin.Access, `{"reason":"support case"}`)
+		imp := pair(t, code, body)
+		for _, k := range h.mr.Keys() {
+			if strings.HasPrefix(k, "session:") {
+				h.mr.Del(k) // the session record goes, the impersonation token's own bindings stay
+			}
+		}
+		if got := h.me(imp.Access); got != http.StatusUnauthorized {
+			t.Fatalf("after the actor's session was revoked: %d, want 401", got)
+		}
+	})
+}

@@ -29,7 +29,7 @@ func googleService(t *testing.T, repo *userRepoMock) (*Service, *revokerDouble) 
 	t.Helper()
 	svc := newTestUserService(t, repo, &authRepoMock{}, &roleRepoUserMock{roles: map[string]domainrole.Role{"viewer": {ID: "role-viewer", Name: "viewer"}}}, &permissionRepoUserMock{})
 	rev := &revokerDouble{}
-	svc.Sessions = rev
+	svc.sessions = rev
 	return svc, rev
 }
 

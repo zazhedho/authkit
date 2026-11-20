@@ -90,7 +90,7 @@ func (s *userServiceTestDouble) LogoutUser(ctx context.Context, token string) er
 	}
 	return s.err
 }
-func (s *userServiceTestDouble) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason string) (string, error) {
+func (s *userServiceTestDouble) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason string, bind domainuser.ActorBinding) (string, error) {
 	if s.err != nil {
 		return "", s.err
 	}
@@ -213,6 +213,7 @@ func (m *otpServiceUserHandlerTestDouble) VerifyRegisterOTP(ctx context.Context,
 }
 
 type sessionServiceUserHandlerTestDouble struct {
+	sessionIDErr    error
 	sessionID       string
 	createErr       error
 	refreshErr      error
@@ -257,14 +258,17 @@ func (m *sessionServiceUserHandlerTestDouble) DestroyOtherSessions(ctx context.C
 func (m *sessionServiceUserHandlerTestDouble) GetSessionByToken(ctx context.Context, token string) (*domainsession.Session, error) {
 	return &domainsession.Session{SessionID: "session-1"}, nil
 }
+func (m *sessionServiceUserHandlerTestDouble) GetSessionBySessionID(ctx context.Context, sessionID string) (*domainsession.Session, error) {
+	if m.sessionIDErr != nil {
+		return nil, m.sessionIDErr
+	}
+	return &domainsession.Session{SessionID: sessionID}, nil
+}
 func (m *sessionServiceUserHandlerTestDouble) GetSessionByRefreshToken(ctx context.Context, refreshToken string) (*domainsession.Session, error) {
 	if m.refreshErr != nil {
 		return nil, m.refreshErr
 	}
 	return &domainsession.Session{SessionID: "session-1", RefreshToken: refreshToken}, nil
-}
-func (m *sessionServiceUserHandlerTestDouble) GetSessionBySessionID(ctx context.Context, sessionID string) (*domainsession.Session, error) {
-	return &domainsession.Session{SessionID: sessionID}, nil
 }
 func (m *sessionServiceUserHandlerTestDouble) RotateSessionTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
 	if m.rotateErr != nil {

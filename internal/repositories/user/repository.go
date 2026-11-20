@@ -120,13 +120,20 @@ func (r *Repository) write(ctx context.Context, id string, fields map[string]any
 	return cutoff, err
 }
 
-// guardLastSuperAdmin locks every live superadmin row and refuses when id is
-// the only one, so two concurrent removals serialize: the second sees the
-// first's committed result.
+// guardLastSuperAdmin matters only when id is a superadmin. It then locks every
+// live superadmin row (ordered by id, so two guards cannot deadlock) and refuses
+// when id is the only one, so concurrent removals serialize.
 func guardLastSuperAdmin(tx *gorm.DB, id string) error {
+	var role string
+	if err := tx.Model(&domainuser.Users{}).Where("id = ?", id).Limit(1).Pluck("role", &role).Error; err != nil {
+		return translateErr(err)
+	}
+	if role != domainuser.RoleSuperAdmin {
+		return nil
+	}
 	var ids []string
 	err := tx.Model(&domainuser.Users{}).Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("role = ?", domainuser.RoleSuperAdmin).Pluck("id", &ids).Error
+		Where("role = ?", domainuser.RoleSuperAdmin).Order("id").Pluck("id", &ids).Error
 	if err != nil {
 		return translateErr(err)
 	}

@@ -2,7 +2,6 @@ package audit
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -27,13 +26,13 @@ func NewService(auditRepo Repository) *Service {
 
 func (s *Service) Store(ctx context.Context, req domainaudit.AuditEvent) error {
 	if strings.TrimSpace(req.Action) == "" {
-		return errors.New("action is required")
+		return domainaudit.ErrActionRequired
 	}
 	if strings.TrimSpace(req.Resource) == "" {
-		return errors.New("resource is required")
+		return domainaudit.ErrResourceRequired
 	}
 	if strings.TrimSpace(req.Status) == "" {
-		return errors.New("status is required")
+		return domainaudit.ErrStatusRequired
 	}
 
 	occurredAt := req.OccurredAt

@@ -531,7 +531,7 @@ func TestAfterIssuesStrictlyLaterThanTheCutoff(t *testing.T) {
 	}
 }
 
-func TestClaimsToleratesClockSkewWithinTheLeeway(t *testing.T) {
+func TestClaimsToleratesIssueSkewButNotAnExpiredToken(t *testing.T) {
 	tokens := newTestTokens(t)
 	sign := func(iat, exp time.Time) string {
 		claims := AppClaims{UserID: "u", TokenType: TokenTypeAccess, RegisteredClaims: &jwt.RegisteredClaims{
@@ -548,8 +548,8 @@ func TestClaimsToleratesClockSkewWithinTheLeeway(t *testing.T) {
 	if _, err := tokens.Claims(sign(now.Add(20*time.Second), now.Add(time.Hour))); err != nil {
 		t.Fatalf("iat 20s ahead must pass: %v", err)
 	}
-	if _, err := tokens.Claims(sign(now.Add(-time.Hour), now.Add(-20*time.Second))); err != nil {
-		t.Fatalf("exp 20s ago must pass: %v", err)
+	if _, err := tokens.Claims(sign(now.Add(-time.Hour), now.Add(-2*time.Second))); err == nil {
+		t.Fatal("an expired token must fail: exp has no leeway, so a purged blacklist row can never matter")
 	}
 	if _, err := tokens.Claims(sign(now.Add(2*time.Minute), now.Add(time.Hour))); err == nil {
 		t.Fatal("iat 2m ahead must fail")

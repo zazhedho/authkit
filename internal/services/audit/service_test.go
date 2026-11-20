@@ -169,3 +169,16 @@ func TestStoreUsesInjectedIDGenerator(t *testing.T) {
 		t.Fatalf("expected a generated uuid when NewID is unset, got %q", repo.stored.ID)
 	}
 }
+
+func TestStoreRefusesIncompleteEventsWithSentinels(t *testing.T) {
+	service := NewService(&auditRepoMock{})
+	for want, event := range map[error]domainaudit.AuditEvent{
+		domainaudit.ErrActionRequired:   {Resource: "r", Status: "success"},
+		domainaudit.ErrResourceRequired: {Action: "a", Status: "success"},
+		domainaudit.ErrStatusRequired:   {Action: "a", Resource: "r"},
+	} {
+		if err := service.Store(context.Background(), event); !errors.Is(err, want) {
+			t.Errorf("err = %v, want %v", err, want)
+		}
+	}
+}

@@ -24,9 +24,9 @@ type Service struct {
 	RoleRepo        RoleRepository
 	PermissionRepo  PermissionRepository
 	PermissionCache PermissionCache
-	// Sessions, when set, ends a user's sessions after their credentials are
-	// reset.
-	Sessions SessionRevoker
+	// sessions, set through Options only, ends a user's sessions after their
+	// credentials change.
+	sessions SessionRevoker
 	Tokens   TokenIssuer
 	// DefaultRole is the role given to public registrations; empty means viewer.
 	DefaultRole     string
@@ -60,7 +60,7 @@ func NewService(userRepo Repository, blacklistRepo TokenRevocations, roleRepo Ro
 		RoleRepo:        roleRepo,
 		PermissionRepo:  permissionRepo,
 		PermissionCache: opts.PermissionCache,
-		Sessions:        opts.Sessions,
+		sessions:        opts.Sessions,
 		Tokens:          opts.Tokens,
 		DefaultRole:     opts.DefaultRole,
 		GoogleClientIDs: opts.GoogleClientIDs,
@@ -275,6 +275,10 @@ func (s *Service) ensureIdentifiersFree(ctx context.Context, email, phone string
 	return nil
 }
 
+// blacklistGrace keeps a revoked token's row past its exp, so a purge can never
+// run before the last node that might still accept the token has seen it expire.
+const blacklistGrace = 30 * time.Second
+
 func (s *Service) LogoutUser(ctx context.Context, token string) error {
 	expiresAt, err := s.Tokens.ExpiresAt(token)
 	if err != nil {
@@ -285,7 +289,7 @@ func (s *Service) LogoutUser(ctx context.Context, token string) error {
 		ID:        s.newID(),
 		Token:     token,
 		CreatedAt: time.Now(),
-		ExpiresAt: expiresAt,
+		ExpiresAt: expiresAt.Add(blacklistGrace),
 	}
 
 	err = s.BlacklistRepo.Store(ctx, blacklist)
@@ -298,7 +302,7 @@ func (s *Service) LogoutUser(ctx context.Context, token string) error {
 
 // ImpersonateUser needs both accounts live and a covered target role; the token
 // is issued after both accounts' latest revocation.
-func (s *Service) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason string) (string, error) {
+func (s *Service) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason string, bind domainuser.ActorBinding) (string, error) {
 	if actor.IsImpersonated {
 		return "", domainuser.ErrNestedImpersonation
 	}
@@ -331,7 +335,7 @@ func (s *Service) ImpersonateUser(ctx context.Context, actor domainauth.Actor, t
 	}
 
 	after := laterOf(derefTime(actorUser.TokensValidAfter), derefTime(targetUser.TokensValidAfter))
-	return s.Tokens.GenerateImpersonated(targetUser.ID, targetUser.Name, targetUser.Role, actor.UserID, actor.Username, actor.Role, after)
+	return s.Tokens.GenerateImpersonatedBound(targetUser.ID, targetUser.Name, targetUser.Role, actor.UserID, actor.Username, actor.Role, bind.SessionID, bind.TokenHash, after)
 }
 
 // StopImpersonation needs the original account live and unrevoked since the
@@ -543,10 +547,10 @@ func (s *Service) ensurePhoneFree(ctx context.Context, id, phone string) error {
 // user's sessions.
 func (s *Service) afterRevocation(ctx context.Context, id string) error {
 	s.invalidateUserPermissionCache(ctx, id)
-	if s.Sessions == nil {
+	if s.sessions == nil {
 		return nil
 	}
-	if err := s.Sessions.DestroyAllUserSessions(ctx, id); err != nil {
+	if err := s.sessions.DestroyAllUserSessions(ctx, id); err != nil {
 		return fmt.Errorf("%w: %w", domainuser.ErrSessionRevocation, err)
 	}
 	return nil

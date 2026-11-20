@@ -49,6 +49,13 @@ func CheckRoleCoverage(actorRole string, actorKeys map[string]struct{}, targetRo
 	return nil
 }
 
+// ActorBinding ties an impersonation token to the actor's own session and
+// access token (either may be empty), so ending those ends the impersonation.
+type ActorBinding struct {
+	SessionID string
+	TokenHash string
+}
+
 // AuthState is what request authentication needs about a live user: the
 // current role and the instant before which issued tokens are void.
 type AuthState struct {

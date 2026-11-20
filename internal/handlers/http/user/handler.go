@@ -849,7 +849,7 @@ func (h *Handler) ImpersonateUser(ctx *gin.Context) {
 	}
 	reason := strings.TrimSpace(body.Reason)
 
-	token, err := h.Service.ImpersonateUser(reqCtx, httpshared.ActorFrom(reqCtx), id, reason)
+	token, err := h.Service.ImpersonateUser(reqCtx, httpshared.ActorFrom(reqCtx), id, reason, h.actorBinding(ctx, reqCtx))
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionLogin,
@@ -904,6 +904,10 @@ func (h *Handler) StopImpersonation(ctx *gin.Context) {
 	if !scope.IsImpersonated || originalUserID == "" {
 		res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, "current session is not impersonated")
 		ctx.JSON(http.StatusBadRequest, res)
+		return
+	}
+
+	if !h.actorSessionLive(ctx, reqCtx, logID) {
 		return
 	}
 

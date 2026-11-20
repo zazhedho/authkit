@@ -12,6 +12,8 @@ import (
 // TokenRevocations reports whether an access token was revoked at logout.
 type TokenRevocations interface {
 	ExistsByToken(ctx context.Context, token string) (bool, error)
+	// ExistsByTokenHash takes the sha256 hex of the token.
+	ExistsByTokenHash(ctx context.Context, hash string) (bool, error)
 }
 
 // PermissionLookup loads the permissions granted to a user.
@@ -43,6 +45,8 @@ type StateCache interface {
 // session. A nil value means sessions are off.
 type SessionIndex interface {
 	HasAccessTokenSession(ctx context.Context, token string) (bool, error)
+	// HasSession reports whether the session itself is still live.
+	HasSession(ctx context.Context, sessionID string) (bool, error)
 }
 
 // TokenVerifier reads and verifies the bearer token of a request.

@@ -115,3 +115,27 @@ func TestUpdateFieldsRejectsUnknownColumnsAndCannotSetTheCutoff(t *testing.T) {
 		t.Fatal("unknown column accepted")
 	}
 }
+
+// Deleting an ordinary user must not queue behind work on the superadmin rows.
+func TestOrdinaryDeleteDoesNotWaitForTheSuperAdminLock(t *testing.T) {
+	db := testutil.PostgresSchema(t, os.Getenv("AUTHKIT_TEST_DATABASE_URL"))
+	repo := NewRepository(db)
+	seedUser(t, db, "root@x.test", domainuser.RoleSuperAdmin)
+	viewer := seedUser(t, db, "v@x.test", "viewer")
+
+	tx := db.Begin()
+	t.Cleanup(func() { tx.Rollback() })
+	if err := tx.Exec(`SELECT id FROM users WHERE role = 'superadmin' FOR UPDATE`).Error; err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- repo.Delete(t.Context(), viewer) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("an ordinary delete is blocked by the superadmin lock")
+	}
+}

@@ -219,3 +219,18 @@ func TestFailedFetchBacksOff(t *testing.T) {
 		t.Fatalf("%d fetches during the backoff, want 1", n)
 	}
 }
+
+// The fetch is not tied to the first caller: a client that disconnects must not
+// fail the fetch and start the backoff for everyone.
+func TestACancelledLeaderDoesNotPoisonTheFetch(t *testing.T) {
+	f := newGoogleFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = Verify(ctx, f.token(t, nil), []string{"client-1"})
+	if _, err := Verify(context.Background(), f.token(t, nil), []string{"client-1"}); err != nil {
+		t.Fatalf("a later caller must still verify: %v", err)
+	}
+	if !googleKeys.failedAt.IsZero() {
+		t.Fatal("a canceled caller started the backoff")
+	}
+}

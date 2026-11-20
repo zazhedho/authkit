@@ -210,7 +210,7 @@ func TestAdminCreateUserRefusesARoleTheActorDoesNotCover(t *testing.T) {
 
 func TestImpersonationFollowsTheRoleRule(t *testing.T) {
 	env := newRuleEnv(t, domainuser.Users{ID: "adm", Role: "admin", Name: "Adm"})
-	_, err := env.svc.ImpersonateUser(context.Background(), staffActor(), "adm", "ticket 42")
+	_, err := env.svc.ImpersonateUser(context.Background(), staffActor(), "adm", "ticket 42", domainuser.ActorBinding{})
 	if !errors.Is(err, domainuser.ErrRoleAboveActor) {
 		t.Fatalf("got %v", err)
 	}

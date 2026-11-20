@@ -41,8 +41,13 @@ func (c *stateCacheDouble) SetAuthState(ctx context.Context, userID string, s do
 }
 
 type sessionIndexDouble struct {
-	live bool
-	err  error
+	live        bool
+	sessionLive bool
+	err         error
+}
+
+func (d sessionIndexDouble) HasSession(ctx context.Context, id string) (bool, error) {
+	return d.sessionLive, d.err
 }
 
 func (d sessionIndexDouble) HasAccessTokenSession(ctx context.Context, tokenString string) (bool, error) {
@@ -245,6 +250,36 @@ func TestImpersonationTokenDiesWithTheOriginalUser(t *testing.T) {
 	} {
 		mdw := authWith(t, tc.states, nil, nil)
 		if rec := performMiddlewareRequest(raw, mdw.AuthMiddleware()); rec.Code != tc.want {
+			t.Errorf("%s: status = %d, want %d", name, rec.Code, tc.want)
+		}
+	}
+}
+
+func TestImpersonationEndsWhenTheActorsSessionOrTokenEnds(t *testing.T) {
+	raw, err := testTokens(t).GenerateImpersonatedBound("target", "T", domainuser.RoleViewer, "admin", "A", domainuser.RoleAdmin, "sid-1", "hash-1", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := statesByID{"target": {Role: "viewer"}, "admin": {Role: "admin"}}
+	build := func(blacklist *authRepoTestDouble, sessions SessionIndex) *Middleware {
+		mdw, err := New(blacklist, &permissionRepoTestDouble{}, nil, testTokens(t), time.Minute, states, nil, sessions)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return mdw
+	}
+	cases := map[string]struct {
+		blacklist *authRepoTestDouble
+		sessions  SessionIndex
+		want      int
+	}{
+		"actor session live, token not revoked": {&authRepoTestDouble{}, sessionIndexDouble{sessionLive: true}, http.StatusOK},
+		"actor session gone":                    {&authRepoTestDouble{}, sessionIndexDouble{sessionLive: false}, http.StatusUnauthorized},
+		"actor access token logged out":         {&authRepoTestDouble{hashes: map[string]bool{"hash-1": true}}, nil, http.StatusUnauthorized},
+		"redis off, token not revoked":          {&authRepoTestDouble{}, nil, http.StatusOK},
+	}
+	for name, tc := range cases {
+		if rec := performMiddlewareRequest(raw, build(tc.blacklist, tc.sessions).AuthMiddleware()); rec.Code != tc.want {
 			t.Errorf("%s: status = %d, want %d", name, rec.Code, tc.want)
 		}
 	}

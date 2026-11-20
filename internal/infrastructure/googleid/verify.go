@@ -76,6 +76,9 @@ var ErrKeysUnavailable = errors.New("googleid: signing keys unavailable")
 // trying Google again.
 const fetchBackoff = 30 * time.Second
 
+// fetchTimeout bounds one JWKS request.
+const fetchTimeout = 10 * time.Second
+
 // key fetches the JWKS when the cache is empty, expired or lacks the kid, at
 // most once per minCertsRefetch and not again for fetchBackoff after a failure.
 // The mutex is not held during the request; callers share one fetch.
@@ -109,7 +112,10 @@ func (g *googleKeySet) key(ctx context.Context, kid string) (*rsa.PublicKey, err
 	g.mu.Unlock()
 
 	if leader {
-		err := g.fetch(ctx)
+		// Detached: the caller leaving must not fail the fetch for the waiters.
+		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fetchTimeout)
+		err := g.fetch(fetchCtx)
+		cancel()
 		g.mu.Lock()
 		if err != nil {
 			g.failedAt = time.Now()

@@ -26,11 +26,16 @@ type authRepoTestDouble struct {
 	blacklisted bool
 	err         error
 	stored      domainauth.Blacklist
+	hashes      map[string]bool
 }
 
 func (m *authRepoTestDouble) Store(ctx context.Context, data domainauth.Blacklist) error {
 	m.stored = data
 	return nil
+}
+
+func (m *authRepoTestDouble) ExistsByTokenHash(ctx context.Context, hash string) (bool, error) {
+	return m.hashes[hash], m.err
 }
 
 func (m *authRepoTestDouble) ExistsByToken(ctx context.Context, token string) (bool, error) {

@@ -25,3 +25,4 @@ Out of scope: how a host application configures gin (trusted proxies, CORS), Red
 - Configure gin's trusted proxies; the rate limiters and audit IPs depend on `ClientIP()`.
 - Run Redis with authentication and a database or ACL prefix of its own.
 - Keep `AccessTokenTTL` short and consider `FailClosedLimiters` when Redis outages must not lift rate limits.
+- Keep app nodes and the database clock-synced (NTP): token revocation compares application time with the database clock.

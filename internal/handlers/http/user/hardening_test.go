@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
+
 	"github.com/google/uuid"
 	"github.com/zazhedho/logus"
 
@@ -335,5 +337,27 @@ func TestDeleteByIDOfYourOwnAccountNeedsThePasswordAndIsClosedToImpersonators(t 
 	other := domainauth.New("someone-else", "Admin", "admin", nil)
 	if got := call(newUserHandlerForTest(), other, ``); got != http.StatusOK {
 		t.Fatalf("another user's id needs no password: %d, want 200", got)
+	}
+}
+
+func TestStopImpersonationRequiresTheActorsSessionToBeLive(t *testing.T) {
+	raw, err := testHandlerTokens().GenerateImpersonatedBound("target-1", "T", "viewer", "admin-1", "A", "admin", "sid-1", "", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, _ := testHandlerTokens().Claims(raw)
+	for name, tc := range map[string]struct {
+		err  error
+		want int
+	}{"session live": {nil, http.StatusOK}, "session gone": {domainsession.ErrNotFound, http.StatusUnauthorized}} {
+		handler := newUserHandlerForTest()
+		handler.SessionSvc = &sessionServiceUserHandlerTestDouble{sessionIDErr: tc.err}
+		scope := domainauth.NewFromClaims(claims, nil)
+		ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/user/stop-impersonation", "", &scope)
+		ctx.Request = ctx.Request.WithContext(httpshared.WithAuthData(ctx.Request.Context(), claims))
+		handler.StopImpersonation(ctx)
+		if rec.Code != tc.want {
+			t.Errorf("%s: status = %d, want %d (%s)", name, rec.Code, tc.want, rec.Body.String())
+		}
 	}
 }

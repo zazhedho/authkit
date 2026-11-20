@@ -2,6 +2,8 @@ package user
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -692,4 +694,40 @@ func (h *Handler) currentSession(reqCtx context.Context, ctx *gin.Context) *doma
 		return nil
 	}
 	return session
+}
+
+// actorBinding ties an impersonation token to the caller's own session and
+// access token: ending either ends the impersonation.
+func (h *Handler) actorBinding(ctx *gin.Context, reqCtx context.Context) domainuser.ActorBinding {
+	var bind domainuser.ActorBinding
+	if raw, ok := ctx.Get("token"); ok {
+		if tokenString, _ := raw.(string); tokenString != "" {
+			sum := sha256.Sum256([]byte(tokenString))
+			bind.TokenHash = hex.EncodeToString(sum[:])
+			if h.SessionSvc != nil {
+				if session := h.currentSession(reqCtx, ctx); session != nil {
+					bind.SessionID = session.SessionID
+				}
+			}
+		}
+	}
+	return bind
+}
+
+// actorSessionLive answers 401 when the actor's session behind the
+// impersonation token is gone.
+func (h *Handler) actorSessionLive(ctx *gin.Context, reqCtx context.Context, logID uuid.UUID) bool {
+	sid := gokit.InterfaceString(httpshared.GetAuthData(reqCtx)["actor_sid"])
+	if sid == "" || h.SessionSvc == nil {
+		return true
+	}
+	if _, err := h.SessionSvc.GetSessionBySessionID(reqCtx, sid); err != nil {
+		if errors.Is(err, domainsession.ErrNotFound) {
+			ctx.JSON(http.StatusUnauthorized, gokit.Unauthorized(logID, "Your session is no longer valid. Please login again."))
+		} else {
+			httpshared.RespondInternalError(ctx, logID)
+		}
+		return false
+	}
+	return true
 }

@@ -40,9 +40,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -92,13 +95,28 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"trips": []string{}})
 	})
 
-	// On shutdown, stop the server first, then let in-flight mail sends finish.
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = kit.Close(ctx)
+	srv := &http.Server{Addr: ":8080", Handler: r, ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
 	}()
-	log.Print(r.Run(":8080"))
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+
+	// Stop the server first, then let in-flight mail sends finish. The sends
+	// run on a bounded pool: work offered while it is full, or after Close, is
+	// dropped and logged, never queued.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Print(err)
+	}
+	if err := kit.Close(ctx); err != nil {
+		log.Print(err)
+	}
 }
 ```
 
@@ -505,7 +523,7 @@ Read these before exposing the routes.
 - **`limit=-1` and page size.** Every list caps the page size at 100. Only the small reference lists a UI loads whole, `GET /roles`, `/permissions` and `/menus`, accept `limit=-1`, which returns every matching row. On `/users`, `/configs` and `/audits`, `-1` and any limit above 100 are clamped to 100, and the response `limit` field reports the page size actually applied. The routes still need their `:list` permission.
 - **CORS.** authkit sets no CORS headers. Configure CORS in your application and allow only your own origins. If you use gokit's `gokit.CORS()` helper, note that it answers `Access-Control-Allow-Origin: *` and allows only `GET, POST, PUT, DELETE`.
 - **Permission-subset role rule.** An actor may update, delete or impersonate a user, or assign a role, only when every permission of the target's role (or of the assigned role) is also held by the actor; `roles:assign_permissions` can only grant permissions the actor holds and only on a role the actor covers (the call replaces the whole set). A superadmin is above everything. Nobody changes their own role, and the last superadmin can never be deleted or demoted. Deleting a user ends their tokens and sessions. A non-superadmin gets `404` for a superadmin on every route, so such an account is not revealed. The last-superadmin check and the write happen in one transaction under a row lock. A self-service change of email or phone needs the current password; an admin changing someone's email clears `email_verified_at`. A role that users still hold cannot be deleted, and a permission that a role holds cannot change its resource or action. Impersonation needs a `reason`, which is audited together with the start and stop events (those audit writes are strict: a failed write fails the request).
-- **Trust model of `Auth`.** `Auth` verifies the HS256 signature (only HS256), `iss`, `aud`, a required `exp`, `iat` and the strict `Bearer ` prefix, then looks the user up: a deleted user is rejected, the role is the current one from the database (cached, dropped on change) and not the token's `role` claim, and a token issued at or before the user's `tokens_valid_after` is rejected. Tokens carry their issue time in milliseconds (`iat_ms`) and `tokens_valid_after` is set from the database clock in the same statement as the change (role, password, password reset, email, and phone when `PhoneLogin` is on), so a token issued in the same second as a revocation is still void while the caller's re-issued token, issued after the cut-off, is accepted. `iat` and `exp` allow 30 s of clock skew between nodes. With Redis the token's session must still exist (looked up by the sha256 of the token), so revoking a session ends its access token. Deleting a user, changing their role or e-mail also ends their sessions. Logout and refresh blacklist tokens (hashed). Sessions end at `SessionMaxLifetime` from login however often they are refreshed. Impersonation tokens last at most 15 minutes, carry no session, are held to the same checks for the original user, and cannot call change-password, profile update or account delete. Keep `AccessTokenTTL` short (default 15 minutes).
+- **Trust model of `Auth`.** `Auth` verifies the HS256 signature (only HS256), `iss`, `aud`, a required `exp`, `iat` and the strict `Bearer ` prefix, then looks the user up: a deleted user is rejected, the role is the current one from the database (cached, dropped on change) and not the token's `role` claim, and a token issued at or before the user's `tokens_valid_after` is rejected. Tokens carry their issue time in milliseconds (`iat_ms`) and `tokens_valid_after` is set from the database clock in the same statement as the change (role, password, password reset, email, and phone when `PhoneLogin` is on), so a token issued in the same second as a revocation is still void while the caller's re-issued token, issued after the cut-off, is accepted. `iat` may be up to 30 s ahead of a node's clock (skew between nodes); `exp` has no leeway, and a revoked token stays in the blacklist for 30 s past its `exp`, so a purged row can never be accepted again. App nodes and the database need NTP-synced clocks: the cut-off comes from the database clock, and tokens issued after a revocation are floored past it. With Redis the token's session must still exist (looked up by the sha256 of the token), so revoking a session ends its access token. Deleting a user, changing their role or e-mail also ends their sessions. Logout and refresh blacklist tokens (hashed). Sessions end at `SessionMaxLifetime` from login however often they are refreshed. Impersonation tokens last at most 15 minutes, carry no session of their own, are held to the same checks for the original user, and end when the actor's session is gone (Redis) or the actor's access token was logged out (also without Redis; the actor's other devices are not affected), and cannot call change-password, profile update or account delete. Keep `AccessTokenTTL` short (default 15 minutes).
 - **JWT key.** Tokens are HS256. `JWTKey` must be at least 32 characters (checked after trimming whitespace); use 32 or more random bytes, not a phrase, and keep it out of the repository. Tokens carry `AppName` as `iss` and `aud` and are rejected unless both match, so give each application its own `AppName`: a token from one application is then not accepted by another that shares a key. Changing `AppName` or `JWTKey` invalidates every issued token.
 - **OTP and reset secrets.** Registration OTPs (6 digits) are stored in Redis as `HMAC-SHA256(OTP.Secret, "register" + email + code)` and reset tokens as `sha256(token + Reset.Secret)`, so the secrets are what keep a leaked Redis from being brute-forced. Both must be at least 32 characters (`Validate` rejects shorter ones, even when unused) and are required when Redis and the matching mailer are set. Use long random values, distinct from `JWTKey`, outside the repository. Changing one invalidates pending codes or tokens. Wrong OTP guesses are capped by `OTP.MaxAttempts` and the count carries over resends until its window ends.
 - **Account enumeration.** `POST /user/register/otp/send` and `POST /user/forgot-password` always answer the same `200`; the work happens after the response. Login answers the same `400` for an unknown user and a wrong password and spends the same hashing time (a short legacy password gets the same answer, not a validation error). Registration is not closed: a taken e-mail or phone answers `409 email or phone already exists`, which still tells a caller the address exists, although it does not say which field and a taken and a free address cost the same time (the password is hashed before the duplicate check). Only the OTP flow, which answers before it checks, hides existence completely; enable it (`auth.register_otp_enabled`) if enumeration matters. Passwords are bcrypt cost 12 everywhere (older hashes are upgraded on login) and may be at most 72 bytes.

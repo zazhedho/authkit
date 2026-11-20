@@ -45,7 +45,12 @@ func translateErr(err error) error {
 }
 
 func (r *Repository) ExistsByToken(ctx context.Context, token string) (bool, error) {
-	return r.ExistsByField(ctx, "token", hashToken(token))
+	return r.ExistsByTokenHash(ctx, hashToken(token))
+}
+
+// ExistsByTokenHash is ExistsByToken for a token already hashed with sha256.
+func (r *Repository) ExistsByTokenHash(ctx context.Context, hash string) (bool, error) {
+	return r.ExistsByField(ctx, "token", hash)
 }
 
 // hashToken is what the table stores: the hex sha256 of the token, so a

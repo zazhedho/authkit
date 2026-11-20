@@ -18,7 +18,7 @@ func hashedUser(t *testing.T, id, password string) domainuser.Users {
 
 func withSessions(svc *Service) *revokerDouble {
 	rev := &revokerDouble{}
-	svc.Sessions = rev
+	svc.sessions = rev
 	return rev
 }
 
@@ -67,7 +67,7 @@ func TestStopImpersonationChecksTheOriginalUser(t *testing.T) {
 
 func TestImpersonationNeedsALiveActor(t *testing.T) {
 	svc := newTestUserService(t, &userRepoMock{usersByID: map[string]domainuser.Users{"target-1": {ID: "target-1", Role: "viewer"}}}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	_, err := svc.ImpersonateUser(context.Background(), authActor("admin-1", "A", "admin"), "target-1", "case")
+	_, err := svc.ImpersonateUser(context.Background(), authActor("admin-1", "A", "admin"), "target-1", "case", domainuser.ActorBinding{})
 	if !errors.Is(err, domainuser.ErrImpersonatorRevoked) {
 		t.Fatalf("err = %v", err)
 	}
@@ -192,5 +192,21 @@ func TestLastSuperAdminRulesLiveInTheRepositoryCall(t *testing.T) {
 	svc := newTestUserService(t, repo, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
 	if err := svc.Delete(context.Background(), authActor("root", "R", domainuser.RoleSuperAdmin), "root"); !errors.Is(err, domainuser.ErrLastSuperAdmin) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestBlacklistExpiryOutlivesTheTokenSoAPurgedRowCannotMatterAgain(t *testing.T) {
+	blacklist := &authRepoMock{}
+	svc := newTestUserService(t, &userRepoMock{}, blacklist, &roleRepoUserMock{}, &permissionRepoUserMock{})
+	raw, err := testUserTokens(t).Generate("u1", "N", "viewer", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exp, _ := testUserTokens(t).ExpiresAt(raw)
+	if err := svc.LogoutUser(context.Background(), raw); err != nil {
+		t.Fatal(err)
+	}
+	if got := blacklist.stored.ExpiresAt; got.Before(exp.Add(blacklistGrace)) {
+		t.Fatalf("blacklist expiry %v is not at least exp+grace (%v)", got, exp.Add(blacklistGrace))
 	}
 }

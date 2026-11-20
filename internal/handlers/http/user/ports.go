@@ -18,7 +18,7 @@ type Service interface {
 	LoginUser(ctx context.Context, req dtouser.Login, metadata dtouser.LoginMetadata) (string, error)
 	LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, metadata dtouser.LoginMetadata, allowRegistration bool) (domainuser.Users, bool, error)
 	LogoutUser(ctx context.Context, token string) error
-	ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason string) (string, error)
+	ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason string, bind domainuser.ActorBinding) (string, error)
 	// StopImpersonation takes the iat_ms of the impersonation token being ended.
 	StopImpersonation(ctx context.Context, actor domainauth.Actor, issuedAtMS int64) (string, error)
 	GetUserByID(ctx context.Context, id string) (domainuser.Users, error)
@@ -55,6 +55,7 @@ type SessionService interface {
 	DestroySessionByToken(ctx context.Context, token string) error
 	DestroyAllUserSessions(ctx context.Context, userID string) error
 	GetSessionByToken(ctx context.Context, token string) (*domainsession.Session, error)
+	GetSessionBySessionID(ctx context.Context, sessionID string) (*domainsession.Session, error)
 	DestroyOtherSessions(ctx context.Context, userID string, currentSessionID string) error
 	GetSessionByRefreshToken(ctx context.Context, refreshToken string) (*domainsession.Session, error)
 	RotateSessionTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error

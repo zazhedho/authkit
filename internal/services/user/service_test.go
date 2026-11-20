@@ -530,7 +530,7 @@ func TestImpersonateUserGeneratesTokenWithOriginalUserClaims(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	token, err := service.ImpersonateUser(context.Background(), authActor("admin-1", "Admin User", domainuser.RoleAdmin), "target-1", "support case")
+	token, err := service.ImpersonateUser(context.Background(), authActor("admin-1", "Admin User", domainuser.RoleAdmin), "target-1", "support case", domainuser.ActorBinding{})
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -569,7 +569,7 @@ func TestImpersonateUserRejectsSuperadminTargetForNonSuperadmin(t *testing.T) {
 		PermissionRepo: &permissionRepoUserMock{},
 	}
 
-	_, err := service.ImpersonateUser(context.Background(), authActor("admin-1", "Admin User", domainuser.RoleAdmin), "target-1", "support case")
+	_, err := service.ImpersonateUser(context.Background(), authActor("admin-1", "Admin User", domainuser.RoleAdmin), "target-1", "support case", domainuser.ActorBinding{})
 	if !errors.Is(err, domainuser.ErrNotFound) {
 		t.Fatalf("a superadmin target must look absent to a non-superadmin, got %v", err)
 	}
@@ -1031,13 +1031,13 @@ func TestUserServiceLogoutAndListErrors(t *testing.T) {
 
 func TestImpersonationValidationBranches(t *testing.T) {
 	service := newTestUserService(t, &userRepoMock{}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
-	if _, err := service.ImpersonateUser(context.Background(), impersonatedActor("target-1", "Target", domainuser.RoleViewer, "admin-1", "Admin", domainuser.RoleAdmin), "target-2", "support case"); !errors.Is(err, domainuser.ErrNestedImpersonation) {
+	if _, err := service.ImpersonateUser(context.Background(), impersonatedActor("target-1", "Target", domainuser.RoleViewer, "admin-1", "Admin", domainuser.RoleAdmin), "target-2", "support case", domainuser.ActorBinding{}); !errors.Is(err, domainuser.ErrNestedImpersonation) {
 		t.Fatalf("expected nested impersonation error, got %v", err)
 	}
-	if _, err := service.ImpersonateUser(context.Background(), authActor("user-1", "Jane", domainuser.RoleViewer), "", "support case"); !errors.Is(err, domainuser.ErrTargetRequired) {
+	if _, err := service.ImpersonateUser(context.Background(), authActor("user-1", "Jane", domainuser.RoleViewer), "", "support case", domainuser.ActorBinding{}); !errors.Is(err, domainuser.ErrTargetRequired) {
 		t.Fatalf("expected missing target error, got %v", err)
 	}
-	if _, err := service.ImpersonateUser(context.Background(), authActor("user-1", "Jane", domainuser.RoleViewer), "user-1", "support case"); !errors.Is(err, domainuser.ErrSelfImpersonation) {
+	if _, err := service.ImpersonateUser(context.Background(), authActor("user-1", "Jane", domainuser.RoleViewer), "user-1", "support case", domainuser.ActorBinding{}); !errors.Is(err, domainuser.ErrSelfImpersonation) {
 		t.Fatalf("expected self impersonation error, got %v", err)
 	}
 

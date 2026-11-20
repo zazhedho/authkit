@@ -123,6 +123,15 @@ func (r *Repository) HasAccessTokenSession(ctx context.Context, token string) (b
 	return n > 0, nil
 }
 
+// HasSession reports whether the session record still exists.
+func (r *Repository) HasSession(ctx context.Context, sessionID string) (bool, error) {
+	n, err := r.Redis.Exists(ctx, sessionKey(sessionID)).Result()
+	if err != nil {
+		return false, fmt.Errorf("failed to check session: %w", err)
+	}
+	return n > 0, nil
+}
+
 // GetByRefreshToken revokes the session and returns ErrRefreshReused for a
 // token that was already rotated away: only an attacker or a broken client
 // replays one.

@@ -11,9 +11,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// ClockSkewLeeway is the tolerance for iat and exp between nodes whose clocks
-// differ slightly.
-const ClockSkewLeeway = 30 * time.Second
+// IssuedAtSkew is how far in the future an iat may be, for nodes whose clocks
+// differ slightly. exp has no leeway.
+const IssuedAtSkew = 30 * time.Second
 
 // maxImpersonationTTL caps the life of an impersonation access token.
 const maxImpersonationTTL = 15 * time.Minute
@@ -111,6 +111,8 @@ func (t *Tokens) GenerateWithClaims(userID, username, role string, claimsOverrid
 		claims.OriginalUserID = claimsOverride.OriginalUserID
 		claims.OriginalUsername = claimsOverride.OriginalUsername
 		claims.OriginalRole = claimsOverride.OriginalRole
+		claims.ActorSessionID = claimsOverride.ActorSessionID
+		claims.ActorTokenHash = claimsOverride.ActorTokenHash
 		if claims.IsImpersonated && t.accessTTL > maxImpersonationTTL {
 			claims.ExpiresAt = jwt.NewNumericDate(issued.Add(maxImpersonationTTL))
 		}
@@ -171,13 +173,16 @@ func (t *Tokens) Claims(tokenString string) (map[string]any, error) {
 		}
 
 		return t.key, nil
-	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired(), jwt.WithIssuedAt(), jwt.WithLeeway(ClockSkewLeeway),
+	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired(),
 		jwt.WithIssuer(t.appName), jwt.WithAudience(t.appName))
 	if err != nil {
 		return nil, err
 	}
 
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		if iat, ok := claims["iat"].(float64); ok && time.Unix(int64(iat), 0).After(time.Now().Add(IssuedAtSkew)) {
+			return nil, errors.New("token issued in the future")
+		}
 		return claims, nil
 	}
 	return nil, errors.New("invalid token")
@@ -205,5 +210,18 @@ func (t *Tokens) GenerateImpersonated(userID, username, role, originalUserID, or
 		OriginalUserID:   originalUserID,
 		OriginalUsername: originalUsername,
 		OriginalRole:     originalRole,
+	}, after)
+}
+
+// GenerateImpersonatedBound is GenerateImpersonated with the actor's session ID
+// and access-token hash recorded in the token (either may be empty).
+func (t *Tokens) GenerateImpersonatedBound(userID, username, role, originalUserID, originalUsername, originalRole, actorSessionID, actorTokenHash string, after time.Time) (string, error) {
+	return t.GenerateWithClaims(userID, username, role, &AppClaims{
+		IsImpersonated:   true,
+		OriginalUserID:   originalUserID,
+		OriginalUsername: originalUsername,
+		OriginalRole:     originalRole,
+		ActorSessionID:   actorSessionID,
+		ActorTokenHash:   actorTokenHash,
 	}, after)
 }
