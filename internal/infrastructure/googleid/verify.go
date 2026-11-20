@@ -83,48 +83,12 @@ const fetchTimeout = 10 * time.Second
 // most once per minCertsRefetch and not again for fetchBackoff after a failure.
 // The mutex is not held during the request; callers share one fetch.
 func (g *googleKeySet) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
-	g.mu.Lock()
-	now := time.Now()
-	if key, ok := g.keys[kid]; ok && now.Before(g.expiresAt) {
-		g.mu.Unlock()
-		return key, nil
+	f, leader, key, err := g.joinFetch(kid)
+	if f == nil {
+		return key, err
 	}
-	stale := g.keys == nil || now.After(g.expiresAt) || now.Sub(g.fetchedAt) >= minCertsRefetch
-	backingOff := !g.failedAt.IsZero() && now.Sub(g.failedAt) < fetchBackoff
-	if g.flight == nil && (!stale || backingOff) {
-		key, ok := g.keys[kid]
-		g.mu.Unlock()
-		switch {
-		case ok:
-			return key, nil // keep serving a known key through a Google outage
-		case backingOff:
-			return nil, ErrKeysUnavailable
-		}
-		return nil, ErrInvalidToken
-	}
-
-	f := g.flight
-	leader := f == nil
 	if leader {
-		f = &flight{done: make(chan struct{})}
-		g.flight = f
-	}
-	g.mu.Unlock()
-
-	if leader {
-		// Detached: the caller leaving must not fail the fetch for the waiters.
-		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fetchTimeout)
-		err := g.fetch(fetchCtx)
-		cancel()
-		g.mu.Lock()
-		if err != nil {
-			g.failedAt = time.Now()
-		} else {
-			g.failedAt = time.Time{}
-		}
-		g.flight, f.err = nil, err
-		g.mu.Unlock()
-		close(f.done)
+		g.runFetch(ctx, f)
 	} else {
 		select {
 		case <-f.done:
@@ -143,6 +107,51 @@ func (g *googleKeySet) key(ctx context.Context, kid string) (*rsa.PublicKey, err
 		return nil, fmt.Errorf("%w: %w", ErrKeysUnavailable, f.err)
 	}
 	return nil, ErrInvalidToken
+}
+
+// joinFetch answers from the cache when it can. Otherwise it returns the fetch
+// to wait on, or registers a new one and makes the caller its leader.
+func (g *googleKeySet) joinFetch(kid string) (f *flight, leader bool, key *rsa.PublicKey, err error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	now := time.Now()
+	key, ok := g.keys[kid]
+	if ok && now.Before(g.expiresAt) {
+		return nil, false, key, nil
+	}
+	stale := g.keys == nil || now.After(g.expiresAt) || now.Sub(g.fetchedAt) >= minCertsRefetch
+	backingOff := !g.failedAt.IsZero() && now.Sub(g.failedAt) < fetchBackoff
+	if g.flight == nil && (!stale || backingOff) {
+		switch {
+		case ok:
+			return nil, false, key, nil // keep serving a known key through a Google outage
+		case backingOff:
+			return nil, false, nil, ErrKeysUnavailable
+		}
+		return nil, false, nil, ErrInvalidToken
+	}
+	if g.flight != nil {
+		return g.flight, false, nil, nil
+	}
+	g.flight = &flight{done: make(chan struct{})}
+	return g.flight, true, nil, nil
+}
+
+// runFetch performs the leader's fetch and wakes the waiters.
+func (g *googleKeySet) runFetch(ctx context.Context, f *flight) {
+	// Detached: the caller leaving must not fail the fetch for the waiters.
+	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fetchTimeout)
+	err := g.fetch(fetchCtx)
+	cancel()
+	g.mu.Lock()
+	if err != nil {
+		g.failedAt = time.Now()
+	} else {
+		g.failedAt = time.Time{}
+	}
+	g.flight, f.err = nil, err
+	g.mu.Unlock()
+	close(f.done)
 }
 
 func (g *googleKeySet) fetch(ctx context.Context) error {
