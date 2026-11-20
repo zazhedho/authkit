@@ -399,7 +399,7 @@ func TestNewWiresConfigIntoComponents(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := otpHMAC("register", "otp1@example.test", sent.code, "otp-secret-fake-0123456789-abcdef-0123456789"); stored != want {
+		if stored != otpHMAC("register", "otp1@example.test", sent.code, "otp-secret-fake-0123456789-abcdef-0123456789") {
 			t.Errorf("stored OTP hash does not use OTP.Secret")
 		}
 		for key, want := range map[string]time.Duration{

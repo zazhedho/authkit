@@ -411,7 +411,7 @@ func collectViolations(t *testing.T) map[string]bool {
 				if !applies(r, dir) {
 					continue
 				}
-				if bad := violates(r, ip, isTest); bad {
+				if violates(r, ip, isTest) {
 					found[dir+" -> "+ip] = true
 				}
 			}
