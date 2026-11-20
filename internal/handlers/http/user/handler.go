@@ -24,6 +24,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	logRequestFormat  = "%s; Request: %+v;"
+	logResponseFormat = "%s; Response: %+v;"
+)
+
 // FlagKeys are the runtime app-config keys the handler consults.
 type FlagKeys struct {
 	PublicRegistration string
@@ -112,7 +117,7 @@ func (h *Handler) Register(ctx *gin.Context) {
 	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Request: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(req)))
+	logus.LogContextf(ctx, logus.LevelDebug, logRequestFormat, logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(req)))
 
 	otpEnabled, ok := h.configEnabled(ctx, logID, logPrefix, h.Settings.Flags.RegisterOTP, false)
 	if !ok {
@@ -187,7 +192,7 @@ func (h *Handler) Register(ctx *gin.Context) {
 	})
 
 	res := gokit.Response(http.StatusCreated, "User registered successfully", logID, dtouser.NewResponse(data, false))
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(data)))
+	logus.LogContextf(ctx, logus.LevelDebug, logResponseFormat, logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(data)))
 	ctx.JSON(http.StatusCreated, res)
 }
 
@@ -281,7 +286,7 @@ func (h *Handler) AdminCreateUser(ctx *gin.Context) {
 	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Request: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(req)))
+	logus.LogContextf(ctx, logus.LevelDebug, logRequestFormat, logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(req)))
 
 	data, err := h.Service.AdminCreateUser(reqCtx, httpshared.ActorFrom(reqCtx), req)
 	if err != nil {
@@ -313,7 +318,7 @@ func (h *Handler) AdminCreateUser(ctx *gin.Context) {
 	})
 
 	res := gokit.Response(http.StatusCreated, "User created successfully", logID, dtouser.NewResponse(data, false))
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(data)))
+	logus.LogContextf(ctx, logus.LevelDebug, logResponseFormat, logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(data)))
 	ctx.JSON(http.StatusCreated, res)
 }
 
@@ -325,7 +330,7 @@ func (h *Handler) Login(ctx *gin.Context) {
 	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Request: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(req)))
+	logus.LogContextf(ctx, logus.LevelDebug, logRequestFormat, logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(req)))
 
 	normalizedIdentifier, err := domainuser.ResolveLoginIdentifier(req.Identifier, req.Email)
 	if err != nil {
@@ -392,7 +397,7 @@ func (h *Handler) Login(ctx *gin.Context) {
 
 	data := h.buildAuthTokenResponse(token, refreshToken)
 	res := gokit.Response(http.StatusOK, "success", logID, data)
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(data)))
+	logus.LogContextf(ctx, logus.LevelDebug, logResponseFormat, logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(data)))
 	ctx.JSON(http.StatusOK, res)
 }
 
@@ -501,193 +506,33 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 	var req dtouser.RefreshTokenRequest
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][RefreshToken]"
-	reqCtx := ctx.Request.Context()
 	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
 
-	tokenClaims, err := h.Tokens.Claims(req.RefreshToken)
-	if err != nil {
-		h.rejectRefresh(ctx, logID, "invalid or expired refresh token", domainaudit.AuditEvent{
-			Message:      failedRenewLoginSessionMessage,
-			ErrorMessage: "The refresh token is invalid or expired",
-		})
+	flow := &refreshFlow{h: h, ctx: ctx, logID: logID, logPrefix: logPrefix, token: req.RefreshToken}
+	if !flow.verifyToken() {
 		return
 	}
-
-	claimUserID := gokit.InterfaceString(tokenClaims["user_id"])
-	claimRole := gokit.InterfaceString(tokenClaims["role"])
-	if !strings.EqualFold(gokit.InterfaceString(tokenClaims["token_type"]), "refresh") {
-		h.rejectRefresh(ctx, logID, "invalid token type", domainaudit.AuditEvent{
-			ActorUserID:  claimUserID,
-			ActorRole:    claimRole,
-			Message:      failedRenewLoginSessionMessage,
-			ErrorMessage: "The provided token is not a refresh token",
-		})
+	session, ok := flow.checkReplay()
+	if !ok {
 		return
 	}
-
-	userID := claimUserID
-	// With sessions the session index is the one replay mechanism: a rotated
-	// token that comes back revokes the whole session. Without sessions the
-	// blacklist claims each refresh token once.
-	var session *domainsession.Session
-	if h.SessionSvc != nil {
-		var sessionErr error
-		session, sessionErr = h.SessionSvc.GetSessionByRefreshToken(reqCtx, req.RefreshToken)
-		if sessionErr != nil {
-			message := "No active session was found for the refresh token"
-			if errors.Is(sessionErr, domainsession.ErrRefreshReused) {
-				message = "A rotated refresh token was presented again; the session was revoked"
-			} else if !errors.Is(sessionErr, domainsession.ErrNotFound) {
-				h.failRefresh(ctx, logID, logPrefix, "SessionSvc.GetSessionByRefreshToken", sessionErr, domainaudit.AuditEvent{
-					ActorUserID: userID, ActorRole: claimRole, Message: "Failed to look up the login session",
-				})
-				return
-			}
-			h.rejectRefresh(ctx, logID, "session not found for refresh token", domainaudit.AuditEvent{
-				ActorUserID: userID, ActorRole: claimRole, ResourceID: userID,
-				Message: failedRenewLoginSessionMessage, ErrorMessage: message,
-			})
-			return
-		}
-	} else {
-		isBlacklisted, err := h.Service.IsTokenRevoked(reqCtx, req.RefreshToken)
-		if err != nil {
-			h.failRefresh(ctx, logID, logPrefix, "BlacklistRepo.ExistsByToken", err, domainaudit.AuditEvent{
-				ActorUserID: claimUserID,
-				ActorRole:   claimRole,
-				Message:     "Failed to validate login session renewal",
-			})
-			return
-		}
-		if isBlacklisted {
-			h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
-				ActorUserID:  claimUserID,
-				ActorRole:    claimRole,
-				Message:      failedRenewLoginSessionMessage,
-				ErrorMessage: "The refresh token has already been revoked",
-			})
-			return
-		}
-	}
-
-	user, err := h.Service.GetUserByID(reqCtx, userID)
-	if err != nil {
-		h.auditRefreshFailure(ctx, domainaudit.AuditEvent{
-			ActorUserID:  userID,
-			ActorRole:    claimRole,
-			ResourceID:   userID,
-			Message:      failedRenewLoginSessionMessage,
-			ErrorMessage: "The token owner user account was not found",
-		})
-		statusCode := http.StatusInternalServerError
-		if httpshared.IsNotFound(err) {
-			statusCode = http.StatusNotFound
-		}
-		res := gokit.ErrorResponse(statusCode, gokit.MsgSomethingWrong, logID, userNotFoundMessage)
-		ctx.JSON(statusCode, res)
+	user, ok := flow.loadUser()
+	if !ok || !flow.claimToken(user) {
 		return
 	}
-
-	if user.TokensValidAfter != nil && domainauth.RevokedBy(tokenClaims, *user.TokensValidAfter) {
-		h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
-			ActorUserID:  userID,
-			ActorRole:    user.Role,
-			Message:      failedRenewLoginSessionMessage,
-			ErrorMessage: "The refresh token was issued before the account's tokens were revoked",
-		})
+	accessToken, refreshToken, ok := flow.issueTokens(user)
+	if !ok || !flow.rotateSession(session, user, accessToken, refreshToken) {
 		return
-	}
-
-	if h.SessionSvc == nil {
-		// Claim the old refresh token: the blacklist has a unique key, so of two
-		// concurrent refreshes only one gets past this point.
-		if err = h.Service.LogoutUser(reqCtx, req.RefreshToken); err != nil {
-			if errors.Is(err, domainauth.ErrDuplicate) {
-				h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
-					ActorUserID:  userID,
-					ActorRole:    user.Role,
-					Message:      failedRenewLoginSessionMessage,
-					ErrorMessage: "The refresh token was already used",
-				})
-				return
-			}
-			h.failRefresh(ctx, logID, logPrefix, "Service.LogoutUser(refresh)", err, domainaudit.AuditEvent{
-				ActorUserID: userID,
-				ActorRole:   user.Role,
-				ResourceID:  userID,
-				Message:     "Failed to revoke previous login session token",
-			})
-			return
-		}
-	}
-
-	accessToken, err := h.Tokens.Generate(user.ID, user.Name, user.Role, issuedAfter(user))
-	if err != nil {
-		h.failRefresh(ctx, logID, logPrefix, "GenerateJwtWithClaims", err, domainaudit.AuditEvent{
-			ActorUserID: userID,
-			ActorRole:   user.Role,
-			ResourceID:  userID,
-			Message:     "Failed to issue a new access token",
-		})
-		return
-	}
-
-	refreshToken, err := h.Tokens.GenerateRefresh(user.ID, user.Name, user.Role, issuedAfter(user))
-	if err != nil {
-		h.failRefresh(ctx, logID, logPrefix, "GenerateRefreshJwt", err, domainaudit.AuditEvent{
-			ActorUserID: userID,
-			ActorRole:   user.Role,
-			ResourceID:  userID,
-			Message:     "Failed to issue a new refresh token",
-		})
-		return
-	}
-
-	if session != nil {
-		refreshExpAt, withinCap := h.sessionExpiry(session.LoginAt)
-		if !withinCap {
-			if destroyErr := h.SessionSvc.DestroySession(reqCtx, session.SessionID); destroyErr != nil {
-				logus.LogContextf(ctx, logus.LevelError, "%s; SessionSvc.DestroySession; ERROR: %s;", logPrefix, destroyErr)
-			}
-			h.rejectRefresh(ctx, logID, "session has reached its maximum lifetime", domainaudit.AuditEvent{
-				ActorUserID:  userID,
-				ActorRole:    user.Role,
-				Message:      failedRenewLoginSessionMessage,
-				ErrorMessage: "The session exceeded its absolute lifetime",
-			})
-			return
-		}
-		if sessionErr := h.SessionSvc.RotateSessionTokens(reqCtx, session.SessionID, accessToken, refreshToken, refreshExpAt); sessionErr != nil {
-			if errors.Is(sessionErr, domainsession.ErrRefreshReused) {
-				h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
-					ActorUserID:  userID,
-					ActorRole:    user.Role,
-					Message:      failedRenewLoginSessionMessage,
-					ErrorMessage: "The refresh token was used concurrently; the session was revoked",
-				})
-				return
-			}
-			h.failRefresh(ctx, logID, logPrefix, "SessionSvc.RotateSessionTokens", sessionErr, domainaudit.AuditEvent{
-				ActorUserID: userID,
-				ActorRole:   user.Role,
-				ResourceID:  userID,
-				Message:     "Failed to rotate login session tokens",
-				Metadata: map[string]any{
-					"session_id": session.SessionID,
-				},
-			})
-			return
-		}
 	}
 
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
-		ActorUserID: userID,
+		ActorUserID: flow.userID,
 		ActorRole:   user.Role,
 		Action:      domainaudit.ActionRefresh,
 		Resource:    "auth_token",
-		ResourceID:  userID,
+		ResourceID:  flow.userID,
 		Status:      domainaudit.StatusSuccess,
 		Message:     "Renewed login session",
 	})
@@ -829,7 +674,7 @@ func (h *Handler) GetUserByAuth(ctx *gin.Context) {
 	}
 
 	res := gokit.Response(http.StatusOK, "success", logID, data)
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(data)))
+	logus.LogContextf(ctx, logus.LevelDebug, logResponseFormat, logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(data)))
 	ctx.JSON(http.StatusOK, res)
 }
 
@@ -1023,7 +868,7 @@ func (h *Handler) UpdateUserByID(ctx *gin.Context) {
 	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Request: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(req)))
+	logus.LogContextf(ctx, logus.LevelDebug, logRequestFormat, logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(req)))
 
 	h.updateUser(ctx, logID, logPrefix, id, req, "Failed to update user by ID", "Updated user by ID")
 }
