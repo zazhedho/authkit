@@ -6,9 +6,9 @@ CREATE TABLE IF NOT EXISTS app_configs (
     value TEXT NOT NULL DEFAULT '',
     description TEXT,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP,
-    deleted_at TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ,
+    deleted_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_app_configs_category ON app_configs(category);

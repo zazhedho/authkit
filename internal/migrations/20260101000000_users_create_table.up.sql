@@ -6,22 +6,22 @@ CREATE TABLE IF NOT EXISTS users (
     password VARCHAR(255) NOT NULL,
     role VARCHAR(50) DEFAULT 'viewer',
     role_id UUID,
-    email_verified_at TIMESTAMP,
-    phone_verified_at TIMESTAMP,
-    last_login_at TIMESTAMP,
+    email_verified_at TIMESTAMPTZ,
+    phone_verified_at TIMESTAMPTZ,
+    last_login_at TIMESTAMPTZ,
     last_login_ip VARCHAR(45),
     last_login_user_agent TEXT,
-    password_changed_at TIMESTAMP,
-    -- Tokens issued before this instant are void; bumped on delete, role, password and email change.
+    password_changed_at TIMESTAMPTZ,
+    -- Tokens issued at or before this instant are void; set from the database clock in the same statement as a role, password or email change.
     tokens_valid_after TIMESTAMPTZ,
     -- The "sub" of the linked Google account.
     google_subject VARCHAR(255),
     login_provider VARCHAR(50) DEFAULT 'local',
     avatar_url TEXT,
     metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP,
-    deleted_at TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ,
+    deleted_at TIMESTAMPTZ
 );
 
 -- Unique values apply to live rows only, so an email or phone can be reused after a soft delete.
@@ -38,9 +38,8 @@ CREATE TABLE IF NOT EXISTS blacklist (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     -- The hex sha256 of the revoked token, never the token itself.
     token TEXT UNIQUE NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP NOT NULL
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_blacklist_token ON blacklist(token);
 CREATE INDEX IF NOT EXISTS idx_blacklist_expires_at ON blacklist(expires_at);

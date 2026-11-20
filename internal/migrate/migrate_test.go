@@ -533,3 +533,24 @@ func TestModuleSeedSQLRunsAndDetectsPermissionNameCollisions(t *testing.T) {
 		t.Fatalf("collision err = %v, want the module-seed guard", err)
 	}
 }
+
+func TestEveryTimestampColumnIsTimestamptzAndTheBlacklistIndexIsNotDuplicated(t *testing.T) {
+	db, _, _ := testSchema(t)
+	if err := Up(t.Context(), db); err != nil {
+		t.Fatal(err)
+	}
+	var plain []string
+	err := db.Raw(`SELECT table_name || '.' || column_name FROM information_schema.columns
+		WHERE table_schema = current_schema() AND data_type = 'timestamp without time zone'
+		AND table_name <> 'authkit_schema_migrations' ORDER BY 1`).Scan(&plain).Error
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plain) != 0 {
+		t.Fatalf("timestamp columns without a time zone: %v", plain)
+	}
+	var dup int64
+	if err := db.Raw(`SELECT count(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_blacklist_token'`).Scan(&dup).Error; err != nil || dup != 0 {
+		t.Fatalf("idx_blacklist_token duplicates the UNIQUE constraint (found %d, err %v)", dup, err)
+	}
+}

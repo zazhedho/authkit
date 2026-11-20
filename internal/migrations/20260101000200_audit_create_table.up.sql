@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS audit_trails (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     actor_user_id UUID,
     actor_role VARCHAR(50),
     action VARCHAR(50) NOT NULL,
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS audit_trails (
     before_data TEXT,
     after_data TEXT,
     metadata TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_trails_occurred_at ON audit_trails(occurred_at);
