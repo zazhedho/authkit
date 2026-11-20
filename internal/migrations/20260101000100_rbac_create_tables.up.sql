@@ -99,113 +99,84 @@ INSERT INTO roles (id, name, display_name, description, is_system) VALUES
     (gen_random_uuid(), 'viewer', 'Viewer', 'Read-only access', TRUE)
 ON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING;
 
--- Insert menu items
-INSERT INTO menu_items (id, name, display_name, path, icon, order_index) VALUES
-    (gen_random_uuid(), 'dashboard', 'Dashboard', '/dashboard', 'bi-speedometer2', 1),
-    (gen_random_uuid(), 'profile', 'Profile', '/profile', 'bi-person-circle', 2),
-    (gen_random_uuid(), 'users', 'Users', '/users', 'bi-people', 900),
-    (gen_random_uuid(), 'roles', 'Roles', '/roles', 'bi-shield-lock', 901),
-    (gen_random_uuid(), 'menus', 'Menus', '/menus', 'bi-list-ul', 902),
-    (gen_random_uuid(), 'audits', 'Audit Trails', '/audits', 'bi-journal-text', 904)
+-- Insert menu items. The name is the path without its leading slash.
+INSERT INTO menu_items (id, name, display_name, path, icon, order_index)
+SELECT gen_random_uuid(), ltrim(v.path, '/'), v.display_name, v.path, v.icon, v.order_index
+FROM (VALUES
+    ('Dashboard', '/dashboard', 'bi-speedometer2', 1),
+    ('Profile', '/profile', 'bi-person-circle', 2),
+    ('Users', '/users', 'bi-people', 900),
+    ('Roles', '/roles', 'bi-shield-lock', 901),
+    ('Menus', '/menus', 'bi-list-ul', 902),
+    ('Audit Trails', '/audits', 'bi-journal-text', 904)
+) AS v(display_name, path, icon, order_index)
 ON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING;
 
--- Insert permissions
-INSERT INTO permissions (id, name, display_name, resource, action) VALUES
+-- Insert permissions. The k row holds each resource and action name once.
+WITH k AS (
+    SELECT 'dashboard' AS dashboard, 'users' AS users, 'roles' AS roles, 'menus' AS menus,
+           'permissions' AS permissions, 'audits' AS audits, 'profile' AS profile,
+           'create' AS create_, 'update' AS update_, 'delete' AS delete_
+)
+INSERT INTO permissions (id, name, display_name, resource, action)
+SELECT gen_random_uuid(), v.name, v.display_name, v.resource, v.action
+FROM k
+CROSS JOIN LATERAL (VALUES
     -- Dashboard permissions
-    (gen_random_uuid(), 'view_dashboard', 'View Dashboard', 'dashboard', 'view'),
+    ('view_dashboard', 'View Dashboard', k.dashboard, 'view'),
 
     -- User permissions
-    (gen_random_uuid(), 'list_users', 'List Users', 'users', 'list'),
-    (gen_random_uuid(), 'view_users', 'View User Detail', 'users', 'view'),
-    (gen_random_uuid(), 'create_users', 'Create Users', 'users', 'create'),
-    (gen_random_uuid(), 'impersonate_users', 'Impersonate Users', 'users', 'impersonate'),
-    (gen_random_uuid(), 'update_users', 'Update Users', 'users', 'update'),
-    (gen_random_uuid(), 'assign_role_users', 'Assign User Roles', 'users', 'assign_role'),
-    (gen_random_uuid(), 'update_password_users', 'Update Password Users', 'users', 'update_password'),
-    (gen_random_uuid(), 'delete_users', 'Delete Users', 'users', 'delete'),
+    ('list_users', 'List Users', k.users, 'list'),
+    ('view_users', 'View User Detail', k.users, 'view'),
+    ('create_users', 'Create Users', k.users, k.create_),
+    ('impersonate_users', 'Impersonate Users', k.users, 'impersonate'),
+    ('update_users', 'Update Users', k.users, k.update_),
+    ('assign_role_users', 'Assign User Roles', k.users, 'assign_role'),
+    ('update_password_users', 'Update Password Users', k.users, 'update_password'),
+    ('delete_users', 'Delete Users', k.users, k.delete_),
 
     -- Role permissions
-    (gen_random_uuid(), 'list_roles', 'List Roles', 'roles', 'list'),
-    (gen_random_uuid(), 'view_roles', 'View Role Detail', 'roles', 'view'),
-    (gen_random_uuid(), 'create_roles', 'Create Roles', 'roles', 'create'),
-    (gen_random_uuid(), 'update_roles', 'Update Roles', 'roles', 'update'),
-    (gen_random_uuid(), 'delete_roles', 'Delete Roles', 'roles', 'delete'),
-    (gen_random_uuid(), 'manage_system_roles', 'Manage System Roles', 'roles', 'manage_system'),
-    (gen_random_uuid(), 'assign_permissions', 'Assign Permissions', 'roles', 'assign_permissions'),
+    ('list_roles', 'List Roles', k.roles, 'list'),
+    ('view_roles', 'View Role Detail', k.roles, 'view'),
+    ('create_roles', 'Create Roles', k.roles, k.create_),
+    ('update_roles', 'Update Roles', k.roles, k.update_),
+    ('delete_roles', 'Delete Roles', k.roles, k.delete_),
+    ('manage_system_roles', 'Manage System Roles', k.roles, 'manage_system'),
+    ('assign_permissions', 'Assign Permissions', k.roles, 'assign_permissions'),
 
     -- Menu permissions
-    (gen_random_uuid(), 'list_menus', 'List Menus', 'menus', 'list'),
-    (gen_random_uuid(), 'view_menu', 'View Menu Detail', 'menus', 'view'),
-    (gen_random_uuid(), 'update_menu', 'Update Menu', 'menus', 'update'),
+    ('list_menus', 'List Menus', k.menus, 'list'),
+    ('view_menu', 'View Menu Detail', k.menus, 'view'),
+    ('update_menu', 'Update Menu', k.menus, k.update_),
 
     -- Permission management permissions
-    (gen_random_uuid(), 'list_permissions', 'List Permissions', 'permissions', 'list'),
-    (gen_random_uuid(), 'view_permissions', 'View Permission Detail', 'permissions', 'view'),
-    (gen_random_uuid(), 'create_permissions', 'Create Permissions', 'permissions', 'create'),
-    (gen_random_uuid(), 'update_permissions', 'Update Permissions', 'permissions', 'update'),
-    (gen_random_uuid(), 'delete_permissions', 'Delete Permissions', 'permissions', 'delete'),
+    ('list_permissions', 'List Permissions', k.permissions, 'list'),
+    ('view_permissions', 'View Permission Detail', k.permissions, 'view'),
+    ('create_permissions', 'Create Permissions', k.permissions, k.create_),
+    ('update_permissions', 'Update Permissions', k.permissions, k.update_),
+    ('delete_permissions', 'Delete Permissions', k.permissions, k.delete_),
 
     -- Audit permissions
-    (gen_random_uuid(), 'list_audits', 'List Audit Trails', 'audits', 'list'),
-    (gen_random_uuid(), 'view_audits', 'View Audit Trail Detail', 'audits', 'view'),
+    ('list_audits', 'List Audit Trails', k.audits, 'list'),
+    ('view_audits', 'View Audit Trail Detail', k.audits, 'view'),
 
     -- Profile permissions
-    (gen_random_uuid(), 'view_profile', 'View Profile', 'profile', 'view'),
-    (gen_random_uuid(), 'update_profile', 'Update Profile', 'profile', 'update'),
-    (gen_random_uuid(), 'update_password_profile', 'Update Password Profile', 'profile', 'update_password'),
-    (gen_random_uuid(), 'delete_profile', 'Delete Profile', 'profile', 'delete')
+    ('view_profile', 'View Profile', k.profile, 'view'),
+    ('update_profile', 'Update Profile', k.profile, k.update_),
+    ('update_password_profile', 'Update Password Profile', k.profile, 'update_password'),
+    ('delete_profile', 'Delete Profile', k.profile, k.delete_)
+) AS v(name, display_name, resource, action)
 ON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING;
 
--- Assign all permissions to admin role
+-- admin and superadmin get every permission. staff gets read and write, and viewer
+-- gets read only, on the dashboard, menu and profile resources.
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id
 FROM roles r
-CROSS JOIN permissions p
-WHERE r.name = 'admin'
-ON CONFLICT DO NOTHING;
-
--- Assign read and write permissions to staff role
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id
-FROM roles r
-CROSS JOIN permissions p
-WHERE r.name = 'staff'
-AND p.action IN ('list', 'view', 'create', 'update')
-AND p.resource NOT IN ('users', 'roles', 'permissions', 'audits')
-ON CONFLICT DO NOTHING;
-
--- Assign view profile permission to staff
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id
-FROM roles r
-CROSS JOIN permissions p
-WHERE r.name = 'staff'
-AND p.name IN ('view_profile', 'update_profile', 'view_dashboard')
-ON CONFLICT DO NOTHING;
-
--- Assign only view permissions to viewer role
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id
-FROM roles r
-CROSS JOIN permissions p
-WHERE r.name = 'viewer'
-AND p.action IN ('list', 'view')
-AND p.resource NOT IN ('users', 'roles', 'permissions', 'audits')
-ON CONFLICT DO NOTHING;
-
--- Assign view profile permission to viewer
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id
-FROM roles r
-CROSS JOIN permissions p
-WHERE r.name = 'viewer'
-AND p.name IN ('view_profile', 'view_dashboard')
-ON CONFLICT DO NOTHING;
-
--- Assign all permissions to superadmin role
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id
-FROM roles r
-CROSS JOIN permissions p
-WHERE r.name = 'superadmin'
+JOIN permissions p
+    ON r.name IN ('admin', 'superadmin')
+    OR (p.resource IN ('dashboard', 'menus', 'profile') AND (
+        (r.name = 'staff' AND p.action IN ('list', 'view', 'create', 'update'))
+        OR (r.name = 'viewer' AND p.action IN ('list', 'view'))
+    ))
 ON CONFLICT DO NOTHING;
