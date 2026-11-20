@@ -150,7 +150,8 @@ func (s *BrevoSender) sendContext(ctx context.Context, to string, msg []byte) er
 	}
 	addr := net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
 	dialer := net.Dialer{Timeout: dialTimeout}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	// SMTP starts in plain text by protocol; STARTTLS is enforced below before any data.
+	conn, err := dialer.DialContext(ctx, "tcp", addr) // NOSONAR go:S5332
 	if err != nil {
 		return fmt.Errorf("mailer: dial: %w", err)
 	}
