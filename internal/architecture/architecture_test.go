@@ -105,24 +105,33 @@ func connectionVars(file *ast.File) []string {
 			continue
 		}
 		for _, spec := range gen.Specs {
-			vs := spec.(*ast.ValueSpec)
-			if vs.Type == nil {
-				continue
-			}
-			expr := vs.Type
-			if star, ok := expr.(*ast.StarExpr); ok {
-				expr = star.X
-			}
-			sel, ok := expr.(*ast.SelectorExpr)
-			if !ok {
-				continue
-			}
-			if pkg, ok := sel.X.(*ast.Ident); ok && banned[pkg.Name+"."+sel.Sel.Name] {
-				out = append(out, pkg.Name+"."+sel.Sel.Name)
+			if name, ok := bannedVarType(spec.(*ast.ValueSpec), banned); ok {
+				out = append(out, name)
 			}
 		}
 	}
 	return out
+}
+
+// bannedVarType is the "pkg.Type" of a typed var spec when it is in banned.
+func bannedVarType(vs *ast.ValueSpec, banned map[string]bool) (string, bool) {
+	if vs.Type == nil {
+		return "", false
+	}
+	expr := vs.Type
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
+	}
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok {
+		return "", false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return "", false
+	}
+	name := pkg.Name + "." + sel.Sel.Name
+	return name, banned[name]
 }
 
 func TestNoPackageLevelConnections(t *testing.T) {
@@ -396,27 +405,7 @@ func collectViolations(t *testing.T) map[string]bool {
 		if d.IsDir() || !strings.HasSuffix(p, ".go") {
 			return nil
 		}
-		isTest := strings.HasSuffix(p, "_test.go")
-		dir := path.Dir(p)
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(root, p), nil, parser.ImportsOnly)
-		if err != nil {
-			return err
-		}
-		for _, imp := range file.Imports {
-			ip, err := strconv.Unquote(imp.Path.Value)
-			if err != nil {
-				return err
-			}
-			for _, r := range rules {
-				if !applies(r, dir) {
-					continue
-				}
-				if violates(r, ip, isTest) {
-					found[dir+" -> "+ip] = true
-				}
-			}
-		}
-		return nil
+		return recordImportViolations(filepath.Join(root, p), p, found)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -424,49 +413,61 @@ func collectViolations(t *testing.T) map[string]bool {
 	return found
 }
 
-func violates(r rule, ip string, isTest bool) bool {
-	if internal, ok := strings.CutPrefix(ip, modulePath+"/"); ok {
-		if isTest {
-			for _, a := range r.testInternalAllowed {
-				if matchesPrefix(internal, a) {
-					return false
-				}
+// recordImportViolations adds to found every import of the file at p (read from
+// disk at filePath) that breaks a rule for its directory.
+func recordImportViolations(filePath, p string, found map[string]bool) error {
+	isTest := strings.HasSuffix(p, "_test.go")
+	dir := path.Dir(p)
+	file, err := parser.ParseFile(token.NewFileSet(), filePath, nil, parser.ImportsOnly)
+	if err != nil {
+		return err
+	}
+	for _, imp := range file.Imports {
+		ip, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			return err
+		}
+		for _, r := range rules {
+			if applies(r, dir) && violates(r, ip, isTest) {
+				found[dir+" -> "+ip] = true
 			}
 		}
-		if r.internalAllowed != nil {
-			for _, a := range r.internalAllowed {
-				if matchesPrefix(internal, a) {
-					return false
-				}
-			}
+	}
+	return nil
+}
+
+// anyMatch reports whether match holds between s and any entry of list.
+func anyMatch(list []string, s string, match func(s, prefix string) bool) bool {
+	for _, entry := range list {
+		if match(s, entry) {
 			return true
 		}
-		for _, f := range r.forbidInternal {
-			if f == "internal/" {
-				return true
-			}
-			if matchesPrefix(internal, f) {
-				return true
-			}
-		}
-		return false
 	}
-	if isTest && !r.testsToo {
-		return false
+	return false
+}
+
+func violates(r rule, ip string, isTest bool) bool {
+	if internal, ok := strings.CutPrefix(ip, modulePath+"/"); ok {
+		return violatesInternal(r, internal, isTest)
 	}
-	if isStdlib(ip) {
+	if (isTest && !r.testsToo) || isStdlib(ip) {
 		return false
 	}
 	if r.externalAllowed != nil {
-		for _, a := range r.externalAllowed {
-			if pathUnder(ip, a) {
-				return false
-			}
-		}
-		return true
+		return !anyMatch(r.externalAllowed, ip, pathUnder)
 	}
-	for _, f := range r.forbidExternal {
-		if matchesPrefix(ip, f) {
+	return anyMatch(r.forbidExternal, ip, matchesPrefix)
+}
+
+func violatesInternal(r rule, internal string, isTest bool) bool {
+	if isTest && anyMatch(r.testInternalAllowed, internal, matchesPrefix) {
+		return false
+	}
+	if r.internalAllowed != nil {
+		return !anyMatch(r.internalAllowed, internal, matchesPrefix)
+	}
+	for _, f := range r.forbidInternal {
+		if f == "internal/" || matchesPrefix(internal, f) {
 			return true
 		}
 	}
