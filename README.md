@@ -323,7 +323,7 @@ func main() {}
 
 ### Mailer
 
-`Config.Mailer` is the `authkit.Mailer` interface. `NewBrevoMailer` returns a Brevo SMTP implementation (`BrevoConfig`: `Host`, `Port`, `User`, `Pass`, `From` and optional `OTPSubject`, `ResetSubject`, `AppName`). To send through another provider, implement the interface:
+`Config.Mailer` is the `authkit.Mailer` interface. `NewBrevoMailer` returns a Brevo SMTP implementation (`BrevoConfig`: `Host`, `Port`, `User`, `Pass`, `From` and optional `OTPSubject`, `ResetSubject`, `AppName`). It requires STARTTLS on every host except loopback, so OTP codes and reset links never travel in clear text. To send through another provider, implement the interface:
 
 ```go
 package main

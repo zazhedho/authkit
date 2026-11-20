@@ -196,3 +196,23 @@ func TestSendStopsWhenTheCallersContextIsCancelled(t *testing.T) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 }
+
+func TestTLSIsRequiredExceptOnLoopback(t *testing.T) {
+	for _, tc := range []struct {
+		host string
+		want bool
+	}{
+		{"smtp-relay.brevo.com", false},
+		{"10.0.0.5", false},
+		{"localhost", true},
+		{"127.0.0.1", true},
+		{"::1", true},
+	} {
+		if got := isLoopbackHost(tc.host); got != tc.want {
+			t.Errorf("isLoopbackHost(%q) = %v, want %v", tc.host, got, tc.want)
+		}
+	}
+	if !errors.Is(ErrTLSRequired, ErrTLSRequired) || ErrTLSRequired.Error() == "" {
+		t.Fatal("ErrTLSRequired must be a usable sentinel")
+	}
+}

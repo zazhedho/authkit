@@ -121,6 +121,17 @@ const (
 	defaultSendTimeout = 30 * time.Second
 )
 
+// ErrTLSRequired is returned when a non-loopback SMTP server does not offer STARTTLS.
+var ErrTLSRequired = errors.New("mailer: SMTP server does not offer STARTTLS")
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func (s *BrevoSender) send(ctx context.Context, to string, msg []byte) error {
 	timeout := s.SendTimeout
 	if timeout <= 0 {
@@ -157,10 +168,14 @@ func (s *BrevoSender) sendContext(ctx context.Context, to string, msg []byte) er
 	}
 	defer func() { _ = client.Close() }()
 
+	// OTP codes and reset links must never travel in clear text, so a missing
+	// STARTTLS (possibly stripped by an attacker) is fatal except on loopback.
 	if ok, _ := client.Extension("STARTTLS"); ok {
 		if err := client.StartTLS(&tls.Config{ServerName: s.Host, MinVersion: tls.VersionTLS12}); err != nil {
 			return fmt.Errorf("mailer: starttls: %w", err)
 		}
+	} else if !isLoopbackHost(s.Host) {
+		return ErrTLSRequired
 	}
 	if ok, _ := client.Extension("AUTH"); ok {
 		if err := client.Auth(smtp.PlainAuth("", s.User, s.Pass, s.Host)); err != nil {
