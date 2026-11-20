@@ -302,3 +302,38 @@ func TestUpdateUserByIDDebugLogRedactsTheCurrentPassword(t *testing.T) {
 		t.Fatalf("the plaintext password reached the log:\n%s", buf.String())
 	}
 }
+
+func TestDeleteByIDOfYourOwnAccountNeedsThePasswordAndIsClosedToImpersonators(t *testing.T) {
+	id := uuid.NewString()
+	call := func(handler *Handler, scope domainauth.Scope, body string) int {
+		ctx, rec := newUserHandlerTestContext(t, http.MethodDelete, "/user/"+id, body, &scope)
+		ctx.Params = gin.Params{{Key: "id", Value: id}}
+		handler.DeleteUserByID(ctx)
+		return rec.Code
+	}
+	own := domainauth.New(id, "Jane", "viewer", nil)
+
+	handler := newUserHandlerForTest()
+	if got := call(handler, own, `{}`); got != http.StatusBadRequest {
+		t.Fatalf("own id without current_password: %d, want 400", got)
+	}
+	bad := newUserHandlerForTest()
+	bad.Service.(*userServiceTestDouble).err = domainuser.ErrPasswordIncorrect
+	if got := call(bad, own, `{"current_password":"wrong-pass"}`); got != http.StatusBadRequest {
+		t.Fatalf("own id with a wrong password: %d, want 400", got)
+	}
+	if got := call(newUserHandlerForTest(), own, `{"current_password":"secret123"}`); got != http.StatusOK {
+		t.Fatalf("own id with the password: %d, want 200", got)
+	}
+
+	impersonated := own
+	impersonated.IsImpersonated, impersonated.OriginalUserID = true, "admin-1"
+	if got := call(newUserHandlerForTest(), impersonated, `{"current_password":"secret123"}`); got != http.StatusForbidden {
+		t.Fatalf("an impersonator deleting the impersonated account: %d, want 403", got)
+	}
+
+	other := domainauth.New("someone-else", "Admin", "admin", nil)
+	if got := call(newUserHandlerForTest(), other, ``); got != http.StatusOK {
+		t.Fatalf("another user's id needs no password: %d, want 200", got)
+	}
+}
