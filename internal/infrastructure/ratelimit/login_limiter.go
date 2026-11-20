@@ -18,7 +18,7 @@ type LoginLimiter interface {
 }
 
 type redisLoginLimiter struct {
-	client        *redis.Client
+	client        redis.UniversalClient
 	limit         int
 	window        time.Duration
 	blockDuration time.Duration
@@ -26,7 +26,7 @@ type redisLoginLimiter struct {
 
 // NewRedisLoginLimiter returns a Redis-backed LoginLimiter, or nil when client
 // is nil or limit, window or blockDuration is not positive.
-func NewRedisLoginLimiter(client *redis.Client, limit int, window, blockDuration time.Duration) LoginLimiter {
+func NewRedisLoginLimiter(client redis.UniversalClient, limit int, window, blockDuration time.Duration) LoginLimiter {
 	if client == nil || limit <= 0 || window <= 0 || blockDuration <= 0 {
 		return nil
 	}

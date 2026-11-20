@@ -3,6 +3,7 @@ package authkit
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -34,8 +35,8 @@ type FlagKeys = config.FlagKeys
 // other zero values take defaults. OTP.Secret and Reset.Secret have no default
 // and are required when both Redis and Mailer are set.
 type Config struct {
-	DB    *gorm.DB      // required
-	Redis *redis.Client // optional
+	DB    *gorm.DB              // required
+	Redis redis.UniversalClient // optional
 	// Mailer sends both OTP and reset emails. OTPMailer and ResetMailer, when
 	// set, take precedence for their own flow, so the two can use different
 	// senders or only one can be enabled.
@@ -140,6 +141,7 @@ const (
 // withDefaults returns c with every unset (zero or non-positive) value replaced
 // by its default. It never invents a secret.
 func (c Config) withDefaults() Config {
+	c.Redis = untypedNil(c.Redis)
 	if c.AccessTokenTTL <= 0 {
 		c.AccessTokenTTL = defaultAccessTTL
 	}
@@ -359,4 +361,14 @@ func googleClientIDsFromEnv() []string {
 	}
 	add(gokit.GetEnv("GOOGLE_CLIENT_ID", ""))
 	return ids
+}
+
+// untypedNil turns a nil pointer stored in the interface (a nil *redis.Client
+// passed as Config.Redis) into a nil interface, so "Redis is disabled" has one
+// spelling and nothing downstream calls a method on a nil client.
+func untypedNil(c redis.UniversalClient) redis.UniversalClient {
+	if v := reflect.ValueOf(c); v.Kind() == reflect.Pointer && v.IsNil() {
+		return nil
+	}
+	return c
 }

@@ -115,7 +115,7 @@ type BrevoConfig alias struct
 	field AppName string
 type Config struct
 	field DB *gorm.io/gorm.DB
-	field Redis *github.com/redis/go-redis/v9.Client
+	field Redis github.com/redis/go-redis/v9.UniversalClient
 	field Mailer Mailer
 	field OTPMailer OTPMailer
 	field ResetMailer ResetMailer

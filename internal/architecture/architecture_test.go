@@ -97,7 +97,7 @@ func TestFatalRuleDetectsViolations(t *testing.T) {
 // connectionVars lists package-level variables whose type is a database or
 // cache client; connections are built in the root package and passed down.
 func connectionVars(file *ast.File) []string {
-	banned := map[string]bool{"redis.Client": true, "gorm.DB": true, "sql.DB": true}
+	banned := map[string]bool{"redis.Client": true, "redis.UniversalClient": true, "gorm.DB": true, "sql.DB": true}
 	var out []string
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
@@ -257,7 +257,7 @@ var rules = []rule{
 // knownLayers is every top-level directory of internal/. A new layer needs a
 // rule in rules above and a line in the README's dependency rule before it is
 // added here.
-var knownLayers = []string{"architecture", "config", "domain", "dto", "handlers", "infrastructure", "migrations", "moduleseed", "repositories", "services", "testutil"}
+var knownLayers = []string{"architecture", "config", "domain", "dto", "handlers", "infrastructure", "migrations", "moduleseed", "repositories", "router", "services", "testutil"}
 
 // layerProblems compares the directories found under internal/ with knownLayers.
 func layerProblems(found []string) []string {

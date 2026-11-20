@@ -566,3 +566,25 @@ func TestMailerCanBeSplitIntoOTPAndReset(t *testing.T) {
 		t.Fatal("Mailer feeds both flows")
 	}
 }
+
+func TestTypedNilRedisCountsAsDisabled(t *testing.T) {
+	var typedNil *redis.Client
+	cfg := validConfig()
+	cfg.Redis = typedNil
+	if cfg.Redis == nil {
+		t.Fatal("test setup: the interface should hold a typed nil")
+	}
+	if got := cfg.withDefaults(); got.Redis != nil {
+		t.Fatalf("withDefaults kept a typed nil Redis: %#v", got.Redis)
+	}
+	kit, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	engine := mountedEngine(t, kit)
+	for _, r := range registeredRoutes(engine) {
+		if strings.Contains(r, "/sessions") || strings.Contains(r, "/session/") {
+			t.Fatalf("session route %s mounted for a typed-nil Redis", r)
+		}
+	}
+}

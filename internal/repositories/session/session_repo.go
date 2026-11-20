@@ -18,10 +18,10 @@ import (
 )
 
 type Repository struct {
-	Redis *redis.Client
+	Redis redis.UniversalClient
 }
 
-func NewRepository(redisClient *redis.Client) *Repository {
+func NewRepository(redisClient redis.UniversalClient) *Repository {
 	return &Repository{
 		Redis: redisClient,
 	}

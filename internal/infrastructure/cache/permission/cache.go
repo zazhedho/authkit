@@ -29,7 +29,7 @@ func StateKey(userID string) string {
 	return stateKeyPrefix + userID
 }
 
-func GetUserPermissionKeys(ctx context.Context, client *redis.Client, userID string) ([]string, bool) {
+func GetUserPermissionKeys(ctx context.Context, client redis.UniversalClient, userID string) ([]string, bool) {
 	if client == nil {
 		return nil, false
 	}
@@ -48,7 +48,7 @@ func GetUserPermissionKeys(ctx context.Context, client *redis.Client, userID str
 
 // SetUserPermissionKeys caches keys for ttl; ttl <= 0 means no caching, since
 // redis treats 0 as never expiring and would serve stale permissions.
-func SetUserPermissionKeys(ctx context.Context, client *redis.Client, userID string, permissionKeys []string, ttl time.Duration) {
+func SetUserPermissionKeys(ctx context.Context, client redis.UniversalClient, userID string, permissionKeys []string, ttl time.Duration) {
 	if client == nil || ttl <= 0 {
 		return
 	}
@@ -60,7 +60,7 @@ func SetUserPermissionKeys(ctx context.Context, client *redis.Client, userID str
 	_ = client.Set(ctx, Key(userID), string(raw), ttl).Err()
 }
 
-func DeleteUserPermissionKeys(ctx context.Context, client *redis.Client, userIDs ...string) {
+func DeleteUserPermissionKeys(ctx context.Context, client redis.UniversalClient, userIDs ...string) {
 	if client == nil {
 		return
 	}
@@ -84,7 +84,7 @@ func DeleteUserPermissionKeys(ctx context.Context, client *redis.Client, userIDs
 
 // DeleteAllUserPermissionKeys deletes every cached permission set; auth states
 // are per user and survive.
-func DeleteAllUserPermissionKeys(ctx context.Context, client *redis.Client) {
+func DeleteAllUserPermissionKeys(ctx context.Context, client redis.UniversalClient) {
 	if client == nil {
 		return
 	}
@@ -111,10 +111,10 @@ func DeleteAllUserPermissionKeys(ctx context.Context, client *redis.Client) {
 // Cache is the Redis-backed store of a user's permission keys. A Cache built
 // from a nil client never hits and ignores writes.
 type Cache struct {
-	client *redis.Client
+	client redis.UniversalClient
 }
 
-func NewCache(client *redis.Client) *Cache {
+func NewCache(client redis.UniversalClient) *Cache {
 	return &Cache{client: client}
 }
 

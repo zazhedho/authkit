@@ -281,8 +281,9 @@ func routeTable(t *testing.T, kit *Kit) string {
 	chains := map[string][]string{}
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) {
-		var chain []string
-		for _, n := range c.HandlerNames()[1:] {
+		names := c.HandlerNames()[1:]
+		chain := make([]string, 0, len(names))
+		for _, n := range names {
 			chain = append(chain, chainToken(n))
 		}
 		chains[c.Request.Method+" "+c.FullPath()] = chain
