@@ -218,7 +218,14 @@ func newE2E(t *testing.T, withRedis bool) *e2e {
 			AccessTTL: 15 * time.Minute, RefreshTTL: time.Hour, SessionMaxLifetime: 24 * time.Hour,
 		},
 	})
-	mdw, err := middleware.New(blacklist, noPermissions{}, nil, tokens, time.Minute, h.users, nil, index)
+	mdw, err := middleware.New(middleware.Dependencies{
+		BlacklistRepo:      blacklist,
+		PermissionRepo:     noPermissions{},
+		Tokens:             tokens,
+		PermissionCacheTTL: time.Minute,
+		Users:              h.users,
+		Sessions:           index,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,6 +21,12 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	msgInvalidOrExpired = "Invalid or expired token. Please login again."
+	msgSessionInvalid   = "Your session is no longer valid. Please login again."
+	logAuthDataNotFound = "%s; AuthData not found"
+)
+
 // Middleware authenticates requests and checks roles and permissions.
 type Middleware struct {
 	BlacklistRepo   TokenRevocations
@@ -40,29 +46,34 @@ type Middleware struct {
 // safely without is nil.
 var ErrMissingDependency = errors.New("middleware: a required dependency is nil")
 
-// New builds the middleware. blacklistRepo, permissionRepo, tokens and users
-// are required: without users Auth could only trust the token's role claim.
-// permissionCache, stateCache and sessions may be nil (no caching, sessions off).
-func New(blacklistRepo TokenRevocations,
-	permissionRepo PermissionLookup,
-	permissionCache PermissionCache,
-	tokens TokenVerifier,
-	permissionCacheTTL time.Duration,
-	users UserStates,
-	stateCache StateCache,
-	sessions SessionIndex) (*Middleware, error) {
-	if blacklistRepo == nil || permissionRepo == nil || tokens == nil || users == nil {
+// Dependencies are the collaborators New wires into a Middleware.
+type Dependencies struct {
+	BlacklistRepo      TokenRevocations
+	PermissionRepo     PermissionLookup
+	PermissionCache    PermissionCache
+	Tokens             TokenVerifier
+	PermissionCacheTTL time.Duration
+	Users              UserStates
+	StateCache         StateCache
+	Sessions           SessionIndex
+}
+
+// New builds the middleware. BlacklistRepo, PermissionRepo, Tokens and Users
+// are required: without Users, Auth could only trust the token's role claim.
+// PermissionCache, StateCache and Sessions may be nil (no caching, sessions off).
+func New(deps Dependencies) (*Middleware, error) {
+	if deps.BlacklistRepo == nil || deps.PermissionRepo == nil || deps.Tokens == nil || deps.Users == nil {
 		return nil, ErrMissingDependency
 	}
 	return &Middleware{
-		BlacklistRepo:      blacklistRepo,
-		PermissionRepo:     permissionRepo,
-		PermissionCache:    permissionCache,
-		Tokens:             tokens,
-		PermissionCacheTTL: permissionCacheTTL,
-		users:              users,
-		stateCache:         stateCache,
-		sessions:           sessions,
+		BlacklistRepo:      deps.BlacklistRepo,
+		PermissionRepo:     deps.PermissionRepo,
+		PermissionCache:    deps.PermissionCache,
+		Tokens:             deps.Tokens,
+		PermissionCacheTTL: deps.PermissionCacheTTL,
+		users:              deps.Users,
+		stateCache:         deps.StateCache,
+		sessions:           deps.Sessions,
 	}, nil
 }
 
@@ -81,7 +92,7 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 		tokenString, dataJWT, err := m.Tokens.ClaimsFromRequest(ctx.Request)
 		if err != nil {
 			logus.LogContextf(ctx, logus.LevelError, "%s; Invalid token; Error: %s;", logPrefix, err.Error())
-			res := gokit.Unauthorized(logID, "Invalid or expired token. Please login again.")
+			res := gokit.Unauthorized(logID, msgInvalidOrExpired)
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)
 			return
 		}
@@ -105,7 +116,7 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 
 		if isBlacklisted {
 			logus.LogContextf(ctx, logus.LevelError, "%s; Invalid token; Error: token is blacklisted;", logPrefix)
-			res := gokit.Unauthorized(logID, "Your session is no longer valid. Please login again.")
+			res := gokit.Unauthorized(logID, msgSessionInvalid)
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)
 			return
 		}
@@ -131,78 +142,131 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 // (also for the original user of an impersonation) and a dead session. It
 // writes the 401 or 500 itself.
 func (m *Middleware) checkLiveUser(ctx *gin.Context, logID uuid.UUID, logPrefix, tokenString string, claims map[string]any) bool {
-	reject := func(message string) bool {
-		res := gokit.Unauthorized(logID, message)
-		ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)
-		return false
+	failure := m.checkTokenUser(ctx, logPrefix, claims)
+	if failure == nil && httpshared.InterfaceBool(claims["is_impersonated"]) {
+		failure = m.checkImpersonation(ctx, logPrefix, claims)
 	}
-	fail := func(step string, err error) bool {
-		logus.LogContextf(ctx, logus.LevelError, "%s; %s; Error: %+v", logPrefix, step, err)
-		ctx.AbortWithStatusJSON(http.StatusInternalServerError, gokit.InternalServerError(logID))
-		return false
+	if failure == nil {
+		failure = m.checkSession(ctx, tokenString, claims)
 	}
+	if failure == nil {
+		return true
+	}
+	failure.write(ctx, logID, logPrefix)
+	return false
+}
 
+// authFailure is why a request failed the live-user checks: a non-empty message
+// is a 401 with that text, otherwise it is a 500 for the failed step.
+type authFailure struct {
+	message string
+	step    string
+	err     error
+}
+
+func reject(message string) *authFailure { return &authFailure{message: message} }
+
+func fail(step string, err error) *authFailure { return &authFailure{step: step, err: err} }
+
+func (f *authFailure) write(ctx *gin.Context, logID uuid.UUID, logPrefix string) {
+	if f.message != "" {
+		ctx.AbortWithStatusJSON(http.StatusUnauthorized, gokit.Unauthorized(logID, f.message))
+		return
+	}
+	logus.LogContextf(ctx, logus.LevelError, "%s; %s; Error: %+v", logPrefix, f.step, f.err)
+	ctx.AbortWithStatusJSON(http.StatusInternalServerError, gokit.InternalServerError(logID))
+}
+
+// checkTokenUser verifies the token's own user and records their live role.
+func (m *Middleware) checkTokenUser(ctx *gin.Context, logPrefix string, claims map[string]any) *authFailure {
 	userID := strings.TrimSpace(gokit.InterfaceString(claims["user_id"]))
 	state, err := m.userState(ctx.Request.Context(), userID)
 	if errors.Is(err, domainuser.ErrNotFound) {
 		logus.LogContextf(ctx, logus.LevelWarn, "%s; token for a user that no longer exists", logPrefix)
-		return reject("Invalid or expired token. Please login again.")
+		return reject(msgInvalidOrExpired)
 	}
 	if err != nil {
 		return fail("Users.GetAuthState", err)
 	}
 	if state.TokensValidAfter != nil && domainauth.RevokedBy(claims, *state.TokensValidAfter) {
-		return reject("Your session is no longer valid. Please login again.")
+		return reject(msgSessionInvalid)
 	}
 	claims["role"] = state.Role
+	return nil
+}
 
-	if httpshared.InterfaceBool(claims["is_impersonated"]) {
-		originalID := strings.TrimSpace(gokit.InterfaceString(claims["original_user_id"]))
-		if originalID == "" {
-			return reject("Invalid or expired token. Please login again.")
-		}
-		original, err := m.userState(ctx.Request.Context(), originalID)
-		if errors.Is(err, domainuser.ErrNotFound) {
-			logus.LogContextf(ctx, logus.LevelWarn, "%s; impersonation token of a user that no longer exists", logPrefix)
-			return reject("Invalid or expired token. Please login again.")
-		}
-		if err != nil {
-			return fail("Users.GetAuthState(original)", err)
-		}
-		if original.TokensValidAfter != nil && domainauth.RevokedBy(claims, *original.TokensValidAfter) {
-			return reject("Your session is no longer valid. Please login again.")
-		}
-		// The actor logging out (or having the session revoked) ends the impersonation.
-		if hash := gokit.InterfaceString(claims["actor_th"]); hash != "" {
-			gone, err := m.BlacklistRepo.ExistsByTokenHash(ctx.Request.Context(), hash)
-			if err != nil {
-				return fail("BlacklistRepo.ExistsByTokenHash(actor)", err)
-			}
-			if gone {
-				return reject("Your session is no longer valid. Please login again.")
-			}
-		}
-		if sid := gokit.InterfaceString(claims["actor_sid"]); sid != "" && m.sessions != nil {
-			live, err := m.sessions.HasSession(ctx.Request.Context(), sid)
-			if err != nil {
-				return fail("Sessions.HasSession(actor)", err)
-			}
-			if !live {
-				return reject("Your session is no longer valid. Please login again.")
-			}
-		}
+func (m *Middleware) checkImpersonation(ctx *gin.Context, logPrefix string, claims map[string]any) *authFailure {
+	if failure := m.checkOriginalUser(ctx, logPrefix, claims); failure != nil {
+		return failure
 	}
+	// The actor logging out (or having the session revoked) ends the impersonation.
+	if failure := m.checkActorToken(ctx, claims); failure != nil {
+		return failure
+	}
+	return m.checkActorSession(ctx, claims)
+}
 
-	if m.sessions != nil && !httpshared.InterfaceBool(claims["no_session"]) {
-		live, err := m.sessions.HasAccessTokenSession(ctx.Request.Context(), tokenString)
-		if err != nil {
-			return fail("Sessions.HasAccessTokenSession", err)
-		}
-		if !live {
-			return reject("Your session is no longer valid. Please login again.")
-		}
+func (m *Middleware) checkOriginalUser(ctx *gin.Context, logPrefix string, claims map[string]any) *authFailure {
+	originalID := strings.TrimSpace(gokit.InterfaceString(claims["original_user_id"]))
+	if originalID == "" {
+		return reject(msgInvalidOrExpired)
 	}
-	return true
+	original, err := m.userState(ctx.Request.Context(), originalID)
+	if errors.Is(err, domainuser.ErrNotFound) {
+		logus.LogContextf(ctx, logus.LevelWarn, "%s; impersonation token of a user that no longer exists", logPrefix)
+		return reject(msgInvalidOrExpired)
+	}
+	if err != nil {
+		return fail("Users.GetAuthState(original)", err)
+	}
+	if original.TokensValidAfter != nil && domainauth.RevokedBy(claims, *original.TokensValidAfter) {
+		return reject(msgSessionInvalid)
+	}
+	return nil
+}
+
+func (m *Middleware) checkActorToken(ctx *gin.Context, claims map[string]any) *authFailure {
+	hash := gokit.InterfaceString(claims["actor_th"])
+	if hash == "" {
+		return nil
+	}
+	gone, err := m.BlacklistRepo.ExistsByTokenHash(ctx.Request.Context(), hash)
+	if err != nil {
+		return fail("BlacklistRepo.ExistsByTokenHash(actor)", err)
+	}
+	if gone {
+		return reject(msgSessionInvalid)
+	}
+	return nil
+}
+
+func (m *Middleware) checkActorSession(ctx *gin.Context, claims map[string]any) *authFailure {
+	sid := gokit.InterfaceString(claims["actor_sid"])
+	if sid == "" || m.sessions == nil {
+		return nil
+	}
+	live, err := m.sessions.HasSession(ctx.Request.Context(), sid)
+	if err != nil {
+		return fail("Sessions.HasSession(actor)", err)
+	}
+	if !live {
+		return reject(msgSessionInvalid)
+	}
+	return nil
+}
+
+func (m *Middleware) checkSession(ctx *gin.Context, tokenString string, claims map[string]any) *authFailure {
+	if m.sessions == nil || httpshared.InterfaceBool(claims["no_session"]) {
+		return nil
+	}
+	live, err := m.sessions.HasAccessTokenSession(ctx.Request.Context(), tokenString)
+	if err != nil {
+		return fail("Sessions.HasAccessTokenSession", err)
+	}
+	if !live {
+		return reject(msgSessionInvalid)
+	}
+	return nil
 }
 
 func (m *Middleware) userState(ctx context.Context, userID string) (domainuser.AuthState, error) {
@@ -235,7 +299,7 @@ func (m *Middleware) RoleMiddleware(allowedRoles ...string) gin.HandlerFunc {
 		if strings.TrimSpace(scope.Role) == "" {
 			authData, exists := ctx.Get(httpshared.CtxKeyAuthData)
 			if !exists {
-				logus.LogContextf(ctx, logus.LevelError, "%s; AuthData not found", logPrefix)
+				logus.LogContextf(ctx, logus.LevelError, logAuthDataNotFound, logPrefix)
 				res := gokit.Forbidden(logID, gokit.MsgAccessDenied)
 				ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 				return
@@ -255,7 +319,7 @@ func (m *Middleware) RoleMiddleware(allowedRoles ...string) gin.HandlerFunc {
 
 		userRole := strings.TrimSpace(scope.Role)
 		if userRole == "" {
-			logus.LogContextf(ctx, logus.LevelError, "%s; AuthData not found", logPrefix)
+			logus.LogContextf(ctx, logus.LevelError, logAuthDataNotFound, logPrefix)
 			res := gokit.Forbidden(logID, gokit.MsgAccessDenied)
 			ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 			return
@@ -328,7 +392,7 @@ func (m *Middleware) LoadPermissionsMiddleware() gin.HandlerFunc {
 func (m *Middleware) loadScopePermissions(ctx *gin.Context, logID uuid.UUID, logPrefix string) (domainauth.Scope, bool) {
 	authData, exists := ctx.Get(httpshared.CtxKeyAuthData)
 	if !exists {
-		logus.LogContextf(ctx, logus.LevelError, "%s; AuthData not found", logPrefix)
+		logus.LogContextf(ctx, logus.LevelError, logAuthDataNotFound, logPrefix)
 		res := gokit.Forbidden(logID, gokit.MsgAccessDenied)
 		ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 		return domainauth.Scope{}, false
@@ -356,7 +420,7 @@ func (m *Middleware) loadScopePermissions(ctx *gin.Context, logID uuid.UUID, log
 	userID := strings.TrimSpace(gokit.InterfaceString(dataJWT["user_id"]))
 	if userID == "" {
 		logus.LogContextf(ctx, logus.LevelError, "%s; Invalid token claims: user_id is empty", logPrefix)
-		res := gokit.Unauthorized(logID, "Invalid or expired token. Please login again.")
+		res := gokit.Unauthorized(logID, msgInvalidOrExpired)
 		ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)
 		return domainauth.Scope{}, false
 	}

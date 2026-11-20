@@ -125,7 +125,16 @@ func Wire(cfg config.Config) (*Core, error) {
 
 	// One cache serves permission sets and auth states.
 	cache := cachepermission.New(cfg.Redis)
-	authMiddleware, err := middleware.New(blacklistRepo, permissionRepo, cache, tokens, cfg.PermissionCacheTTL, userRepo, cache, sessionIndex)
+	authMiddleware, err := middleware.New(middleware.Dependencies{
+		BlacklistRepo:      blacklistRepo,
+		PermissionRepo:     permissionRepo,
+		PermissionCache:    cache,
+		Tokens:             tokens,
+		PermissionCacheTTL: cfg.PermissionCacheTTL,
+		Users:              userRepo,
+		StateCache:         cache,
+		Sessions:           sessionIndex,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("authkit: middleware: %w", err)
 	}

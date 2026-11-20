@@ -56,7 +56,15 @@ func (d sessionIndexDouble) HasAccessTokenSession(ctx context.Context, tokenStri
 
 func authWith(t *testing.T, users UserStates, cache StateCache, sessions SessionIndex) *Middleware {
 	t.Helper()
-	mdw, err := New(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute, users, cache, sessions)
+	mdw, err := New(Dependencies{
+		BlacklistRepo:      &authRepoTestDouble{},
+		PermissionRepo:     &permissionRepoTestDouble{},
+		Tokens:             testTokens(t),
+		PermissionCacheTTL: 2 * time.Minute,
+		Users:              users,
+		StateCache:         cache,
+		Sessions:           sessions,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +181,14 @@ func (c *claimUsers) GetAuthState(context.Context, string) (domainuser.AuthState
 func newForTest(t *testing.T, blacklist TokenRevocations, perms PermissionLookup, cache PermissionCache, tokens TokenVerifier, ttl time.Duration) *Middleware {
 	t.Helper()
 	users := &claimUsers{TokenVerifier: tokens}
-	mdw, err := New(blacklist, perms, cache, users, ttl, users, nil, nil)
+	mdw, err := New(Dependencies{
+		BlacklistRepo:      blacklist,
+		PermissionRepo:     perms,
+		PermissionCache:    cache,
+		Tokens:             users,
+		PermissionCacheTTL: ttl,
+		Users:              users,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,13 +200,13 @@ func TestNewRefusesMissingDependencies(t *testing.T) {
 	tokens := testTokens(t)
 	cases := map[string]func() (*Middleware, error){
 		"users": func() (*Middleware, error) {
-			return New(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, tokens, 0, nil, nil, nil)
+			return New(Dependencies{BlacklistRepo: &authRepoTestDouble{}, PermissionRepo: &permissionRepoTestDouble{}, Tokens: tokens})
 		},
 		"tokens": func() (*Middleware, error) {
-			return New(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, nil, 0, users, nil, nil)
+			return New(Dependencies{BlacklistRepo: &authRepoTestDouble{}, PermissionRepo: &permissionRepoTestDouble{}, Users: users})
 		},
 		"blacklist": func() (*Middleware, error) {
-			return New(nil, &permissionRepoTestDouble{}, nil, tokens, 0, users, nil, nil)
+			return New(Dependencies{PermissionRepo: &permissionRepoTestDouble{}, Tokens: tokens, Users: users})
 		},
 	}
 	for name, build := range cases {
@@ -256,13 +271,23 @@ func TestImpersonationTokenDiesWithTheOriginalUser(t *testing.T) {
 }
 
 func TestImpersonationEndsWhenTheActorsSessionOrTokenEnds(t *testing.T) {
-	raw, err := testTokens(t).GenerateImpersonatedBound("target", "T", domainuser.RoleViewer, "admin", "A", domainuser.RoleAdmin, "sid-1", "hash-1", time.Time{})
+	raw, err := testTokens(t).GenerateWithClaims("target", "T", domainuser.RoleViewer, &token.AppClaims{
+		IsImpersonated: true, OriginalUserID: "admin", OriginalUsername: "A", OriginalRole: domainuser.RoleAdmin,
+		ActorSessionID: "sid-1", ActorTokenHash: "hash-1",
+	}, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	states := statesByID{"target": {Role: "viewer"}, "admin": {Role: "admin"}}
 	build := func(blacklist *authRepoTestDouble, sessions SessionIndex) *Middleware {
-		mdw, err := New(blacklist, &permissionRepoTestDouble{}, nil, testTokens(t), time.Minute, states, nil, sessions)
+		mdw, err := New(Dependencies{
+			BlacklistRepo:      blacklist,
+			PermissionRepo:     &permissionRepoTestDouble{},
+			Tokens:             testTokens(t),
+			PermissionCacheTTL: time.Minute,
+			Users:              states,
+			Sessions:           sessions,
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
