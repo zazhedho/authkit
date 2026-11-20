@@ -1,9 +1,6 @@
 // Package authkit provides users, sessions, RBAC, audit and app config for gin
 // services: build a Config, New, Kit.Migrate, Kit.Mount. Only ConfigFromEnv
-// reads the environment.
-//
-// This file is the whole public surface except the configuration (config.go):
-// aliases, constants and one-line wrappers. The logic lives under internal/.
+// reads the environment. The logic lives under internal/.
 package authkit
 
 import (
@@ -23,7 +20,6 @@ import (
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	"github.com/zazhedho/authkit/internal/handlers/http/middleware"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
-	httpuser "github.com/zazhedho/authkit/internal/handlers/http/user"
 	"github.com/zazhedho/authkit/internal/infrastructure/async"
 	"github.com/zazhedho/authkit/internal/infrastructure/mailer"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
@@ -34,8 +30,7 @@ import (
 
 // ---- The kit ----
 
-// Kit is the assembled users, auth and RBAC module. Build it once with New and
-// mount its routes with Mount; it is safe for concurrent use after New returns.
+// Kit is safe for concurrent use after New returns.
 type Kit struct {
 	cfg Config
 
@@ -44,13 +39,12 @@ type Kit struct {
 	deps       module.Deps
 
 	async     *async.Runner
-	users     httpuser.Service // kept for white-box wiring tests
 	audit     AuditService
 	appConfig AppConfigService
 }
 
-// New validates cfg (after defaults) and wires everything without touching the
-// database. Nil Redis or Mailer is allowed; dependent features become inert (see README).
+// New validates cfg and wires everything without touching the database. A nil
+// Redis or mailer is allowed; the features that need them stay inert.
 func New(cfg Config) (*Kit, error) {
 	cfg = config.WithDefaults(cfg)
 	if err := cfg.Validate(); err != nil {
@@ -65,163 +59,121 @@ func New(cfg Config) (*Kit, error) {
 	}
 	return &Kit{
 		cfg: cfg, tokens: core.Tokens, middleware: core.Middleware, deps: core.Deps,
-		async: core.Async, users: core.Users, audit: core.Audit, appConfig: core.AppConfig,
+		async: core.Async, audit: core.Audit, appConfig: core.AppConfig,
 	}, nil
 }
 
-// Mount registers all users, auth and RBAC routes on r (e.g. engine.Group("/api")).
-// Session routes need Redis. Call once per Kit and group: gin panics on duplicates.
+// Mount registers the routes on r and returns every module's error. Call it
+// once per group: gin panics on duplicate routes.
 func (k *Kit) Mount(r gin.IRouter) error { return router.Mount(r, k.deps) }
 
-// Close waits, bounded by ctx, for the background mail sends to finish. Call
-// it on shutdown after the HTTP server has stopped.
+// Close waits, bounded by ctx, for background mail sends; call it after the
+// HTTP server has stopped.
 func (k *Kit) Close(ctx context.Context) error { return k.async.Wait(ctx) }
 
-// Migrate applies pending migrations; safe on every start (instances serialize
-// on an advisory lock). ctx bounds the connection checkout only; see README, Migrations.
+// Migrate is safe on every start: instances serialize on an advisory lock. ctx
+// bounds the connection checkout only.
 func (k *Kit) Migrate(ctx context.Context) error { return migrate.Up(ctx, k.cfg.DB) }
 
-// Auth returns the middleware that requires a valid access token and puts the
-// authenticated scope on the request context.
 func (k *Kit) Auth() gin.HandlerFunc { return k.middleware.AuthMiddleware() }
 
-// Can returns the middleware that requires the authenticated user to hold the
-// (resource, action) permission. Superadmin bypasses it. Use it after Auth.
+// Can needs Auth before it; the superadmin bypasses it.
 func (k *Kit) Can(resource, action string) gin.HandlerFunc {
 	return k.middleware.PermissionMiddleware(resource, action)
 }
 
-// LoadPermissions returns the middleware that loads the user's permissions into
-// the scope without requiring any, so a handler can branch on Scope.Has (for
-// "_any" style checks). Use it after Auth.
+// LoadPermissions never rejects for a missing permission, so a handler can
+// branch on Scope.Has ("_any" checks). It needs Auth before it.
 func (k *Kit) LoadPermissions() gin.HandlerFunc {
 	return k.middleware.LoadPermissionsMiddleware()
 }
 
-// Role returns the middleware that requires the authenticated user to have one
-// of the allowed roles. Superadmin bypasses it. Use it after Auth.
+// Role needs Auth before it; the superadmin bypasses it.
 func (k *Kit) Role(allowed ...string) gin.HandlerFunc {
 	return k.middleware.RoleMiddleware(allowed...)
 }
 
-// Audit returns the kit's audit trail service, for recording and querying
-// events from your own handlers.
 func (k *Kit) Audit() AuditService { return k.audit }
 
-// AppConfig returns the kit's app-config service, which backs the feature
-// flags the kit consults at request time.
 func (k *Kit) AppConfig() AppConfigService { return k.appConfig }
 
-// IssueAccessToken issues an access token for tests and tooling. Auth still
-// requires the user to exist, uses the user's current role and honors
-// tokens_valid_after, but the token has no session, so Redis session checks
-// skip it.
+// IssueAccessToken is for tests and tooling: a session-less token that Auth accepts.
 func (k *Kit) IssueAccessToken(userID, name, role string) (string, error) {
 	return k.tokens.GenerateNoSession(userID, name, role, time.Time{})
 }
 
 // ---- Request scope ----
 
-// Scope is the authenticated identity of a request: user, role and the
-// permission set loaded by Can. Read it with ScopeFrom.
 type Scope = domainauth.Scope
 
-// ScopeFrom returns the scope on ctx. After Auth alone the permission set is
-// empty (Has is false for non-superadmins); Can or LoadPermissions loads it.
+// ScopeFrom has an empty permission set after Auth alone; Can or
+// LoadPermissions loads it.
 func ScopeFrom(ctx context.Context) Scope { return domainauth.FromContext(ctx) }
 
-// WithScope returns a copy of ctx that carries scope, so ScopeFrom returns it.
+// WithScope is for tests and tooling.
 func WithScope(ctx context.Context, scope Scope) context.Context {
 	return domainauth.WithContext(ctx, scope)
 }
 
-// NewScope builds a Scope for userID, username and role holding permissions,
-// each written as "resource:action". It is meant for tests and tooling.
+// NewScope is for tests and tooling; permissions are written "resource:action".
 func NewScope(userID, username, role string, permissions []string) Scope {
 	return domainauth.New(userID, username, role, permissions)
 }
 
-// RequestLogger returns a gin middleware that logs every request with its
-// request ID, status and latency.
 func RequestLogger() gin.HandlerFunc { return middleware.RequestLogger() }
 
 // ---- Roles ----
 
 // Built-in role names.
 const (
-	// RoleSuperAdmin bypasses every permission and role check.
 	RoleSuperAdmin = domainuser.RoleSuperAdmin
-	// RoleAdmin is the administrator role.
-	RoleAdmin = domainuser.RoleAdmin
-	// RoleStaff is the staff role.
-	RoleStaff = domainuser.RoleStaff
-	// RoleViewer is the default role of public registrations.
-	RoleViewer = domainuser.RoleViewer
+	RoleAdmin      = domainuser.RoleAdmin
+	RoleStaff      = domainuser.RoleStaff
+	RoleViewer     = domainuser.RoleViewer
 )
 
 // ---- Audit ----
 
-// AuditEvent describes one audit trail entry written through an AuditService
-// or an AuditWriter.
 type AuditEvent = domainaudit.AuditEvent
 
 // Audit actions for AuditEvent.Action.
 const (
-	// ActionCreate records the creation of a resource.
-	ActionCreate = domainaudit.ActionCreate
-	// ActionUpdate records the modification of a resource.
-	ActionUpdate = domainaudit.ActionUpdate
-	// ActionDelete records the deletion of a resource.
-	ActionDelete = domainaudit.ActionDelete
-	// ActionAssign records an assignment, such as permissions to a role.
-	ActionAssign = domainaudit.ActionAssign
-	// ActionLogin records a login.
-	ActionLogin = domainaudit.ActionLogin
-	// ActionLogout records a logout.
-	ActionLogout = domainaudit.ActionLogout
-	// ActionRefresh records a token refresh.
+	ActionCreate  = domainaudit.ActionCreate
+	ActionUpdate  = domainaudit.ActionUpdate
+	ActionDelete  = domainaudit.ActionDelete
+	ActionAssign  = domainaudit.ActionAssign
+	ActionLogin   = domainaudit.ActionLogin
+	ActionLogout  = domainaudit.ActionLogout
 	ActionRefresh = domainaudit.ActionRefresh
 )
 
 // Audit statuses for AuditEvent.Status.
 const (
-	// StatusSuccess marks an audited operation that succeeded.
 	StatusSuccess = domainaudit.StatusSuccess
-	// StatusFailed marks an audited operation that failed.
-	StatusFailed = domainaudit.StatusFailed
+	StatusFailed  = domainaudit.StatusFailed
 )
 
-// AuditTrailResponse is one audit trail entry as the audit routes and
-// AuditService return it.
 type AuditTrailResponse = dtoaudit.AuditTrailResponse
 
-// AuditService stores and reads audit trail entries. Kit.Audit returns one.
 type AuditService interface {
 	Store(ctx context.Context, req AuditEvent) error
 	GetAll(ctx context.Context, params gokit.BaseParams) ([]AuditTrailResponse, int64, error)
 	GetByID(ctx context.Context, id string) (AuditTrailResponse, error)
 }
 
-// AuditWriter writes audit events from gin handlers, filling the actor from
-// the request scope. Build one with NewAuditWriter.
 type AuditWriter = httpshared.AuditWriter
 
-// NewAuditWriter returns an AuditWriter that stores events through service and
-// tags failures it logs with scope (a short name for the calling component).
+// NewAuditWriter tags the failures it logs with scope, a short component name.
 func NewAuditWriter(service AuditService, scope string) AuditWriter {
 	return httpshared.NewAuditWriter(service, scope)
 }
 
 // ---- App config ----
 
-// AppConfig is one app-config entry (a feature flag or setting).
 type AppConfig = domainappconfig.AppConfig
 
-// UpdateAppConfig is the request body that updates an app-config entry.
 type UpdateAppConfig = dtoappconfig.UpdateAppConfig
 
-// AppConfigService reads and updates the app-config entries (feature flags and
-// settings). Kit.AppConfig returns one.
 type AppConfigService interface {
 	GetAll(ctx context.Context, params gokit.BaseParams) ([]AppConfig, int64, error)
 	GetByID(ctx context.Context, id string) (AppConfig, error)
@@ -237,21 +189,15 @@ type AppConfigService interface {
 
 // ---- Mail ----
 
-// OTPMailer sends registration OTP emails.
 type OTPMailer = config.OTPMailer
 
-// ResetMailer sends password reset emails.
 type ResetMailer = config.ResetMailer
 
-// Mailer sends both registration OTP and password reset emails.
 type Mailer = config.Mailer
 
-// BrevoConfig is the explicit SMTP configuration for the Brevo mailer. Host,
-// Pass and From are required; the remaining fields fall back to defaults.
+// BrevoConfig requires Host, Pass and From; the rest has defaults.
 type BrevoConfig = mailer.BrevoConfig
 
-// NewBrevoMailer validates cfg and returns a Mailer that sends through Brevo
-// SMTP. Pass it as Config.Mailer.
 func NewBrevoMailer(cfg BrevoConfig) (Mailer, error) {
 	sender, err := mailer.NewBrevoSender(cfg)
 	if err != nil {
@@ -262,10 +208,9 @@ func NewBrevoMailer(cfg BrevoConfig) (Mailer, error) {
 
 // ---- Migrations ----
 
-// MigrationsTable is the version table authkit uses, so it never collides with
-// the host project's own golang-migrate table (schema_migrations by default).
+// MigrationsTable keeps authkit clear of the host's own golang-migrate table.
 const MigrationsTable = migrate.Table
 
-// ErrMigrationsDirty means the version table records a failed migration. Fix the
-// database by hand and clear the dirty flag; never delete the record.
+// ErrMigrationsDirty means a migration failed half way: repair the database by
+// hand and clear the dirty flag; never delete the record.
 var ErrMigrationsDirty = migrate.ErrDirty

@@ -116,7 +116,7 @@ func performAppConfigRequest(method, routePath, requestPath string, body any, ha
 
 func TestGetAllAppConfigsReturnsPagination(t *testing.T) {
 	handler := New(&appConfigServiceTestDouble{
-		configs: []domainappconfig.AppConfig{{Id: "config-1", ConfigKey: "auth.enabled", Category: "auth"}},
+		configs: []domainappconfig.AppConfig{{ID: "config-1", ConfigKey: "auth.enabled", Category: "auth"}},
 		total:   1,
 	}, &auditServiceAppConfigTestDouble{})
 
@@ -168,7 +168,7 @@ func TestGetAllAppConfigsErrorBranches(t *testing.T) {
 
 func TestGetAppConfigByIDReturnsOK(t *testing.T) {
 	handler := New(&appConfigServiceTestDouble{config: domainappconfig.AppConfig{
-		Id:        "550e8400-e29b-41d4-a716-446655440000",
+		ID:        "550e8400-e29b-41d4-a716-446655440000",
 		ConfigKey: "auth.enabled",
 		Value:     "true",
 	}}, &auditServiceAppConfigTestDouble{})
@@ -182,7 +182,7 @@ func TestGetAppConfigByIDReturnsOK(t *testing.T) {
 func TestUpdateAppConfigReturnsOKAndWritesAudit(t *testing.T) {
 	auditSvc := &auditServiceAppConfigTestDouble{}
 	service := &appConfigServiceTestDouble{config: domainappconfig.AppConfig{
-		Id:        "550e8400-e29b-41d4-a716-446655440000",
+		ID:        "550e8400-e29b-41d4-a716-446655440000",
 		ConfigKey: "auth.enabled",
 		Value:     "true",
 		IsActive:  true,

@@ -6,8 +6,8 @@ const ActionLogout untyped string = "logout"
 const ActionRefresh untyped string = "refresh"
 const ActionUpdate untyped string = "update"
 type AppConfig alias struct
-	field Id string
-	tag Id json:"id" gorm:"column:id;primaryKey"
+	field ID string
+	tag ID json:"id" gorm:"column:id;primaryKey"
 	field ConfigKey string
 	tag ConfigKey json:"config_key" gorm:"column:config_key"
 	field DisplayName string
@@ -140,8 +140,7 @@ type Config alias struct
 	method (T) GoString() string
 	method (T) String() string
 	method (T) Validate() error
-func ConfigFromEnv() Config
-func ConfigFromEnvStrict() (Config, error)
+func ConfigFromEnv() (Config, error)
 var ErrMigrationsDirty error
 type FlagKeys alias struct
 	field PublicRegistration string

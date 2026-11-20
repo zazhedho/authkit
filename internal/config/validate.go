@@ -12,9 +12,11 @@ import (
 // minSecretLength is the shortest OTP.Secret or Reset.Secret Validate accepts.
 const minSecretLength = 32
 
-// Validate expects defaults applied (as New does). OTP.Secret and Reset.Secret
-// are required only when both Redis and Mailer are set; otherwise those services are inert.
+// Validate checks a Config as New would: defaults are applied to a copy first,
+// so it works on a raw Config. OTP.Secret and Reset.Secret are required only
+// when both Redis and a mailer are set; otherwise those services are inert.
 func (c Config) Validate() error {
+	c = WithDefaults(c)
 	if c.DB == nil {
 		return errors.New("authkit: DB is required")
 	}

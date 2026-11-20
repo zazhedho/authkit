@@ -75,11 +75,9 @@ func isModuleInternal(p *types.Package) bool {
 	return p != nil && strings.HasPrefix(p.Path(), "github.com/zazhedho/authkit/internal/")
 }
 
-// reachableTypes returns the named types of the module's internal packages that
-// a caller can reach from the exported API without naming them: through
-// signatures, struct fields, interface methods and the methods of those types.
-// Types the root package declares or aliases are printed with the root API
-// already, so they are left out. Types of other modules are not followed.
+// reachableTypes returns the named internal types a caller can reach from the
+// exported API without naming them (signatures, fields, interface methods).
+// Types the root declares or aliases are already printed with the API.
 func reachableTypes(pkg *types.Package) []*types.TypeName {
 	printed := map[*types.TypeName]bool{}
 	scope := pkg.Scope()

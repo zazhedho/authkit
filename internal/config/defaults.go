@@ -5,8 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
-
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 )
 
@@ -39,6 +37,9 @@ const (
 // by its default. It never invents a secret.
 func WithDefaults(c Config) Config {
 	c.Redis = untypedNil(c.Redis)
+	c.Mailer = untypedNil(c.Mailer)
+	c.OTPMailer = untypedNil(c.OTPMailer)
+	c.ResetMailer = untypedNil(c.ResetMailer)
 	if c.AccessTokenTTL <= 0 {
 		c.AccessTokenTTL = defaultAccessTTL
 	}
@@ -121,18 +122,17 @@ func WithDefaults(c Config) Config {
 	return c
 }
 
-// untypedNil turns a nil pointer stored in the interface (a nil *redis.Client
-// passed as Config.Redis) into a nil interface, so "Redis is disabled" has one
-// spelling and nothing downstream calls a method on a nil client.
-func untypedNil(c redis.UniversalClient) redis.UniversalClient {
-	if v := reflect.ValueOf(c); v.Kind() == reflect.Pointer && v.IsNil() {
-		return nil
+// untypedNil turns a nil pointer stored in an interface (a nil *redis.Client
+// passed as Config.Redis, a nil mailer) into a nil interface, so "disabled" has
+// one spelling and nothing downstream calls a method on a nil value.
+func untypedNil[T any](v T) T {
+	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Pointer && rv.IsNil() {
+		var zero T
+		return zero
 	}
-	return c
+	return v
 }
 
-// Warnings returns the warnings New logs for risky configuration. cfg should
-// have its defaults applied.
 func Warnings(c Config) []string {
 	var out []string
 	if c.Redis == nil {

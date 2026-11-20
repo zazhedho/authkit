@@ -29,7 +29,7 @@ func New(s Service, auditService httpshared.AuditService) *Handler {
 var configResource = httpshared.Resource[domainappconfig.AppConfig]{
 	Name:          "configuration",
 	Audit:         "config",
-	ID:            func(c domainappconfig.AppConfig) string { return c.Id },
+	ID:            func(c domainappconfig.AppConfig) string { return c.ID },
 	MutationError: configMutationErrorResponse,
 }
 

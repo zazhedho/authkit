@@ -59,6 +59,12 @@ linters:
         linters:
           - revive
         text: "exported|package-comments|should have a package comment"
+      # A comment on an exported name of the root package must still start with
+      # that name, but a missing one is fine: restating the name adds nothing.
+      - path: ^[^/]+\.go$
+        linters:
+          - revive
+        text: "should have comment or be unexported"
       - path: ^cmd/
         linters:
           - revive
