@@ -28,6 +28,7 @@ import (
 	"github.com/zazhedho/authkit/internal/infrastructure/googleid"
 	"github.com/zazhedho/authkit/internal/infrastructure/ratelimit"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
+	"github.com/zazhedho/authkit/internal/migrate"
 	repositoryappconfig "github.com/zazhedho/authkit/internal/repositories/appconfig"
 	repositoryaudit "github.com/zazhedho/authkit/internal/repositories/audit"
 	repositoryauth "github.com/zazhedho/authkit/internal/repositories/auth"
@@ -287,3 +288,15 @@ func verifyGoogle(ctx context.Context, idToken string, clientIDs []string) (serv
 		Name: id.Name, Picture: id.Picture, Subject: id.Subject,
 	}, nil
 }
+
+// MigrationsTable is the version table authkit uses, so it never collides with
+// the host project's own golang-migrate table (schema_migrations by default).
+const MigrationsTable = migrate.Table
+
+// ErrMigrationsDirty means the version table records a failed migration. Fix the
+// database by hand and clear the dirty flag; never delete the record.
+var ErrMigrationsDirty = migrate.ErrDirty
+
+// Migrate applies pending migrations; safe on every start (instances serialize
+// on an advisory lock). ctx bounds the connection checkout only; see README, Migrations.
+func (k *Kit) Migrate(ctx context.Context) error { return migrate.Up(ctx, k.cfg.DB) }

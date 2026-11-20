@@ -218,20 +218,20 @@ var rules = []rule{
 	},
 	{
 		tree:                "internal/handlers",
-		forbidInternal:      []string{"internal/services", "internal/repositories", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrations", "internal/testutil"},
+		forbidInternal:      []string{"internal/services", "internal/repositories", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrate", "internal/migrations", "internal/testutil"},
 		forbidExternal:      []string{gormPkg, redisPkg},
 		testsToo:            true,
 		testInternalAllowed: []string{"internal/infrastructure/token", "internal/infrastructure/cache/permission", "internal/config"},
 	},
 	{
 		tree:                "internal/repositories",
-		forbidInternal:      []string{"internal/services", "internal/handlers", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrations"},
+		forbidInternal:      []string{"internal/services", "internal/handlers", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrate", "internal/migrations"},
 		forbidExternal:      []string{ginPkg},
 		testInternalAllowed: []string{"internal/testutil"},
 	},
 	{
 		tree:           "internal/infrastructure",
-		forbidInternal: []string{"internal/services", "internal/handlers", "internal/repositories", "internal/moduleseed", "internal/migrations"},
+		forbidInternal: []string{"internal/services", "internal/handlers", "internal/repositories", "internal/moduleseed", "internal/migrate", "internal/migrations"},
 	},
 	{
 		// Infrastructure owns its own types. The one exception is
@@ -239,6 +239,13 @@ var rules = []rule{
 		tree:           "internal/infrastructure",
 		forbidInternal: []string{"internal/domain"},
 		exceptTrees:    []string{"internal/infrastructure/cache"},
+	},
+	{
+		// The migration runner owns the embedded SQL and nothing else; its tests
+		// also run the module-seed SQL.
+		tree:                "internal/migrate",
+		internalAllowed:     []string{"internal/migrations"},
+		testInternalAllowed: []string{"internal/moduleseed"},
 	},
 	{
 		// Config validates the JWT key with the token package and names the
@@ -259,7 +266,7 @@ var rules = []rule{
 // knownLayers is every top-level directory of internal/. A new layer needs a
 // rule in rules above and a line in the README's dependency rule before it is
 // added here.
-var knownLayers = []string{"architecture", "config", "domain", "dto", "handlers", "infrastructure", "migrations", "moduleseed", "repositories", "router", "services", "testutil"}
+var knownLayers = []string{"architecture", "config", "domain", "dto", "handlers", "infrastructure", "migrate", "migrations", "moduleseed", "repositories", "router", "services", "testutil"}
 
 // layerProblems compares the directories found under internal/ with knownLayers.
 func layerProblems(found []string) []string {

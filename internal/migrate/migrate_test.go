@@ -1,4 +1,4 @@
-package authkit
+package migrate
 
 import (
 	"context"
@@ -80,15 +80,6 @@ func openSchemaDB(t *testing.T, dsn, user, schema string) *gorm.DB {
 	return db
 }
 
-func testKit(t *testing.T, db *gorm.DB) *Kit {
-	t.Helper()
-	k, err := New(Config{DB: db, AppName: "migrate-test", JWTKey: testJWTKey})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	return k
-}
-
 func count(t *testing.T, db *gorm.DB, table string) int64 {
 	t.Helper()
 	var n int64
@@ -121,7 +112,7 @@ func versionRow(t *testing.T, db *gorm.DB) (version int, dirty bool, rows int) {
 		Version int
 		Dirty   bool
 	}
-	if err := db.Raw(`SELECT version, dirty FROM ` + MigrationsTable).Scan(&rs).Error; err != nil {
+	if err := db.Raw(`SELECT version, dirty FROM ` + Table).Scan(&rs).Error; err != nil {
 		t.Fatalf("read version table: %v", err)
 	}
 	if len(rs) > 0 {
@@ -151,7 +142,7 @@ func lockFree(t *testing.T, admin *gorm.DB, schema string) bool {
 	if err := admin.Raw(`SELECT current_database()`).Scan(&dbName).Error; err != nil {
 		t.Fatal(err)
 	}
-	id, err := database.GenerateAdvisoryLockId(dbName, schema, MigrationsTable)
+	id, err := database.GenerateAdvisoryLockId(dbName, schema, Table)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,10 +224,9 @@ func missingFromSchema(expected, actual map[string][]string) []string {
 func TestMigrateEmptyDatabase(t *testing.T) {
 	t.Parallel()
 	db, schema, admin := testSchema(t)
-	k := testKit(t, db)
 	ctx := context.Background()
 
-	if err := k.Migrate(ctx); err != nil {
+	if err := Up(ctx, db); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
 	for tb := range expectedSchema {
@@ -252,13 +242,13 @@ func TestMigrateEmptyDatabase(t *testing.T) {
 		t.Fatalf("expectedSchema does not match the SQL, missing %v", missing)
 	}
 	// Reverse direction: everything the SQL created must be in expectedSchema.
-	delete(actual, MigrationsTable)
+	delete(actual, Table)
 	if extra := missingFromSchema(actual, expectedSchema); len(extra) != 0 {
 		t.Fatalf("the SQL creates tables or columns that expectedSchema lacks: %v", extra)
 	}
 	before := counts(t, db)
 
-	if err := k.Migrate(ctx); err != nil {
+	if err := Up(ctx, db); err != nil {
 		t.Fatalf("second Migrate: %v", err)
 	}
 	if after := counts(t, db); fmt.Sprint(after) != fmt.Sprint(before) {
@@ -275,12 +265,11 @@ func TestMigrateEmptyDatabase(t *testing.T) {
 func TestMigrateDoesNotCloseCallerDB(t *testing.T) {
 	t.Parallel()
 	db, _, _ := testSchema(t)
-	k := testKit(t, db)
 	sqlDB, err := db.DB()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := k.Migrate(context.Background()); err != nil {
+	if err := Up(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	if err := sqlDB.PingContext(context.Background()); err != nil {
@@ -316,11 +305,11 @@ func TestMigrateAppliesALaterMigration(t *testing.T) {
 	db, _, admin := testSchema(t)
 	ctx := context.Background()
 
-	if err := testKit(t, db).Migrate(ctx); err != nil {
+	if err := Up(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	before := counts(t, db)
-	if err := migrateUp(ctx, db, extraSource(t)); err != nil {
+	if err := up(ctx, db, extraSource(t)); err != nil {
 		t.Fatalf("migrate with the extra migration: %v", err)
 	}
 	if !tableExists(t, db, "authkit_extra_test") {
@@ -338,15 +327,15 @@ func TestMigrateAppliesALaterMigration(t *testing.T) {
 func TestMigrateDirtyVersionTableFails(t *testing.T) {
 	t.Parallel()
 	db, schema, admin := testSchema(t)
-	if err := db.Exec(`CREATE TABLE ` + MigrationsTable + ` (version bigint not null primary key, dirty boolean not null)`).Error; err != nil {
+	if err := db.Exec(`CREATE TABLE ` + Table + ` (version bigint not null primary key, dirty boolean not null)`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec(`INSERT INTO ` + MigrationsTable + ` VALUES (2, true)`).Error; err != nil {
+	if err := db.Exec(`INSERT INTO ` + Table + ` VALUES (2, true)`).Error; err != nil {
 		t.Fatal(err)
 	}
-	err := testKit(t, db).Migrate(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "dirty") || !strings.Contains(err.Error(), MigrationsTable) {
-		t.Fatalf("err = %v, want dirty error naming %s", err, MigrationsTable)
+	err := Up(context.Background(), db)
+	if err == nil || !strings.Contains(err.Error(), "dirty") || !strings.Contains(err.Error(), Table) {
+		t.Fatalf("err = %v, want dirty error naming %s", err, Table)
 	}
 	if v, dirty, _ := versionRow(t, db); v != 2 || !dirty {
 		t.Fatalf("version table was modified: %d %v", v, dirty)
@@ -371,7 +360,7 @@ func TestMigrateIgnoresUsersTableInOtherSchema(t *testing.T) {
 	if err := admin.Exec(`CREATE TABLE ` + other + `.users (id int)`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := testKit(t, db).Migrate(context.Background()); err != nil {
+	if err := Up(context.Background(), db); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
 	if missing := missingFromSchema(expectedSchema, actualSchema(t, db)); len(missing) != 0 {
@@ -382,15 +371,15 @@ func TestMigrateIgnoresUsersTableInOtherSchema(t *testing.T) {
 func TestMigrateDirtyErrorStillMatchesSentinel(t *testing.T) {
 	t.Parallel()
 	db, _, _ := testSchema(t)
-	if err := db.Exec(`CREATE TABLE ` + MigrationsTable + ` (version bigint not null primary key, dirty boolean not null)`).Error; err != nil {
+	if err := db.Exec(`CREATE TABLE ` + Table + ` (version bigint not null primary key, dirty boolean not null)`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec(`INSERT INTO ` + MigrationsTable + ` VALUES (3, true)`).Error; err != nil {
+	if err := db.Exec(`INSERT INTO ` + Table + ` VALUES (3, true)`).Error; err != nil {
 		t.Fatal(err)
 	}
-	err := testKit(t, db).Migrate(context.Background())
-	if !errors.Is(err, ErrMigrationsDirty) || !strings.Contains(err.Error(), MigrationsTable) {
-		t.Fatalf("err = %v, want ErrMigrationsDirty naming %s", err, MigrationsTable)
+	err := Up(context.Background(), db)
+	if !errors.Is(err, ErrDirty) || !strings.Contains(err.Error(), Table) {
+		t.Fatalf("err = %v, want ErrDirty naming %s", err, Table)
 	}
 	if strings.Contains(err.Error(), "delete") && !strings.Contains(err.Error(), "never delete") {
 		t.Fatalf("advice must not suggest deleting the record: %v", err)
@@ -401,24 +390,24 @@ func TestMigrateConcurrentFirstStart(t *testing.T) {
 	t.Parallel()
 	_, dsn := adminDB(t)
 	ref, _, _ := testSchema(t)
-	if err := testKit(t, ref).Migrate(context.Background()); err != nil {
+	if err := Up(context.Background(), ref); err != nil {
 		t.Fatal(err)
 	}
 	want := counts(t, ref)
 
 	db, schema, admin := testSchema(t)
 	const n = 4
-	kits := make([]*Kit, n)
-	for i := range kits {
-		kits[i] = testKit(t, openSchemaDB(t, dsn, "", schema))
+	pools := make([]*gorm.DB, n)
+	for i := range pools {
+		pools[i] = openSchemaDB(t, dsn, "", schema)
 	}
 	start := make(chan struct{})
 	errs := make(chan error, n)
-	for _, k := range kits {
-		go func(k *Kit) {
+	for _, pool := range pools {
+		go func(pool *gorm.DB) {
 			<-start
-			errs <- k.Migrate(context.Background())
-		}(k)
+			errs <- Up(context.Background(), pool)
+		}(pool)
 	}
 	close(start)
 	for i := 0; i < n; i++ {
@@ -440,7 +429,7 @@ func TestMigrateConcurrentFirstStart(t *testing.T) {
 func TestPartialUniqueIndexesAllowReuseAfterSoftDelete(t *testing.T) {
 	t.Parallel()
 	db, _, _ := testSchema(t)
-	if err := testKit(t, db).Migrate(context.Background()); err != nil {
+	if err := Up(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	insert := `INSERT INTO users (id, name, email, phone, password) VALUES (gen_random_uuid(), 'A', 'dup@example.test', '628111', 'x')`
@@ -467,7 +456,7 @@ func TestPartialUniqueIndexesAllowReuseAfterSoftDelete(t *testing.T) {
 func TestMigrationsGoDownAndUpAgain(t *testing.T) {
 	t.Parallel()
 	db, _, _ := testSchema(t)
-	if err := testKit(t, db).Migrate(context.Background()); err != nil {
+	if err := Up(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	run := func(suffix string, reverse bool) {
@@ -505,7 +494,7 @@ func TestMigrationsGoDownAndUpAgain(t *testing.T) {
 func TestTokensValidAfterColumnExists(t *testing.T) {
 	t.Parallel()
 	db, _, _ := testSchema(t)
-	if err := testKit(t, db).Migrate(context.Background()); err != nil {
+	if err := Up(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Exec(`INSERT INTO users (id, name, email, password, tokens_valid_after) VALUES (gen_random_uuid(), 'A', 'a@example.test', 'x', now())`).Error; err != nil {
@@ -516,7 +505,7 @@ func TestTokensValidAfterColumnExists(t *testing.T) {
 func TestModuleSeedSQLRunsAndDetectsPermissionNameCollisions(t *testing.T) {
 	t.Parallel()
 	db, _, _ := testSchema(t)
-	if err := testKit(t, db).Migrate(context.Background()); err != nil {
+	if err := Up(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
 	seed := func(def moduleseed.Definition) error {
