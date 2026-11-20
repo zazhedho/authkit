@@ -218,7 +218,14 @@ func newE2E(t *testing.T, withRedis bool) *e2e {
 			AccessTTL: 15 * time.Minute, RefreshTTL: time.Hour, SessionMaxLifetime: 24 * time.Hour,
 		},
 	})
-	mdw, err := middleware.New(blacklist, noPermissions{}, nil, tokens, time.Minute, h.users, nil, index)
+	mdw, err := middleware.New(middleware.Dependencies{
+		BlacklistRepo:      blacklist,
+		PermissionRepo:     noPermissions{},
+		Tokens:             tokens,
+		PermissionCacheTTL: time.Minute,
+		Users:              h.users,
+		Sessions:           index,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,38 +392,42 @@ func TestImpersonationTokenDiesWhenTheAdminIsDeletedOrRevoked(t *testing.T) {
 	}
 }
 
+// requireMe fails the test unless /me answers want for the access token.
+func (h *e2e) requireMe(t *testing.T, access string, want int, what string) {
+	t.Helper()
+	if got := h.me(access); got != want {
+		t.Fatalf("%s: %d, want %d", what, got, want)
+	}
+}
+
 func TestChangePasswordKeepsOnlyTheCallersSession(t *testing.T) {
 	for name, withRedis := range map[string]bool{"redis on": true, "redis off": false} {
-		t.Run(name, func(t *testing.T) {
-			h := newE2E(t, withRedis)
-			// Freeze the cut-off clock behind the token clock to prove the
-			// re-issued token is accepted whatever the skew.
-			h.users.clock = func() time.Time { return time.Now().Add(2 * time.Second) }
-			caller := h.login(t, "target@x.io")
-			other := h.login(t, "target@x.io")
+		t.Run(name, func(t *testing.T) { checkChangePassword(t, withRedis) })
+	}
+}
 
-			code, body := h.call(http.MethodPost, "/password", caller.Access, `{"current_password":"Passw0rd!x","new_password":"NewPassw0rd!y"}`)
-			fresh := pair(t, code, body)
-			if data, _ := body["data"].(map[string]any); data["user"] == nil {
-				t.Fatalf("the response must carry the user DTO: %v", body)
-			}
+func checkChangePassword(t *testing.T, withRedis bool) {
+	h := newE2E(t, withRedis)
+	// Freeze the cut-off clock behind the token clock to prove the
+	// re-issued token is accepted whatever the skew.
+	h.users.clock = func() time.Time { return time.Now().Add(2 * time.Second) }
+	caller := h.login(t, "target@x.io")
+	other := h.login(t, "target@x.io")
 
-			if got := h.me(fresh.Access); got != http.StatusOK {
-				t.Fatalf("the re-issued access token: %d, want 200", got)
-			}
-			if got := h.me(caller.Access); got != http.StatusUnauthorized {
-				t.Fatalf("the old access token: %d, want 401", got)
-			}
-			if got := h.me(other.Access); got != http.StatusUnauthorized {
-				t.Fatalf("another session's token: %d, want 401", got)
-			}
-			if got := h.refresh(fresh.Refresh); got != http.StatusOK {
-				t.Fatalf("the re-issued refresh token: %d, want 200", got)
-			}
-			if withRedis && h.sessionKeys() != 1 {
-				t.Fatalf("sessions = %d, want only the caller's", h.sessionKeys())
-			}
-		})
+	code, body := h.call(http.MethodPost, "/password", caller.Access, `{"current_password":"Passw0rd!x","new_password":"NewPassw0rd!y"}`)
+	fresh := pair(t, code, body)
+	if data, _ := body["data"].(map[string]any); data["user"] == nil {
+		t.Fatalf("the response must carry the user DTO: %v", body)
+	}
+
+	h.requireMe(t, fresh.Access, http.StatusOK, "the re-issued access token")
+	h.requireMe(t, caller.Access, http.StatusUnauthorized, "the old access token")
+	h.requireMe(t, other.Access, http.StatusUnauthorized, "another session's token")
+	if got := h.refresh(fresh.Refresh); got != http.StatusOK {
+		t.Fatalf("the re-issued refresh token: %d, want 200", got)
+	}
+	if withRedis && h.sessionKeys() != 1 {
+		t.Fatalf("sessions = %d, want only the caller's", h.sessionKeys())
 	}
 }
 
@@ -426,37 +437,39 @@ var _ = errors.New
 // impersonation started from it, with Redis on and off.
 func TestImpersonationEndsWithTheActorsLogin(t *testing.T) {
 	for name, withRedis := range map[string]bool{"redis on": true, "redis off": false} {
-		t.Run(name+"/logout", func(t *testing.T) {
-			h := newE2E(t, withRedis)
-			admin := h.login(t, "admin@x.io")
-			code, body := h.call(http.MethodPost, "/impersonate/"+h.targetID, admin.Access, `{"reason":"support case"}`)
-			imp := pair(t, code, body)
-			if got := h.me(imp.Access); got != http.StatusOK {
-				t.Fatalf("before logout: %d", got)
-			}
-			if code, _ := h.call(http.MethodPost, "/logout", admin.Access, ""); code != http.StatusOK {
-				t.Fatalf("logout: %d", code)
-			}
-			if got := h.me(imp.Access); got != http.StatusUnauthorized {
-				t.Fatalf("after the actor logged out: %d, want 401", got)
-			}
-			if code, _ := h.call(http.MethodPost, "/stop", imp.Access, ""); code != http.StatusUnauthorized {
-				t.Fatalf("stop after logout: %d, want 401", code)
-			}
-		})
+		t.Run(name+"/logout", func(t *testing.T) { checkImpersonationEndsOnLogout(t, withRedis) })
 	}
-	t.Run("redis on/session revoked without logout", func(t *testing.T) {
-		h := newE2E(t, true)
-		admin := h.login(t, "admin@x.io")
-		code, body := h.call(http.MethodPost, "/impersonate/"+h.targetID, admin.Access, `{"reason":"support case"}`)
-		imp := pair(t, code, body)
-		for _, k := range h.mr.Keys() {
-			if strings.HasPrefix(k, "session:") {
-				h.mr.Del(k) // the session record goes, the impersonation token's own bindings stay
-			}
+	t.Run("redis on/session revoked without logout", checkImpersonationEndsOnSessionRevoked)
+}
+
+// startImpersonation logs the admin in and impersonates the target.
+func (h *e2e) startImpersonation(t *testing.T) (admin, imp tokens) {
+	t.Helper()
+	admin = h.login(t, "admin@x.io")
+	code, body := h.call(http.MethodPost, "/impersonate/"+h.targetID, admin.Access, `{"reason":"support case"}`)
+	return admin, pair(t, code, body)
+}
+
+func checkImpersonationEndsOnLogout(t *testing.T, withRedis bool) {
+	h := newE2E(t, withRedis)
+	admin, imp := h.startImpersonation(t)
+	h.requireMe(t, imp.Access, http.StatusOK, "before logout")
+	if code, _ := h.call(http.MethodPost, "/logout", admin.Access, ""); code != http.StatusOK {
+		t.Fatalf("logout: %d", code)
+	}
+	h.requireMe(t, imp.Access, http.StatusUnauthorized, "after the actor logged out")
+	if code, _ := h.call(http.MethodPost, "/stop", imp.Access, ""); code != http.StatusUnauthorized {
+		t.Fatalf("stop after logout: %d, want 401", code)
+	}
+}
+
+func checkImpersonationEndsOnSessionRevoked(t *testing.T) {
+	h := newE2E(t, true)
+	_, imp := h.startImpersonation(t)
+	for _, k := range h.mr.Keys() {
+		if strings.HasPrefix(k, "session:") {
+			h.mr.Del(k) // the session record goes, the impersonation token's own bindings stay
 		}
-		if got := h.me(imp.Access); got != http.StatusUnauthorized {
-			t.Fatalf("after the actor's session was revoked: %d, want 401", got)
-		}
-	})
+	}
+	h.requireMe(t, imp.Access, http.StatusUnauthorized, "after the actor's session was revoked")
 }

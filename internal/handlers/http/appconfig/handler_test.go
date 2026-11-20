@@ -59,7 +59,7 @@ func (m *appConfigServiceTestDouble) Update(ctx context.Context, id string, req 
 	}
 	return m.config, nil
 }
-func (m *appConfigServiceTestDouble) GetString(ctx context.Context, configKey string, fallback string) (string, error) {
+func (m *appConfigServiceTestDouble) GetString(ctx context.Context, configKey, fallback string) (string, error) {
 	return fallback, nil
 }
 func (m *appConfigServiceTestDouble) GetBool(ctx context.Context, configKey string, fallback bool) (bool, error) {

@@ -44,7 +44,7 @@ func (m *sessionRepoTestDouble) GetByRefreshToken(ctx context.Context, refreshTo
 	}
 	return m.session, nil
 }
-func (m *sessionRepoTestDouble) RotateTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
+func (m *sessionRepoTestDouble) RotateTokens(ctx context.Context, sessionID, accessToken, refreshToken string, expiresAt time.Time) error {
 	m.rotatedID = sessionID
 	return nil
 }

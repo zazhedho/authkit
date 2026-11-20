@@ -251,59 +251,76 @@ var routePermissions = []routePermission{
 	{method: "POST", path: "/api/user/sessions/revoke-others", needsRedis: true},
 }
 
+// routeProbe drives requests at a mounted engine as users with chosen permissions.
+type routeProbe struct {
+	engine *gin.Engine
+	core   *Core
+	drv    *testutil.Driver
+	// all is every distinct permission any route demands.
+	all map[string]bool
+}
+
 func TestMountAppliesPermissionPerRoute(t *testing.T) {
 	_, client := newMiniRedis(t)
 	core, drv := newCore(t, func(c *config.Config) { c.Redis = client })
-	engine := mountedEngine(t, core)
-
-	// Every distinct permission any route demands.
-	all := map[string]bool{}
+	probe := &routeProbe{engine: mountedEngine(t, core), core: core, drv: drv, all: map[string]bool{}}
 	for _, rp := range routePermissions {
 		if rp.resource != "" {
-			all[rp.resource+":"+rp.action] = true
+			probe.all[rp.resource+":"+rp.action] = true
 		}
 	}
 
 	for _, rp := range routePermissions {
 		name := rp.method + " " + rp.path
-		t.Run(name, func(t *testing.T) {
-			if code := do(engine, rp.method, rp.path, "").Code; code != http.StatusUnauthorized {
-				t.Fatalf("no token: got %d, want 401", code)
-			}
+		t.Run(name, func(t *testing.T) { probe.check(t, name, rp) })
+	}
+}
 
-			if rp.resource == "" {
-				// Authentication only: a user with no permissions at all passes the gate.
-				id := "u-none-" + strings.ReplaceAll(name, " ", "_")
-				drv.AddUser(testutil.User{ID: id, Role: "viewer"})
-				code := do(engine, rp.method, rp.path, tokenFor(t, core, id, "viewer")).Code
-				if code == http.StatusUnauthorized || code == http.StatusForbidden {
-					t.Fatalf("auth-only route rejected a valid token: %d", code)
-				}
-				return
-			}
+// status calls the route as user id with the given role, or without a token for "".
+func (p *routeProbe) status(t *testing.T, rp routePermission, id string) int {
+	t.Helper()
+	token := ""
+	if id != "" {
+		token = tokenFor(t, p.core, id, "viewer")
+	}
+	return do(p.engine, rp.method, rp.path, token).Code
+}
 
-			want := rp.resource + ":" + rp.action
-			var others []string
-			for p := range all {
-				if p != want {
-					others = append(others, p)
-				}
-			}
-			sort.Strings(others)
+func (p *routeProbe) check(t *testing.T, name string, rp routePermission) {
+	if code := p.status(t, rp, ""); code != http.StatusUnauthorized {
+		t.Fatalf("no token: got %d, want 401", code)
+	}
+	suffix := strings.ReplaceAll(name, " ", "_")
 
-			deniedID := "u-denied-" + strings.ReplaceAll(name, " ", "_")
-			drv.AddUser(testutil.User{ID: deniedID, Role: "viewer", Permissions: others})
-			if code := do(engine, rp.method, rp.path, tokenFor(t, core, deniedID, "viewer")).Code; code != http.StatusForbidden {
-				t.Fatalf("user with every other permission: got %d, want 403", code)
-			}
+	if rp.resource == "" {
+		// Authentication only: a user with no permissions at all passes the gate.
+		id := "u-none-" + suffix
+		p.drv.AddUser(testutil.User{ID: id, Role: "viewer"})
+		if code := p.status(t, rp, id); code == http.StatusUnauthorized || code == http.StatusForbidden {
+			t.Fatalf("auth-only route rejected a valid token: %d", code)
+		}
+		return
+	}
 
-			allowedID := "u-allowed-" + strings.ReplaceAll(name, " ", "_")
-			drv.AddUser(testutil.User{ID: allowedID, Role: "viewer", Permissions: []string{want}})
-			code := do(engine, rp.method, rp.path, tokenFor(t, core, allowedID, "viewer")).Code
-			if code == http.StatusUnauthorized || code == http.StatusForbidden {
-				t.Fatalf("user with exactly %s: got %d", want, code)
-			}
-		})
+	want := rp.resource + ":" + rp.action
+	var others []string
+	for perm := range p.all {
+		if perm != want {
+			others = append(others, perm)
+		}
+	}
+	sort.Strings(others)
+
+	deniedID := "u-denied-" + suffix
+	p.drv.AddUser(testutil.User{ID: deniedID, Role: "viewer", Permissions: others})
+	if code := p.status(t, rp, deniedID); code != http.StatusForbidden {
+		t.Fatalf("user with every other permission: got %d, want 403", code)
+	}
+
+	allowedID := "u-allowed-" + suffix
+	p.drv.AddUser(testutil.User{ID: allowedID, Role: "viewer", Permissions: []string{want}})
+	if code := p.status(t, rp, allowedID); code == http.StatusUnauthorized || code == http.StatusForbidden {
+		t.Fatalf("user with exactly %s: got %d", want, code)
 	}
 }
 

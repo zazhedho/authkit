@@ -15,15 +15,19 @@ CREATE INDEX IF NOT EXISTS idx_app_configs_category ON app_configs(category);
 CREATE INDEX IF NOT EXISTS idx_app_configs_is_active ON app_configs(is_active);
 CREATE INDEX IF NOT EXISTS idx_app_configs_deleted_at ON app_configs(deleted_at);
 
+-- The name is the path without its leading slash.
 INSERT INTO menu_items (id, name, display_name, path, icon, order_index, is_active)
-VALUES
-    (gen_random_uuid(), 'configs', 'Configurations', '/configs', 'bi-sliders', 903, TRUE)
+SELECT gen_random_uuid(), ltrim(v.path, '/'), v.display_name, v.path, v.icon, v.order_index, TRUE
+FROM (VALUES ('Configurations', '/configs', 'bi-sliders', 903)) AS v(display_name, path, icon, order_index)
 ON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING;
 
-INSERT INTO permissions (id, name, display_name, resource, action) VALUES
-    (gen_random_uuid(), 'list_configs', 'List Configurations', 'configs', 'list'),
-    (gen_random_uuid(), 'view_configs', 'View Configuration Detail', 'configs', 'view'),
-    (gen_random_uuid(), 'update_configs', 'Update Configurations', 'configs', 'update')
+INSERT INTO permissions (id, name, display_name, resource, action)
+SELECT gen_random_uuid(), v.name, v.display_name, 'configs', v.action
+FROM (VALUES
+    ('list_configs', 'List Configurations', 'list'),
+    ('view_configs', 'View Configuration Detail', 'view'),
+    ('update_configs', 'Update Configurations', 'update')
+) AS v(name, display_name, action)
 ON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING;
 
 INSERT INTO role_permissions (role_id, permission_id)

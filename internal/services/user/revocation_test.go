@@ -156,7 +156,7 @@ func TestUpdateRevokesOnlyForCredentialChanges(t *testing.T) {
 			if _, ok := repo.fields[tc.wantField]; !ok {
 				t.Fatalf("%s not written: %v", tc.wantField, repo.fields)
 			}
-			if got := len(rev.userIDs) == 1; got != tc.wantRevoke {
+			if (len(rev.userIDs) == 1) != tc.wantRevoke {
 				t.Fatalf("sessions ended = %v, want %v", rev.userIDs, tc.wantRevoke)
 			}
 		})

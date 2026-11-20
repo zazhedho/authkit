@@ -73,36 +73,47 @@ func (s *Service) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, 
 		return domainuser.Users{}, false, err
 	}
 	if err == nil && existing.ID != "" {
-		if existing.GoogleSubject != nil && *existing.GoogleSubject != subject {
-			return domainuser.Users{}, false, domainuser.ErrGoogleTokenInvalid
-		}
-		extra := map[string]any{"google_subject": subject}
-		// An account whose email was never verified may have been created by
-		// someone who does not own the address. Linking takes it over, so
-		// whatever credentials and sessions it had must stop working.
-		if existing.EmailVerifiedAt == nil {
-			randomHash, hashErr := s.randomPasswordHash()
-			if hashErr != nil {
-				return domainuser.Users{}, false, hashErr
-			}
-			extra["password"] = randomHash
-			extra["password_changed_at"] = time.Now()
-		}
-		user, created, err := s.finishGoogleLogin(ctx, existing, identity, metadata, extra, existing.EmailVerifiedAt == nil)
-		if err != nil {
-			return domainuser.Users{}, false, err
-		}
-		if existing.EmailVerifiedAt == nil {
-			if err := s.afterRevocation(ctx, user.ID); err != nil {
-				return domainuser.Users{}, false, fmt.Errorf("revoke sessions after google link: %w", err)
-			}
-		}
-		return user, created, nil
+		return s.linkGoogleAccount(ctx, existing, identity, subject, metadata)
 	}
 	if !allowRegistration {
 		return domainuser.Users{}, false, domainuser.ErrPublicRegistrationDisabled
 	}
+	return s.registerGoogleUser(ctx, identity, email, subject, metadata)
+}
 
+// linkGoogleAccount attaches the Google subject to the user who already owns
+// the email.
+func (s *Service) linkGoogleAccount(ctx context.Context, existing domainuser.Users, identity GoogleIdentity, subject string, metadata dtouser.LoginMetadata) (domainuser.Users, bool, error) {
+	if existing.GoogleSubject != nil && *existing.GoogleSubject != subject {
+		return domainuser.Users{}, false, domainuser.ErrGoogleTokenInvalid
+	}
+	extra := map[string]any{"google_subject": subject}
+	// An account whose email was never verified may have been created by
+	// someone who does not own the address. Linking takes it over, so
+	// whatever credentials and sessions it had must stop working.
+	unverified := existing.EmailVerifiedAt == nil
+	if unverified {
+		randomHash, err := s.randomPasswordHash()
+		if err != nil {
+			return domainuser.Users{}, false, err
+		}
+		extra["password"] = randomHash
+		extra["password_changed_at"] = time.Now()
+	}
+	user, created, err := s.finishGoogleLogin(ctx, existing, identity, metadata, extra, unverified)
+	if err != nil {
+		return domainuser.Users{}, false, err
+	}
+	if unverified {
+		if err := s.afterRevocation(ctx, user.ID); err != nil {
+			return domainuser.Users{}, false, fmt.Errorf("revoke sessions after google link: %w", err)
+		}
+	}
+	return user, created, nil
+}
+
+// registerGoogleUser creates a verified account for a first-time Google login.
+func (s *Service) registerGoogleUser(ctx context.Context, identity GoogleIdentity, email, subject string, metadata dtouser.LoginMetadata) (domainuser.Users, bool, error) {
 	roleName := s.defaultRole()
 	roleID, ok := findRoleIDByName(ctx, s.RoleRepo, roleName)
 	if !ok {

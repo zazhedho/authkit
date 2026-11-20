@@ -71,7 +71,7 @@ func (s *Service) Update(ctx context.Context, id string, req dtoappconfig.Update
 	return config, nil
 }
 
-func (s *Service) GetString(ctx context.Context, configKey string, fallback string) (string, error) {
+func (s *Service) GetString(ctx context.Context, configKey, fallback string) (string, error) {
 	entry, found, err := s.getActiveConfigByKey(ctx, configKey)
 	if err != nil {
 		return fallback, err

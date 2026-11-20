@@ -1,8 +1,4 @@
-DELETE FROM role_permissions
-WHERE permission_id IN (
-    SELECT id FROM permissions WHERE resource = 'configs'
-);
-
+-- Deleting the permissions also removes their role_permissions rows (ON DELETE CASCADE).
 DELETE FROM permissions WHERE resource = 'configs';
 DELETE FROM menu_items WHERE name = 'configs';
 

@@ -25,7 +25,7 @@ func NewService(sessionRepo Repository, refreshTTL time.Duration) *Service {
 	}
 }
 
-func (s *Service) CreateSession(ctx context.Context, user *domainuser.Users, accessToken string, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error) {
+func (s *Service) CreateSession(ctx context.Context, user *domainuser.Users, accessToken, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error) {
 	sessionID := uuid.New().String()
 
 	expiresAt := time.Now().Add(s.RefreshTTL)
@@ -59,7 +59,7 @@ func (s *Service) CreateSession(ctx context.Context, user *domainuser.Users, acc
 	return session, nil
 }
 
-func (s *Service) GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.Info, error) {
+func (s *Service) GetUserSessions(ctx context.Context, userID, currentSessionID string) ([]*domainsession.Info, error) {
 	sessions, err := s.SessionRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -105,7 +105,7 @@ func (s *Service) GetSessionBySessionID(ctx context.Context, sessionID string) (
 	return s.SessionRepo.GetBySessionID(ctx, sessionID)
 }
 
-func (s *Service) RotateSessionTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
+func (s *Service) RotateSessionTokens(ctx context.Context, sessionID, accessToken, refreshToken string, expiresAt time.Time) error {
 	return s.SessionRepo.RotateTokens(ctx, sessionID, accessToken, refreshToken, expiresAt)
 }
 
@@ -113,6 +113,6 @@ func (s *Service) DestroyAllUserSessions(ctx context.Context, userID string) err
 	return s.SessionRepo.DeleteByUserID(ctx, userID)
 }
 
-func (s *Service) DestroyOtherSessions(ctx context.Context, userID string, currentSessionID string) error {
+func (s *Service) DestroyOtherSessions(ctx context.Context, userID, currentSessionID string) error {
 	return s.SessionRepo.DeleteOthers(ctx, userID, currentSessionID)
 }

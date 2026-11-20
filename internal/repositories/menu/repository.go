@@ -31,40 +31,52 @@ func (r *Repository) GetByID(ctx context.Context, id string) (domainmenu.Item, e
 	return ret, translateErr(err)
 }
 
+// menuParent is one row of the parent chain: a menu item and its parent.
+type menuParent struct {
+	ID       string
+	ParentID *string
+}
+
 // Update saves the item. It locks the menu rows and re-checks the parent chain
 // inside the transaction, so two concurrent re-parentings cannot form a loop.
 func (r *Repository) Update(ctx context.Context, item domainmenu.Item) error {
 	return r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var rows []struct {
-			ID       string
-			ParentID *string
-		}
+		var rows []menuParent
 		if err := tx.Model(&domainmenu.Item{}).Clauses(clause.Locking{Strength: "UPDATE"}).
 			Select("id, parent_id").Find(&rows).Error; err != nil {
 			return translateErr(err)
 		}
-		parents := make(map[string]string, len(rows))
-		for _, row := range rows {
-			if row.ParentID != nil {
-				parents[row.ID] = *row.ParentID
-			}
-		}
-		if item.ParentID != nil {
-			parents[item.ID] = *item.ParentID
-		} else {
-			delete(parents, item.ID)
-		}
-		for current, steps := item.ID, 0; current != ""; steps++ {
-			if steps > len(rows)+1 {
-				return fmt.Errorf("%w: that parent would create a loop", domainmenu.ErrInvalidParent)
-			}
-			current = parents[current]
-			if current == item.ID {
-				return fmt.Errorf("%w: that parent would create a loop", domainmenu.ErrInvalidParent)
-			}
+		if createsLoop(item, rows) {
+			return fmt.Errorf("%w: that parent would create a loop", domainmenu.ErrInvalidParent)
 		}
 		return translateErr(gokit.NewRepository[domainmenu.Item](tx).Update(ctx, &item))
 	})
+}
+
+// createsLoop reports whether saving item with its parent would make its
+// parent chain return to itself.
+func createsLoop(item domainmenu.Item, rows []menuParent) bool {
+	parents := make(map[string]string, len(rows))
+	for _, row := range rows {
+		if row.ParentID != nil {
+			parents[row.ID] = *row.ParentID
+		}
+	}
+	if item.ParentID != nil {
+		parents[item.ID] = *item.ParentID
+	} else {
+		delete(parents, item.ID)
+	}
+	for current, steps := item.ID, 0; current != ""; steps++ {
+		if steps > len(rows)+1 {
+			return true
+		}
+		current = parents[current]
+		if current == item.ID {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Repository) GetByName(ctx context.Context, name string) (ret domainmenu.Item, err error) {

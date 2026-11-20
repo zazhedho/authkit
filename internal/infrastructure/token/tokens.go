@@ -9,6 +9,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 )
 
 // IssuedAtSkew is how far in the future an iat may be, for nodes whose clocks
@@ -214,14 +216,14 @@ func (t *Tokens) GenerateImpersonated(userID, username, role, originalUserID, or
 }
 
 // GenerateImpersonatedBound is GenerateImpersonated with the actor's session ID
-// and access-token hash recorded in the token (either may be empty).
-func (t *Tokens) GenerateImpersonatedBound(userID, username, role, originalUserID, originalUsername, originalRole, actorSessionID, actorTokenHash string, after time.Time) (string, error) {
+// and access-token hash recorded in the token.
+func (t *Tokens) GenerateImpersonatedBound(userID, username, role string, imp dtoshared.ImpersonationClaims, after time.Time) (string, error) {
 	return t.GenerateWithClaims(userID, username, role, &AppClaims{
 		IsImpersonated:   true,
-		OriginalUserID:   originalUserID,
-		OriginalUsername: originalUsername,
-		OriginalRole:     originalRole,
-		ActorSessionID:   actorSessionID,
-		ActorTokenHash:   actorTokenHash,
+		OriginalUserID:   imp.OriginalUserID,
+		OriginalUsername: imp.OriginalUsername,
+		OriginalRole:     imp.OriginalRole,
+		ActorSessionID:   imp.ActorSessionID,
+		ActorTokenHash:   imp.ActorTokenHash,
 	}, after)
 }

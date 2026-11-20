@@ -92,8 +92,7 @@ func (m *auditServicePermissionTestDouble) GetByID(ctx context.Context, id strin
 const testID = "550e8400-e29b-41d4-a716-446655440000"
 
 func performPermissionRequest(
-	method string,
-	path string,
+	method, path string,
 	body any,
 	handler gin.HandlerFunc,
 	scope domainauth.Scope,

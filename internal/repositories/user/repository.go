@@ -74,11 +74,59 @@ func (r *Repository) UpdateFieldsRevoking(ctx context.Context, id string, fields
 	return r.write(ctx, id, fields, true)
 }
 
+// idCondition is the where clause that selects one user by id.
+const idCondition = "id = ?"
+
 func (r *Repository) write(ctx context.Context, id string, fields map[string]any, revoke bool) (time.Time, error) {
+	updates, err := buildUpdates(fields, revoke)
+	if err != nil {
+		return time.Time{}, err
+	}
+	role, hasRole := fields["role"].(string)
+	demotes := hasRole && role != domainuser.RoleSuperAdmin
+
+	var cutoff time.Time
+	err = r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if demotes {
+			if err := guardLastSuperAdmin(tx, id); err != nil {
+				return err
+			}
+		}
+		var err error
+		cutoff, err = applyUpdates(tx, id, updates, revoke)
+		return err
+	})
+	return cutoff, err
+}
+
+// applyUpdates writes the columns and, with revoke, returns the cut-off the
+// database stamped into tokens_valid_after.
+func applyUpdates(tx *gorm.DB, id string, updates map[string]any, revoke bool) (time.Time, error) {
+	var row domainuser.Users
+	query := tx.Model(&row).Where(idCondition, id)
+	if revoke {
+		query = query.Clauses(clause.Returning{Columns: []clause.Column{{Name: "tokens_valid_after"}}})
+	}
+	res := query.Updates(updates)
+	if res.Error != nil {
+		return time.Time{}, translateErr(res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return time.Time{}, domainuser.ErrNotFound
+	}
+	if revoke && row.TokensValidAfter != nil {
+		return *row.TokensValidAfter, nil
+	}
+	return time.Time{}, nil
+}
+
+// buildUpdates checks every column is updatable and adds updated_at, and with
+// revoke the database-side tokens_valid_after.
+func buildUpdates(fields map[string]any, revoke bool) (map[string]any, error) {
 	updates := make(map[string]any, len(fields)+2)
 	for column, value := range fields {
 		if _, ok := updatableFields[column]; !ok {
-			return time.Time{}, fmt.Errorf("user: column %q cannot be updated", column)
+			return nil, fmt.Errorf("user: column %q cannot be updated", column)
 		}
 		updates[column] = value
 	}
@@ -88,36 +136,7 @@ func (r *Repository) write(ctx context.Context, id string, fields map[string]any
 	if revoke {
 		updates["tokens_valid_after"] = gorm.Expr("now()")
 	}
-	demotes := false
-	if role, ok := fields["role"].(string); ok && role != domainuser.RoleSuperAdmin {
-		demotes = true
-	}
-
-	var cutoff time.Time
-	err := r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if demotes {
-			if err := guardLastSuperAdmin(tx, id); err != nil {
-				return err
-			}
-		}
-		var row domainuser.Users
-		query := tx.Model(&row).Where("id = ?", id)
-		if revoke {
-			query = query.Clauses(clause.Returning{Columns: []clause.Column{{Name: "tokens_valid_after"}}})
-		}
-		res := query.Updates(updates)
-		if res.Error != nil {
-			return translateErr(res.Error)
-		}
-		if res.RowsAffected == 0 {
-			return domainuser.ErrNotFound
-		}
-		if revoke && row.TokensValidAfter != nil {
-			cutoff = *row.TokensValidAfter
-		}
-		return nil
-	})
-	return cutoff, err
+	return updates, nil
 }
 
 // guardLastSuperAdmin matters only when id is a superadmin. It then locks every
@@ -125,7 +144,7 @@ func (r *Repository) write(ctx context.Context, id string, fields map[string]any
 // when id is the only one, so concurrent removals serialize.
 func guardLastSuperAdmin(tx *gorm.DB, id string) error {
 	var role string
-	if err := tx.Model(&domainuser.Users{}).Where("id = ?", id).Limit(1).Pluck("role", &role).Error; err != nil {
+	if err := tx.Model(&domainuser.Users{}).Where(idCondition, id).Limit(1).Pluck("role", &role).Error; err != nil {
 		return translateErr(err)
 	}
 	if role != domainuser.RoleSuperAdmin {
@@ -156,7 +175,7 @@ func (r *Repository) Delete(ctx context.Context, id string) error {
 		if err := guardLastSuperAdmin(tx, id); err != nil {
 			return err
 		}
-		res := tx.Where("id = ?", id).Delete(&domainuser.Users{})
+		res := tx.Where(idCondition, id).Delete(&domainuser.Users{})
 		if res.Error != nil {
 			return translateErr(res.Error)
 		}

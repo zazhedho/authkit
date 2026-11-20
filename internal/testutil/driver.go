@@ -79,73 +79,111 @@ type fakeResult struct {
 	rows [][]driver.Value
 }
 
+// answerRule maps a lowercased query to the canned reply for it. The first
+// matching rule wins.
+type answerRule struct {
+	match func(q string) bool
+	reply func(d *Driver, args []driver.NamedValue) fakeResult
+}
+
+func contains(sub string) func(string) bool {
+	return func(q string) bool { return strings.Contains(q, sub) }
+}
+
+var answerRules = []answerRule{
+	{contains("count("), func(*Driver, []driver.NamedValue) fakeResult {
+		return fakeResult{cols: []string{"count"}, rows: [][]driver.Value{{int64(0)}}}
+	}},
+	{contains("select role, tokens_valid_after"), (*Driver).replyAuthState},
+	{contains("select role_id, role"), (*Driver).replyRoleOfUser},
+	{contains("from permissions p"), (*Driver).replyPermissions},
+	{contains(`from "app_configs"`), (*Driver).replyConfig},
+	{contains(`from "roles"`), func(_ *Driver, args []driver.NamedValue) fakeResult {
+		name := argStr(args, 0)
+		return fakeResult{cols: []string{"id", "name", "created_at"}, rows: [][]driver.Value{{"role-" + name, name, time.Now()}}}
+	}},
+	{func(q string) bool { return strings.Contains(q, `from "users"`) && strings.Contains(q, "email") }, (*Driver).replyLoginUser},
+}
+
 func (d *Driver) answer(query string, args []driver.NamedValue) fakeResult {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.queries = append(d.queries, query)
 	q := strings.ToLower(query)
-	argStr := func(i int) string {
-		if i < len(args) {
-			if s, ok := args[i].Value.(string); ok {
-				return s
-			}
+	for _, rule := range answerRules {
+		if rule.match(q) {
+			return rule.reply(d, args)
 		}
-		return ""
-	}
-
-	switch {
-	case strings.Contains(q, "count("):
-		return fakeResult{cols: []string{"count"}, rows: [][]driver.Value{{int64(0)}}}
-	case strings.Contains(q, "select role, tokens_valid_after"):
-		if u, ok := d.users[argStr(0)]; ok {
-			return fakeResult{cols: []string{"role", "tokens_valid_after"}, rows: [][]driver.Value{{u.Role, nil}}}
-		}
-		return fakeResult{}
-	case strings.HasPrefix(q, "select role_id, role from") || strings.Contains(q, "select role_id, role"):
-		if u, ok := d.users[argStr(0)]; ok {
-			return fakeResult{cols: []string{"role_id", "role"}, rows: [][]driver.Value{{"role-" + u.ID, u.Role}}}
-		}
-		return fakeResult{}
-	case strings.Contains(q, "from permissions p"):
-		roleID := argStr(0)
-		for _, u := range d.users {
-			if "role-"+u.ID != roleID {
-				continue
-			}
-			var rows [][]driver.Value
-			for _, p := range u.Permissions {
-				parts := strings.SplitN(p, ":", 2)
-				rows = append(rows, []driver.Value{p, parts[0], parts[1], time.Now()})
-			}
-			return fakeResult{cols: []string{"id", "resource", "action", "created_at"}, rows: rows}
-		}
-		return fakeResult{}
-	case strings.Contains(q, `from "app_configs"`):
-		for _, a := range args {
-			if key, ok := a.Value.(string); ok {
-				if value, found := d.enabledConfigs[key]; found {
-					return fakeResult{
-						cols: []string{"id", "config_key", "value", "is_active", "created_at"},
-						rows: [][]driver.Value{{"cfg-" + key, key, value, true, time.Now()}},
-					}
-				}
-			}
-		}
-		return fakeResult{}
-	case strings.Contains(q, `from "roles"`):
-		name := argStr(0)
-		return fakeResult{cols: []string{"id", "name", "created_at"}, rows: [][]driver.Value{{"role-" + name, name, time.Now()}}}
-	case strings.Contains(q, `from "users"`) && strings.Contains(q, "email"):
-		if id, ok := d.loginUsers[strings.ToLower(argStr(0))]; ok {
-			u := d.users[id]
-			return fakeResult{
-				cols: []string{"id", "name", "email", "password", "role", "created_at"},
-				rows: [][]driver.Value{{u.ID, "Fake " + u.ID, u.Email, u.PasswordHash, u.Role, time.Now()}},
-			}
-		}
-		return fakeResult{}
 	}
 	return fakeResult{}
+}
+
+// argStr is the i-th bound argument when it is a string, else "".
+func argStr(args []driver.NamedValue, i int) string {
+	if i < len(args) {
+		if s, ok := args[i].Value.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+func (d *Driver) replyAuthState(args []driver.NamedValue) fakeResult {
+	if u, ok := d.users[argStr(args, 0)]; ok {
+		return fakeResult{cols: []string{"role", "tokens_valid_after"}, rows: [][]driver.Value{{u.Role, nil}}}
+	}
+	return fakeResult{}
+}
+
+func (d *Driver) replyRoleOfUser(args []driver.NamedValue) fakeResult {
+	if u, ok := d.users[argStr(args, 0)]; ok {
+		return fakeResult{cols: []string{"role_id", "role"}, rows: [][]driver.Value{{"role-" + u.ID, u.Role}}}
+	}
+	return fakeResult{}
+}
+
+func (d *Driver) replyPermissions(args []driver.NamedValue) fakeResult {
+	roleID := argStr(args, 0)
+	for _, u := range d.users {
+		if "role-"+u.ID != roleID {
+			continue
+		}
+		var rows [][]driver.Value
+		for _, p := range u.Permissions {
+			parts := strings.SplitN(p, ":", 2)
+			rows = append(rows, []driver.Value{p, parts[0], parts[1], time.Now()})
+		}
+		return fakeResult{cols: []string{"id", "resource", "action", "created_at"}, rows: rows}
+	}
+	return fakeResult{}
+}
+
+func (d *Driver) replyConfig(args []driver.NamedValue) fakeResult {
+	for _, a := range args {
+		key, ok := a.Value.(string)
+		if !ok {
+			continue
+		}
+		if value, found := d.enabledConfigs[key]; found {
+			return fakeResult{
+				cols: []string{"id", "config_key", "value", "is_active", "created_at"},
+				rows: [][]driver.Value{{"cfg-" + key, key, value, true, time.Now()}},
+			}
+		}
+	}
+	return fakeResult{}
+}
+
+func (d *Driver) replyLoginUser(args []driver.NamedValue) fakeResult {
+	id, ok := d.loginUsers[strings.ToLower(argStr(args, 0))]
+	if !ok {
+		return fakeResult{}
+	}
+	u := d.users[id]
+	return fakeResult{
+		cols: []string{"id", "name", "email", "password", "role", "created_at"},
+		rows: [][]driver.Value{{u.ID, "Fake " + u.ID, u.Email, u.PasswordHash, u.Role, time.Now()}},
+	}
 }
 
 type fakeConnector struct{ d *Driver }

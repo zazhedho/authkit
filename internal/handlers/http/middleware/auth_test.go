@@ -108,7 +108,7 @@ func testTokens(t *testing.T) *token.Tokens {
 	return tokens
 }
 
-func testToken(t *testing.T, tokenType string, role string) string {
+func testToken(t *testing.T, tokenType, role string) string {
 	t.Helper()
 	claims := &token.AppClaims{TokenType: tokenType}
 	token, err := testTokens(t).GenerateWithClaims("user-1", "Jane", role, claims, time.Time{})

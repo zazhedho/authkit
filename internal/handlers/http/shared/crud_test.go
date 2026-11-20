@@ -345,7 +345,7 @@ func TestEmptyListSerializesDataAsAnArray(t *testing.T) {
 	List(f, ListOptions{OrderBy: "name", Direction: "asc", Limit: 5}, func(context.Context, dtoshared.ListRequest) ([]widget, int64, error) {
 		return nil, 0, nil
 	})
-	if got := decode(t, rec)["data"]; got == nil {
+	if decode(t, rec)["data"] == nil {
 		t.Fatalf("data must be [], got null in %s", rec.Body.String())
 	}
 }

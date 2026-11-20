@@ -23,6 +23,7 @@ import (
 	domainsession "github.com/zazhedho/authkit/internal/domain/session"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 
 	"github.com/gin-gonic/gin"
@@ -341,7 +342,9 @@ func TestDeleteByIDOfYourOwnAccountNeedsThePasswordAndIsClosedToImpersonators(t 
 }
 
 func TestStopImpersonationRequiresTheActorsSessionToBeLive(t *testing.T) {
-	raw, err := testHandlerTokens().GenerateImpersonatedBound("target-1", "T", "viewer", "admin-1", "A", "admin", "sid-1", "", time.Time{})
+	raw, err := testHandlerTokens().GenerateImpersonatedBound("target-1", "T", "viewer", dtoshared.ImpersonationClaims{
+		OriginalUserID: "admin-1", OriginalUsername: "A", OriginalRole: "admin", ActorSessionID: "sid-1",
+	}, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}

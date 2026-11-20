@@ -40,86 +40,50 @@ func WithDefaults(c Config) Config {
 	c.Mailer = untypedNil(c.Mailer)
 	c.OTPMailer = untypedNil(c.OTPMailer)
 	c.ResetMailer = untypedNil(c.ResetMailer)
-	if c.AccessTokenTTL <= 0 {
-		c.AccessTokenTTL = defaultAccessTTL
-	}
-	if c.RefreshTokenTTL <= 0 {
-		c.RefreshTokenTTL = defaultRefreshTTL
-	}
-	if c.SessionMaxLifetime <= 0 {
-		c.SessionMaxLifetime = defaultSessionMaxLifetime
-	}
-	if strings.TrimSpace(c.DefaultRole) == "" {
-		c.DefaultRole = domainuser.RoleViewer
-	}
-	if strings.TrimSpace(c.EmailAppName) == "" {
-		c.EmailAppName = c.AppName
-	}
-	if c.PermissionCacheTTL <= 0 {
-		c.PermissionCacheTTL = defaultPermissionCacheTTL
-	}
+	defaultPositive(&c.AccessTokenTTL, defaultAccessTTL)
+	defaultPositive(&c.RefreshTokenTTL, defaultRefreshTTL)
+	defaultPositive(&c.SessionMaxLifetime, defaultSessionMaxLifetime)
+	defaultText(&c.DefaultRole, domainuser.RoleViewer)
+	defaultText(&c.EmailAppName, c.AppName)
+	defaultPositive(&c.PermissionCacheTTL, defaultPermissionCacheTTL)
 
-	if c.Login.Limit <= 0 {
-		c.Login.Limit = defaultLoginLimit
-	}
-	if c.Login.Window <= 0 {
-		c.Login.Window = defaultLoginWindow
-	}
-	if c.Login.BlockDuration <= 0 {
-		c.Login.BlockDuration = defaultLoginBlock
-	}
-	if c.Register.Limit <= 0 {
-		c.Register.Limit = defaultRegisterLimit
-	}
-	if c.Register.Window <= 0 {
-		c.Register.Window = defaultRegisterWindow
-	}
-	if c.AuthRate.Limit <= 0 {
-		c.AuthRate.Limit = defaultAuthRateLimit
-	}
-	if c.AuthRate.Window <= 0 {
-		c.AuthRate.Window = defaultAuthRateWindow
-	}
+	defaultPositive(&c.Login.Limit, defaultLoginLimit)
+	defaultPositive(&c.Login.Window, defaultLoginWindow)
+	defaultPositive(&c.Login.BlockDuration, defaultLoginBlock)
+	defaultPositive(&c.Register.Limit, defaultRegisterLimit)
+	defaultPositive(&c.Register.Window, defaultRegisterWindow)
+	defaultPositive(&c.AuthRate.Limit, defaultAuthRateLimit)
+	defaultPositive(&c.AuthRate.Window, defaultAuthRateWindow)
 
-	if c.OTP.TTL <= 0 {
-		c.OTP.TTL = defaultOTPTTL
-	}
-	if c.OTP.Cooldown <= 0 {
-		c.OTP.Cooldown = defaultOTPCooldown
-	}
-	if c.OTP.RateLimit <= 0 {
-		c.OTP.RateLimit = defaultOTPRateLimit
-	}
-	if c.OTP.RateWindow <= 0 {
-		c.OTP.RateWindow = c.OTP.TTL
-	}
-	if c.OTP.MaxAttempts <= 0 {
-		c.OTP.MaxAttempts = defaultOTPMaxAttempts
-	}
+	defaultPositive(&c.OTP.TTL, defaultOTPTTL)
+	defaultPositive(&c.OTP.Cooldown, defaultOTPCooldown)
+	defaultPositive(&c.OTP.RateLimit, defaultOTPRateLimit)
+	defaultPositive(&c.OTP.RateWindow, c.OTP.TTL)
+	defaultPositive(&c.OTP.MaxAttempts, defaultOTPMaxAttempts)
 
-	if c.Reset.TTL <= 0 {
-		c.Reset.TTL = defaultResetTTL
-	}
-	if c.Reset.Cooldown <= 0 {
-		c.Reset.Cooldown = defaultResetCooldown
-	}
-	if c.Reset.RateLimit <= 0 {
-		c.Reset.RateLimit = defaultResetRateLimit
-	}
-	if c.Reset.RateWindow <= 0 {
-		c.Reset.RateWindow = c.Reset.TTL
-	}
+	defaultPositive(&c.Reset.TTL, defaultResetTTL)
+	defaultPositive(&c.Reset.Cooldown, defaultResetCooldown)
+	defaultPositive(&c.Reset.RateLimit, defaultResetRateLimit)
+	defaultPositive(&c.Reset.RateWindow, c.Reset.TTL)
 
-	if strings.TrimSpace(c.Flags.PublicRegistration) == "" {
-		c.Flags.PublicRegistration = defaultFlagPublicRegistration
-	}
-	if strings.TrimSpace(c.Flags.RegisterOTP) == "" {
-		c.Flags.RegisterOTP = defaultFlagRegisterOTP
-	}
-	if strings.TrimSpace(c.Flags.PasswordResetEmail) == "" {
-		c.Flags.PasswordResetEmail = defaultFlagPasswordResetEmail
-	}
+	defaultText(&c.Flags.PublicRegistration, defaultFlagPublicRegistration)
+	defaultText(&c.Flags.RegisterOTP, defaultFlagRegisterOTP)
+	defaultText(&c.Flags.PasswordResetEmail, defaultFlagPasswordResetEmail)
 	return c
+}
+
+// defaultPositive sets *v to def when it is zero or negative.
+func defaultPositive[T ~int | ~int64](v *T, def T) {
+	if *v <= 0 {
+		*v = def
+	}
+}
+
+// defaultText sets *v to def when it is empty or only whitespace.
+func defaultText(v *string, def string) {
+	if strings.TrimSpace(*v) == "" {
+		*v = def
+	}
 }
 
 // untypedNil turns a nil pointer stored in an interface (a nil *redis.Client

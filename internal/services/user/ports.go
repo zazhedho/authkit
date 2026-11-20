@@ -54,7 +54,7 @@ type PermissionRepository interface {
 type TokenIssuer interface {
 	Generate(userID, username, role string, after time.Time) (string, error)
 	GenerateNoSession(userID, username, role string, after time.Time) (string, error)
-	GenerateImpersonatedBound(userID, username, role, originalUserID, originalUsername, originalRole, actorSessionID, actorTokenHash string, after time.Time) (string, error)
+	GenerateImpersonatedBound(userID, username, role string, imp dtoshared.ImpersonationClaims, after time.Time) (string, error)
 	Claims(tokenString string) (map[string]any, error)
 	ExpiresAt(tokenString string) (time.Time, error)
 }

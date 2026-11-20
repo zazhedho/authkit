@@ -335,7 +335,13 @@ func (s *Service) ImpersonateUser(ctx context.Context, actor domainauth.Actor, t
 	}
 
 	after := laterOf(derefTime(actorUser.TokensValidAfter), derefTime(targetUser.TokensValidAfter))
-	return s.Tokens.GenerateImpersonatedBound(targetUser.ID, targetUser.Name, targetUser.Role, actor.UserID, actor.Username, actor.Role, bind.SessionID, bind.TokenHash, after)
+	return s.Tokens.GenerateImpersonatedBound(targetUser.ID, targetUser.Name, targetUser.Role, dtoshared.ImpersonationClaims{
+		OriginalUserID:   actor.UserID,
+		OriginalUsername: actor.Username,
+		OriginalRole:     actor.Role,
+		ActorSessionID:   bind.SessionID,
+		ActorTokenHash:   bind.TokenHash,
+	}, after)
 }
 
 // StopImpersonation needs the original account live and unrevoked since the

@@ -179,7 +179,7 @@ type AppConfigService interface {
 	GetByID(ctx context.Context, id string) (AppConfig, error)
 	GetByKey(ctx context.Context, configKey string) (AppConfig, error)
 	Update(ctx context.Context, id string, req UpdateAppConfig) (AppConfig, error)
-	GetString(ctx context.Context, configKey string, fallback string) (string, error)
+	GetString(ctx context.Context, configKey, fallback string) (string, error)
 	GetBool(ctx context.Context, configKey string, fallback bool) (bool, error)
 	GetInt(ctx context.Context, configKey string, fallback int) (int, error)
 	GetDuration(ctx context.Context, configKey string, fallback time.Duration) (time.Duration, error)

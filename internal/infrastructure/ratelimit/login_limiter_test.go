@@ -154,7 +154,7 @@ func TestBackoffLimiterDelaysGrowExponentiallyUpToTheCap(t *testing.T) {
 	var delays []time.Duration
 	for range 8 {
 		_, _, _ = limiter.RegisterFailure(ctx, "k")
-		if i := len(delays); i < 2 {
+		if len(delays) < 2 {
 			delays = append(delays, 0)
 			continue
 		}
