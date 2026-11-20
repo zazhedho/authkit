@@ -29,10 +29,10 @@ type sessionServiceHandlerTestDouble struct {
 	otherErr     error
 }
 
-func (m *sessionServiceHandlerTestDouble) CreateSession(ctx context.Context, user *domainuser.Users, accessToken string, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error) {
+func (m *sessionServiceHandlerTestDouble) CreateSession(ctx context.Context, user *domainuser.Users, accessToken, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error) {
 	return nil, nil
 }
-func (m *sessionServiceHandlerTestDouble) GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.Info, error) {
+func (m *sessionServiceHandlerTestDouble) GetUserSessions(ctx context.Context, userID, currentSessionID string) ([]*domainsession.Info, error) {
 	return m.infos, m.err
 }
 func (m *sessionServiceHandlerTestDouble) DestroySession(ctx context.Context, sessionID string) error {
@@ -48,7 +48,7 @@ func (m *sessionServiceHandlerTestDouble) DestroySessionByToken(ctx context.Cont
 func (m *sessionServiceHandlerTestDouble) DestroyAllUserSessions(ctx context.Context, userID string) error {
 	return nil
 }
-func (m *sessionServiceHandlerTestDouble) DestroyOtherSessions(ctx context.Context, userID string, currentSessionID string) error {
+func (m *sessionServiceHandlerTestDouble) DestroyOtherSessions(ctx context.Context, userID, currentSessionID string) error {
 	m.destroyOther = currentSessionID
 	if m.otherErr != nil {
 		return m.otherErr
@@ -70,7 +70,7 @@ func (m *sessionServiceHandlerTestDouble) GetSessionBySessionID(ctx context.Cont
 	}
 	return m.session, nil
 }
-func (m *sessionServiceHandlerTestDouble) RotateSessionTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
+func (m *sessionServiceHandlerTestDouble) RotateSessionTokens(ctx context.Context, sessionID, accessToken, refreshToken string, expiresAt time.Time) error {
 	return nil
 }
 

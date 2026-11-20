@@ -50,15 +50,15 @@ type LoginLimiter interface {
 // SessionService is the Redis-backed session store; the handler treats a nil
 // value as "sessions are off".
 type SessionService interface {
-	CreateSession(ctx context.Context, user *domainuser.Users, accessToken string, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error)
+	CreateSession(ctx context.Context, user *domainuser.Users, accessToken, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error)
 	DestroySession(ctx context.Context, sessionID string) error
 	DestroySessionByToken(ctx context.Context, token string) error
 	DestroyAllUserSessions(ctx context.Context, userID string) error
 	GetSessionByToken(ctx context.Context, token string) (*domainsession.Session, error)
 	GetSessionBySessionID(ctx context.Context, sessionID string) (*domainsession.Session, error)
-	DestroyOtherSessions(ctx context.Context, userID string, currentSessionID string) error
+	DestroyOtherSessions(ctx context.Context, userID, currentSessionID string) error
 	GetSessionByRefreshToken(ctx context.Context, refreshToken string) (*domainsession.Session, error)
-	RotateSessionTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error
+	RotateSessionTokens(ctx context.Context, sessionID, accessToken, refreshToken string, expiresAt time.Time) error
 }
 
 // AppConfigService reads the feature flags the handler consults.

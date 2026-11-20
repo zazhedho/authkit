@@ -39,7 +39,7 @@ func (m *appConfigServiceUserTestDouble) GetByKey(ctx context.Context, configKey
 func (m *appConfigServiceUserTestDouble) Update(ctx context.Context, id string, req dtoappconfig.UpdateAppConfig) (domainappconfig.AppConfig, error) {
 	return domainappconfig.AppConfig{}, nil
 }
-func (m *appConfigServiceUserTestDouble) GetString(ctx context.Context, configKey string, fallback string) (string, error) {
+func (m *appConfigServiceUserTestDouble) GetString(ctx context.Context, configKey, fallback string) (string, error) {
 	return fallback, nil
 }
 func (m *appConfigServiceUserTestDouble) GetBool(ctx context.Context, configKey string, fallback bool) (bool, error) {

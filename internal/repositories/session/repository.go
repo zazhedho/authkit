@@ -221,7 +221,7 @@ func (r *Repository) DeleteOthers(ctx context.Context, userID, keepSessionID str
 // RotateTokens claims the old refresh token with SET NX (one winner; the loser
 // gets ErrRefreshReused and the session is revoked), then swaps in one
 // MULTI/EXEC, releasing the claim if that fails.
-func (r *Repository) RotateTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
+func (r *Repository) RotateTokens(ctx context.Context, sessionID, accessToken, refreshToken string, expiresAt time.Time) error {
 	ttl := time.Until(expiresAt)
 	if ttl <= 0 {
 		return fmt.Errorf("session already expired")

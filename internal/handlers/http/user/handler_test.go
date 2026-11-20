@@ -226,14 +226,14 @@ type sessionServiceUserHandlerTestDouble struct {
 	rotatedExpiry   time.Time
 }
 
-func (m *sessionServiceUserHandlerTestDouble) CreateSession(ctx context.Context, user *domainuser.Users, accessToken string, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error) {
+func (m *sessionServiceUserHandlerTestDouble) CreateSession(ctx context.Context, user *domainuser.Users, accessToken, refreshToken string, requestMeta domainsession.RequestMeta) (*domainsession.Session, error) {
 	if m.createErr != nil {
 		return nil, m.createErr
 	}
 	m.sessionID = "session-1"
 	return &domainsession.Session{SessionID: m.sessionID, UserID: user.ID, AccessToken: accessToken, RefreshToken: refreshToken, ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
-func (m *sessionServiceUserHandlerTestDouble) GetUserSessions(ctx context.Context, userID string, currentSessionID string) ([]*domainsession.Info, error) {
+func (m *sessionServiceUserHandlerTestDouble) GetUserSessions(ctx context.Context, userID, currentSessionID string) ([]*domainsession.Info, error) {
 	return nil, nil
 }
 func (m *sessionServiceUserHandlerTestDouble) DestroySession(ctx context.Context, sessionID string) error {
@@ -252,7 +252,7 @@ func (m *sessionServiceUserHandlerTestDouble) DestroyAllUserSessions(ctx context
 	m.destroyedUserID = userID
 	return nil
 }
-func (m *sessionServiceUserHandlerTestDouble) DestroyOtherSessions(ctx context.Context, userID string, currentSessionID string) error {
+func (m *sessionServiceUserHandlerTestDouble) DestroyOtherSessions(ctx context.Context, userID, currentSessionID string) error {
 	return nil
 }
 func (m *sessionServiceUserHandlerTestDouble) GetSessionByToken(ctx context.Context, token string) (*domainsession.Session, error) {
@@ -270,7 +270,7 @@ func (m *sessionServiceUserHandlerTestDouble) GetSessionByRefreshToken(ctx conte
 	}
 	return &domainsession.Session{SessionID: "session-1", RefreshToken: refreshToken}, nil
 }
-func (m *sessionServiceUserHandlerTestDouble) RotateSessionTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
+func (m *sessionServiceUserHandlerTestDouble) RotateSessionTokens(ctx context.Context, sessionID, accessToken, refreshToken string, expiresAt time.Time) error {
 	if m.rotateErr != nil {
 		return m.rotateErr
 	}

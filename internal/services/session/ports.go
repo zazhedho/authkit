@@ -13,7 +13,7 @@ type Repository interface {
 	GetByUserID(ctx context.Context, userID string) ([]*domainsession.Session, error)
 	GetByToken(ctx context.Context, token string) (*domainsession.Session, error)
 	GetByRefreshToken(ctx context.Context, refreshToken string) (*domainsession.Session, error)
-	RotateTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error
+	RotateTokens(ctx context.Context, sessionID, accessToken, refreshToken string, expiresAt time.Time) error
 	Delete(ctx context.Context, sessionID string) error
 	DeleteByUserID(ctx context.Context, userID string) error
 	// DeleteOthers deletes the user's sessions but one, in one batch.
