@@ -11,7 +11,7 @@ Please report suspected vulnerabilities privately, not in a public issue or pull
 - Use GitHub's private vulnerability reporting for this repository (Security tab, "Report a vulnerability").
 - Include the version, a description of the impact, and the smallest reproduction you can give. Do not include real credentials, tokens or personal data.
 
-You can expect an acknowledgement within a few working days. Fixes are released as a patch version with a note in the release description; credit is given if you want it.
+Response targets: an acknowledgement within 3 working days, an assessment within 10 working days, and a fix or mitigation for a confirmed high-severity issue within 30 days. Fixes are released as a patch version with a note in the release description; credit is given if you want it.
 
 ## Scope
 

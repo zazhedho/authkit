@@ -7,7 +7,7 @@ Users, JWT authentication, sessions, RBAC, menus, audit trails and runtime app c
 - Registration and login with email or phone and password, plus Google sign-in.
 - HS256 JWT access and refresh tokens with rotation, logout and a token blacklist.
 - Optional registration OTP and password reset by e-mail (Redis and SMTP).
-- Login and register rate limiting, and Redis-backed session management.
+- Per-IP and per-account login throttling, register and auth-route rate limits, and Redis-backed session management.
 - Roles, permissions and menus, with middleware to protect your own routes.
 - User impersonation for support staff, with the original identity audited.
 - Audit trail for every change, and an `AuditWriter` for your own handlers.
@@ -43,19 +43,17 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zazhedho/authkit"
-	"github.com/zazhedho/gokit"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func main() {
-	cfg := authkit.ConfigFromEnv()
-	// ConfigFromEnv reads through gokit and falls back to defaults on values it
-	// cannot parse; EnvErrors reports them so a typo does not go unnoticed.
-	if err := gokit.EnvErrors(); err != nil {
+	cfg, err := authkit.ConfigFromEnv() // the error names unparsable authkit variables
+	if err != nil {
 		log.Fatal(err)
 	}
 
@@ -81,7 +79,9 @@ func main() {
 	}
 
 	api := r.Group("/api")
-	kit.Mount(api) // /api/user/login, /api/roles, ...
+	if err := kit.Mount(api); err != nil { // /api/user/login, /api/roles, ...
+		log.Fatal(err)
+	}
 
 	// Your own routes: any signed-in user, then one that holds trips:list.
 	api.GET("/me", kit.Auth(), func(c *gin.Context) {
@@ -92,7 +92,13 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"trips": []string{}})
 	})
 
-	log.Fatal(r.Run(":8080"))
+	// On shutdown, stop the server first, then let in-flight mail sends finish.
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = kit.Close(ctx)
+	}()
+	log.Print(r.Run(":8080"))
 }
 ```
 
@@ -148,13 +154,13 @@ func main() {}
 
 Send the access token as `Authorization: Bearer <token>`. Token responses carry `access_token`, `token_type`, `expires_in` (seconds), `expires_in_hours` (whole hours, 0 below one hour) and, where a refresh token is issued, `refresh_token` and `refresh_expires_in_hours`.
 
-- **Register.** `POST /user/register` with `name`, `email`, `phone`, `password` (8 to 64 characters with a lowercase letter, an uppercase letter, a digit and a symbol) and `otp_code`. The user gets `Config.DefaultRole`. It is allowed while the `auth.public_registration_enabled` flag is on (the default); otherwise it answers 403. `GET /user/register/status` reports `enabled`, `otp_enabled` and `otp_cooldown`.
+- **Register.** `POST /user/register` with `name`, `email`, `phone`, `password` (8 to 64 characters with a lowercase letter, an uppercase letter, a digit and a symbol) and `otp_code`. The user gets `Config.DefaultRole`. It is allowed while the `auth.public_registration_enabled` flag is on (the default); otherwise it answers 403. `GET /user/register/status` reports `enabled`, `otp_enabled` and `otp_cooldown`. A taken e-mail or phone answers `409`, which reveals that it exists; see Security notes.
 - **Registration OTP.** When the `auth.register_otp_enabled` flag is on, call `POST /user/register/otp/send` with `email` first; the 6 digit code is then required as `otp_code` on register. Needs Redis, a mailer and `OTP.Secret`; otherwise those routes answer 503.
-- **Login.** `POST /user/login` with `identifier` (e-mail or phone, or the older `email` field) and `password`. Failures are counted per client IP and identifier; after `Login.Limit` failures within `Login.Window` the pair is blocked for `Login.BlockDuration` and gets 429 with `Retry-After`. Needs Redis.
+- **Login.** `POST /user/login` with `identifier` (e-mail or phone, or the older `email` field) and `password`; the route has the per-IP `AuthRate` limit. Failures are counted per client IP and identifier, and after `Login.Limit` failures within `Login.Window` that pair is blocked for `Login.BlockDuration` (429 with `Retry-After`). Failures are also counted per identifier across all clients, but there the answer is a backoff, not a lockout: past `Login.Limit` each further failure delays that identifier for twice as long (1 s, 2 s, 4 s, ... up to `Login.BlockDuration`), so five requests from anywhere cannot lock a victim out. Needs Redis for the counters; the per-IP limit needs it too.
 - **Google.** `POST /user/google/login` with `id_token`. Requires `GoogleClientIDs`, otherwise 503. A first-time Google user is registered only while public registration is on.
-- **Refresh.** `POST /user/refresh-token` with `refresh_token` issues a new pair and blacklists the old refresh token. With Redis the token must belong to a live session.
+- **Refresh.** `POST /user/refresh-token` with `refresh_token` issues a new pair and rotates. With Redis the session index is the one mechanism: the old token is claimed once, and a replay of a rotated token, or the loser of two concurrent rotations, revokes the whole session (its access tokens stop working too). Without Redis the blacklist claims each refresh token once.
 - **Logout.** `POST /user/logout` blacklists the presented access token and destroys its session. An optional JSON body `{"refresh_token": "..."}` also blacklists that refresh token (only when it belongs to the caller). A session that cannot be destroyed or a token that cannot be blacklisted is an error, not a silent success.
-- **Passwords.** `PUT /user/change/password` takes `current_password` and `new_password`, is rate limited per user, ends the user's other sessions and revokes older tokens (the caller's own session stays). With the `auth.password_reset_email_enabled` flag on, `POST /user/forgot-password` with `email` mails a reset token (Redis, a mailer and `Reset.Secret` required). It always answers the same `200`, whether or not the e-mail is registered, throttled, deliverable or the flag is off; lookup, throttling and delivery happen after the response and only log. `POST /user/reset-password` takes `token` and `new_password`: the password is validated first (a weak one does not burn the token), the token is then consumed once, all of the user's sessions and older tokens end. If `Reset.URLTemplate` is set, the mail links to it: `{token}` is replaced, otherwise `?token=` (or `&token=`) is appended. The old JWT reset flow and its development fallback are gone.
+- **Passwords.** `PUT /user/change/password` takes `current_password` and `new_password`. It has the per-IP `AuthRate` limit, and wrong current passwords are also counted per user (the `Login.Limit` pair rule, keyed by user). The new hash and the token cut-off are written in one statement, so every older token ends, and the response carries a fresh `access_token` and `refresh_token` (plus the `user`) issued after the cut-off. With Redis only the caller's session survives, re-issued with the new tokens. With the `auth.password_reset_email_enabled` flag on, `POST /user/forgot-password` with `email` mails a reset token (Redis, a mailer and `Reset.Secret` required). It always answers the same `200`, whether or not the e-mail is registered, throttled, deliverable or the flag is off; lookup, throttling and delivery run after the response on a bounded worker pool (work beyond its capacity is dropped and logged) and only log. `POST /user/reset-password` takes `token` and `new_password`: the password is validated first, the token is then consumed once, and the new password and the token cut-off are written in one statement and all sessions end. If the update fails the token is put back so the link can be retried. If `Reset.URLTemplate` is set, the mail links to it: `{token}` is replaced, otherwise `?token=` (or `&token=`) is appended.
 - **Sessions** (Redis only). `GET /user/sessions` lists the caller's sessions, `DELETE /user/session/:session_id` revokes one, `POST /user/sessions/revoke-others` revokes all but the current one.
 - **Admin-created users.** `POST /user` (`users:create`) takes a `role`; assigning one needs `users:assign_role`.
 
@@ -208,12 +214,12 @@ func main() {}
 - Permissions are plain rows of (`resource`, `action`). `kit.Can("trips", "create")` checks `trips:create`. Add your own with `cmd/module-seed`.
 - Permission checks for non-superadmin users are cached in Redis for `PermissionCacheTTL`. Grants changed through the API invalidate the cache; changes made directly in SQL can be stale for up to that long.
 - `Scope`, `NewScope` and `WithScope` build a scope by hand, for tests: `authkit.WithScope(ctx, authkit.NewScope("u1", "Ada", authkit.RoleStaff, []string{"trips:view"}))`.
-- `kit.IssueAccessToken(userID, name, role)` signs an access token that passes `Auth`, without checking the user exists. It is meant for tests and tooling.
+- `kit.IssueAccessToken(userID, name, role)` signs a session-less access token for tests and tooling; `Auth` still needs the user to exist.
 - Roles: `RoleSuperAdmin`, `RoleAdmin`, `RoleStaff` and `RoleViewer` exist after `Migrate`. There is no built-in member role; create any other role yourself.
 
 ### Impersonation
 
-`POST /user/:id/impersonate` (`users:impersonate`) returns an access token for the target user; no refresh token or session is created. The token records the original identity, so `Scope.IsImpersonated`, `OriginalUserID`, `OriginalUsername` and `OriginalRole` are set, and `ActorUserID()` and `ActorRole()` return the original actor. `POST /user/stop-impersonation` blacklists that token and returns one for the original user. Nested impersonation, impersonating yourself and impersonating a superadmin as a non-superadmin are refused. The audit trail records the actor and the impersonation metadata.
+`POST /user/:id/impersonate` (`users:impersonate`) returns an access token for the target user; no refresh token or session is created. The token records the original identity, so `Scope.IsImpersonated`, `OriginalUserID`, `OriginalUsername` and `OriginalRole` are set, and `ActorUserID()` and `ActorRole()` return the original actor. `Auth` holds the token to the same checks for both users: it stops working when either account is deleted or has its tokens revoked after the token was issued. `POST /user/stop-impersonation` blacklists that token, repeats those checks for the original user and returns a token for them. That token carries no session (`no_session`) so it works with Redis on; it lives for `AccessTokenTTL` and ends with the original user's token cut-off, not with a session being revoked. Nested impersonation, impersonating yourself and impersonating a superadmin as a non-superadmin (answered `404`) are refused. The audit trail records the actor and the impersonation metadata.
 
 ### Audit
 
@@ -305,6 +311,7 @@ func main() {}
 package main
 
 import (
+	"context"
 	"time"
 
 	"github.com/zazhedho/authkit"
@@ -312,11 +319,14 @@ import (
 
 type logMailer struct{}
 
-// ttl is the configured OTP.TTL; state it in the message.
-func (logMailer) SendOTP(to, code, appName string, ttl time.Duration) error { return nil }
+// ctx carries the request and user ids for logs and ends the send; ttl is the
+// configured OTP.TTL, so state it in the message.
+func (logMailer) SendOTP(ctx context.Context, to, code, appName string, ttl time.Duration) error {
+	return nil
+}
 
 // resetURL is Reset.URLTemplate with the token filled in, or empty.
-func (logMailer) SendPasswordReset(to, token, appName, resetURL string, ttl time.Duration) error {
+func (logMailer) SendPasswordReset(ctx context.Context, to, token, appName, resetURL string, ttl time.Duration) error {
 	return nil
 }
 
@@ -329,7 +339,7 @@ func main() {}
 
 `kit.Migrate(ctx)` applies the embedded migrations: the tables `users`, `blacklist`, `roles`, `permissions`, `menu_items`, `role_permissions`, `role_menus`, `audit_trails` and `app_configs`, plus seed rows for the system roles, menus, permissions and the three flags. It keeps its own version table, `authkit_schema_migrations` (the constant `authkit.MigrationsTable`), in the connection's current schema, so it never collides with your own `schema_migrations`. It is idempotent and safe on every start; instances starting together serialize on an advisory lock.
 
-Migration files are named `<UTC YYYYMMDDHHMMSS>_<area>_<change>.{up,down}.sql`; a guard test enforces the pattern, an up and a down for each, and increasing unique versions. Every file is idempotent. A dirty version record returns `authkit.ErrMigrationsDirty`. Databases that were created by an earlier authkit release or by hand are not adopted: authkit assumes it owns an empty `authkit_schema_migrations` history.
+Migration files are named `<UTC YYYYMMDDHHMMSS>_<area>_<change>.{up,down}.sql`; a guard test enforces the pattern, an up and a down for each, and increasing unique versions. Every file is idempotent. A dirty version record returns `authkit.ErrMigrationsDirty`. authkit assumes it owns an empty `authkit_schema_migrations` history. Every timestamp column is `TIMESTAMPTZ`.
 
 ```go
 package main
@@ -360,7 +370,7 @@ func main() {}
 - If `ErrMigrationsDirty` is returned, repair the database by hand, set the record in `authkit_schema_migrations` to the last fully applied version and clear the dirty flag. Never delete the record.
 - Keep your own tables in your own migrations, run after `Migrate`. Per-user extras fit in the `users.metadata` jsonb column; anything structured belongs in your own table with a foreign key to `users(id)`.
 
-**New modules.** `cmd/module-seed` prints SQL that inserts a menu, its permissions and the role grants for a module. Put the output in your own migration.
+**New modules.** `cmd/module-seed` prints SQL that inserts a menu, its permissions and the role grants for a module. Put the output in your own migration. Names are checked because they end up inside a `DO $authkit$` block: `-name`, `-resource`, `-parent-name` and `-grant-roles` must match `^[a-z0-9_-]+$` and each action `^[a-z0-9_]+$`; anything else is rejected.
 
 ```sh
 go run github.com/zazhedho/authkit/cmd/module-seed \
@@ -381,28 +391,28 @@ go run github.com/zazhedho/authkit/cmd/module-seed \
 
 ### Routes
 
-`kit.Mount(r)` registers these under `r`. The permission is `resource:action`; "signed in" means `Auth` only.
+`kit.Mount(r)` registers these under `r` and returns an error if a module cannot be mounted. The permission is `resource:action`; "signed in" means `Auth` only; `AuthRate` is the per-IP limit of `Config.AuthRate` (Redis only).
 
 | Method and path | Access |
 |---|---|
 | `GET /user/register/status` | public |
 | `POST /user/register` | public, register rate limit |
 | `POST /user/register/otp/send` | public, register rate limit |
-| `POST /user/login` | public |
-| `POST /user/google/login` | public |
-| `POST /user/refresh-token` | public |
-| `POST /user/forgot-password` | public |
-| `POST /user/reset-password` | public |
+| `POST /user/login` | public, `AuthRate` |
+| `POST /user/google/login` | public, `AuthRate` |
+| `POST /user/refresh-token` | public, `AuthRate` |
+| `POST /user/forgot-password` | public, `AuthRate` |
+| `POST /user/reset-password` | public, `AuthRate` |
 | `POST /user/logout` | signed in |
 | `GET /user` | signed in |
 | `PUT /user` | signed in |
-| `PUT /user/change/password` | signed in |
-| `DELETE /user` | signed in |
-| `POST /user/stop-impersonation` | signed in |
+| `PUT /user/change/password` | signed in, `AuthRate` |
+| `DELETE /user` | signed in, needs `current_password` |
+| `POST /user/stop-impersonation` | signed in (impersonation token) |
 | `GET /user/:id` | `users:view` |
 | `POST /user/:id/impersonate` | `users:impersonate` |
 | `PUT /user/:id` | `users:update` |
-| `DELETE /user/:id` | `users:delete` |
+| `DELETE /user/:id` | `users:delete`; your own id needs `current_password` and is refused while impersonating |
 | `POST /user` | `users:create` |
 | `GET /users` | `users:list` |
 | `GET /user/sessions` | signed in, Redis only |
@@ -435,13 +445,13 @@ List endpoints take `page`, `limit`, `search`, `order_by`, `order_direction` and
 
 ## Configuration
 
-`authkit.Config` is explicit. `authkit.ConfigFromEnv()` fills it from the environment and is the only code in the module that reads it. `DB`, `Redis` and `Mailer` are never read from the environment.
+`authkit.Config` is explicit. `authkit.ConfigFromEnv() (Config, error)` fills it from the environment and is the only code in the module that reads it. `DB`, `Redis` and the mailers are never read from the environment. A typed nil `Redis` or mailer counts as unset.
 
 - Zero or negative numbers and durations mean "use the default", so a limiter cannot be disabled by setting its variable to 0.
 - Variables ending in `_SECONDS` are whole seconds. The duration-form variables (`OTP_TTL`, ...) accept `30s`, `5m`, `1h` or bare seconds, and win over their `_SECONDS` form when positive.
-- A value that cannot be parsed falls back to its default. `ConfigFromEnvStrict()` returns the config together with an error naming every such variable (it wraps `gokit.EnvErrors()`); prefer it at startup and refuse to start on an error. `ConfigFromEnv()` keeps the old behavior of reporting through `gokit.EnvErrors()` only.
+- A value that cannot be parsed falls back to its default, and `ConfigFromEnv()` returns an error naming every such authkit variable (never the host's); refuse to start on it.
 - Printing a `Config` with `%v`, `%+v` or `%#v` reports `JWTKey`, `OTP.Secret` and `Reset.Secret` only as set or unset.
-- `Config.Validate()` runs inside `New`.
+- `Config.Validate()` runs inside `New`; it applies the defaults to a copy first, so it also works on a hand-built `Config`.
 
 | Config field | Env variable | Default | Required |
 |---|---|---|---|
@@ -461,9 +471,9 @@ List endpoints take `page`, `limit`, `search`, `order_by`, `order_direction` and
 | `GoogleClientIDs` | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_IDS` (comma list) | none (Google login off) | no |
 | `EmailAppName` | `AUTH_EMAIL_APP_NAME` | `AppName` | no |
 | `PermissionCacheTTL` | `PERMISSION_CACHE_TTL`, `PERMISSION_CACHE_TTL_SECONDS` | 300s | no |
-| `Login.Limit` | `LOGIN_ATTEMPT_LIMIT` | 5 | no |
+| `Login.Limit` | `LOGIN_ATTEMPT_LIMIT` | 5 (failures before a block or backoff starts) | no |
 | `Login.Window` | `LOGIN_ATTEMPT_WINDOW_SECONDS` | 60s | no |
-| `Login.BlockDuration` | `LOGIN_BLOCK_DURATION_SECONDS` | 300s | no |
+| `Login.BlockDuration` | `LOGIN_BLOCK_DURATION_SECONDS` | 300s (block of a client and identifier pair; cap of the per-identifier backoff) | no |
 | `Register.Limit` | `REGISTER_RATE_LIMIT` | 5 | no |
 | `Register.Window` | `REGISTER_RATE_WINDOW_SECONDS` | 60s | no |
 | `AuthRate.Limit` | `AUTH_RATE_LIMIT` | 30 | no |
@@ -490,17 +500,17 @@ List endpoints take `page`, `limit`, `search`, `order_by`, `order_direction` and
 
 Read these before exposing the routes.
 
-- **Trusted proxies and client IP.** The login limiter (keyed by client IP plus identifier), the register limiter (keyed by client IP), the audit trail's `ip_address` and the request log all use gin's `c.ClientIP()`. gin trusts every proxy by default and then believes `X-Forwarded-For` and `X-Real-IP`, so any client can pick its own IP: it dodges both limiters and forges audit IPs. Call `engine.SetTrustedProxies(nil)` when clients connect directly, or pass the CIDRs of your reverse proxies.
-- **Rate limiting fails open by default.** If Redis is unreachable, the IP limiters let the request through and the login limiter treats the caller as not blocked and does not count failures; both only log. Set `FailClosedLimiters` to answer 503 instead. Login failures are counted per client and identifier and also per identifier alone; `AuthRate` limits google login, refresh, forgot and reset password and change-password per IP. Counters start their window in one atomic step. Without Redis there is no login or register limiting at all. Password reset and OTP requests return an error response instead of skipping their throttling. Permission-cache errors fall back to the database.
+- **Trusted proxies and client IP.** The per-IP limits (login, register, `AuthRate`), the per-client login counter, the audit trail's `ip_address` and the request log all use gin's `c.ClientIP()`. gin trusts every proxy by default and then believes `X-Forwarded-For` and `X-Real-IP`, so any client can pick its own IP: it dodges the limiters and forges audit IPs. Call `engine.SetTrustedProxies(nil)` when clients connect directly, or pass the CIDRs of your reverse proxies.
+- **Rate limiting fails open by default.** If Redis is unreachable, the IP limiters let the request through and the login counters do not count failures; both only log. Set `FailClosedLimiters` to answer 503 instead (this includes a failed failure count). Without Redis there is no limiting at all. `AuthRate` covers login, google login, refresh, forgot and reset password and change-password, per IP. Password reset and OTP requests return an error response instead of skipping their throttling. Permission-cache errors fall back to the database. Redis Cluster: limiter and permission-cache keys carry a hash tag so multi-key operations stay in one slot, and the permission cache is cleared on every master.
 - **`limit=-1` and page size.** Every list caps the page size at 100. Only the small reference lists a UI loads whole, `GET /roles`, `/permissions` and `/menus`, accept `limit=-1`, which returns every matching row. On `/users`, `/configs` and `/audits`, `-1` and any limit above 100 are clamped to 100, and the response `limit` field reports the page size actually applied. The routes still need their `:list` permission.
 - **CORS.** authkit sets no CORS headers. Configure CORS in your application and allow only your own origins. If you use gokit's `gokit.CORS()` helper, note that it answers `Access-Control-Allow-Origin: *` and allows only `GET, POST, PUT, DELETE`.
-- **Permission-subset role rule.** An actor may update, delete or impersonate a user, or assign a role, only when every permission of the target's role (or of the assigned role) is also held by the actor; `roles:assign_permissions` can only grant permissions the actor holds. A superadmin is above everything. Nobody changes their own role, and the last superadmin can never be deleted or demoted. Deleting a user revokes their tokens and sessions. A self-service change of email or phone needs the current password; an admin changing someone's email clears `email_verified_at`. A role that users still hold cannot be deleted, and a permission that a role holds cannot change its resource or action. Impersonation needs a `reason`, which is audited together with the start and stop events (those audit writes are strict: a failed write fails the request).
-- **Trust model of `Auth`.** `Auth` verifies the HS256 signature (only HS256), `iss`, `aud`, a required `exp`, `iat` and the strict `Bearer ` prefix, then looks the user up: a deleted user is rejected, the role is the current one from the database (cached, dropped on change) and not the token's `role` claim, and a token issued before the user's `tokens_valid_after` is rejected. `tokens_valid_after` is bumped on delete, role change, password change, password reset and email change. With Redis the token's session must still exist (looked up by the sha256 of the token), so revoking a session ends its access token. Logout and refresh also blacklist tokens (hashed). Refresh rotates: the old refresh token is claimed once, a replay of a rotated token revokes the session. Sessions end at `SessionMaxLifetime` from login however often they are refreshed. Impersonation tokens last at most 15 minutes, carry no session, and cannot call change-password, profile update or account delete. Keep `AccessTokenTTL` short (default 15 minutes).
+- **Permission-subset role rule.** An actor may update, delete or impersonate a user, or assign a role, only when every permission of the target's role (or of the assigned role) is also held by the actor; `roles:assign_permissions` can only grant permissions the actor holds and only on a role the actor covers (the call replaces the whole set). A superadmin is above everything. Nobody changes their own role, and the last superadmin can never be deleted or demoted. Deleting a user ends their tokens and sessions. A non-superadmin gets `404` for a superadmin on every route, so such an account is not revealed. The last-superadmin check and the write happen in one transaction under a row lock. A self-service change of email or phone needs the current password; an admin changing someone's email clears `email_verified_at`. A role that users still hold cannot be deleted, and a permission that a role holds cannot change its resource or action. Impersonation needs a `reason`, which is audited together with the start and stop events (those audit writes are strict: a failed write fails the request).
+- **Trust model of `Auth`.** `Auth` verifies the HS256 signature (only HS256), `iss`, `aud`, a required `exp`, `iat` and the strict `Bearer ` prefix, then looks the user up: a deleted user is rejected, the role is the current one from the database (cached, dropped on change) and not the token's `role` claim, and a token issued at or before the user's `tokens_valid_after` is rejected. Tokens carry their issue time in milliseconds (`iat_ms`) and `tokens_valid_after` is set from the database clock in the same statement as the change (role, password, password reset, email, and phone when `PhoneLogin` is on), so a token issued in the same second as a revocation is still void while the caller's re-issued token, issued after the cut-off, is accepted. `iat` and `exp` allow 30 s of clock skew between nodes. With Redis the token's session must still exist (looked up by the sha256 of the token), so revoking a session ends its access token. Deleting a user, changing their role or e-mail also ends their sessions. Logout and refresh blacklist tokens (hashed). Sessions end at `SessionMaxLifetime` from login however often they are refreshed. Impersonation tokens last at most 15 minutes, carry no session, are held to the same checks for the original user, and cannot call change-password, profile update or account delete. Keep `AccessTokenTTL` short (default 15 minutes).
 - **JWT key.** Tokens are HS256. `JWTKey` must be at least 32 characters (checked after trimming whitespace); use 32 or more random bytes, not a phrase, and keep it out of the repository. Tokens carry `AppName` as `iss` and `aud` and are rejected unless both match, so give each application its own `AppName`: a token from one application is then not accepted by another that shares a key. Changing `AppName` or `JWTKey` invalidates every issued token.
 - **OTP and reset secrets.** Registration OTPs (6 digits) are stored in Redis as `HMAC-SHA256(OTP.Secret, "register" + email + code)` and reset tokens as `sha256(token + Reset.Secret)`, so the secrets are what keep a leaked Redis from being brute-forced. Both must be at least 32 characters (`Validate` rejects shorter ones, even when unused) and are required when Redis and the matching mailer are set. Use long random values, distinct from `JWTKey`, outside the repository. Changing one invalidates pending codes or tokens. Wrong OTP guesses are capped by `OTP.MaxAttempts` and the count carries over resends until its window ends.
-- **No account enumeration.** `POST /user/register/otp/send` and `POST /user/forgot-password` always answer the same `200`; the work happens after the response. `POST /user/register` answers a generic `409 email or phone already exists` that does not say which one. Login answers the same `400` for an unknown user and a wrong password, and spends the same hashing time. Passwords are bcrypt cost 12 (older hashes are upgraded on login) and may be at most 72 bytes.
+- **Account enumeration.** `POST /user/register/otp/send` and `POST /user/forgot-password` always answer the same `200`; the work happens after the response. Login answers the same `400` for an unknown user and a wrong password and spends the same hashing time (a short legacy password gets the same answer, not a validation error). Registration is not closed: a taken e-mail or phone answers `409 email or phone already exists`, which still tells a caller the address exists, although it does not say which field and a taken and a free address cost the same time (the password is hashed before the duplicate check). Only the OTP flow, which answers before it checks, hides existence completely; enable it (`auth.register_otp_enabled`) if enumeration matters. Passwords are bcrypt cost 12 everywhere (older hashes are upgraded on login) and may be at most 72 bytes.
 - **Phone numbers are unverified.** Login by phone is off unless `PhoneLogin` is set, because nothing proves a user owns the number they registered. Treat `phone` as contact data, not as an identity.
-- **Google sign-in.** ID tokens are verified offline against Google's cached keys (`iss`, `aud`, `exp`, `email_verified`, RS256). Accounts are matched by `sub`, stored in `users.google_subject`; an email already linked to another `sub` is refused. Linking an existing account whose email was never verified replaces its password with a random one, ends its sessions and tokens.
+- **Google sign-in.** ID tokens are verified offline against Google's cached keys (`iss`, `aud`, `exp`, `email_verified`, RS256). Accounts are matched by `sub`, stored in `users.google_subject`; an email already linked to another `sub` is refused. Linking an existing account whose email was never verified replaces its password with a random one and voids its tokens in the same statement, and ends its sessions.
 - **`DefaultRole`.** It is what public registrations receive. It cannot be `superadmin` or `admin`, and registration fails if the role does not exist.
 - **Redis keys are not namespaced.** Use a separate Redis database, or an ACL key prefix, per application. Sharing one shares the limiter counters and the OTP and reset throttling, and one application's permission-cache invalidation evicts the others'. There is no `KeyPrefix` option.
 - **Stored tokens.** Blacklisted tokens and Redis session tokens are stored as their sha256, never as issued; session records hold hashes only.
@@ -536,7 +546,7 @@ internal/
   repositories/<module>/        database access
   handlers/http/<module>/       gin handlers, ports.go
   handlers/http/middleware/     Auth, Can, LoadPermissions, Role, RequestLogger
-  infrastructure/               cache/permission, googleid, mailer, ratelimit, token
+  infrastructure/               async, cache/permission, googleid, mailer, ratelimit, token
   moduleseed/                   `cmd/module-seed` logic
   testutil/                     test helpers
 ```
