@@ -1081,6 +1081,24 @@ func isConstructorName(name string) bool {
 // constructorViolations reports New* functions that do not return a pointer to a
 // struct of the package, optionally followed by an error.
 func constructorViolations(files []*ast.File) []string {
+	structs := structTypes(files)
+	var out []string
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil || !fn.Name.IsExported() || !isConstructorName(fn.Name.Name) {
+				continue
+			}
+			if !returnsConcretePointer(resultTypes(fn), structs) {
+				out = append(out, fn.Name.Name)
+			}
+		}
+	}
+	return out
+}
+
+// structTypes maps each type name declared in files to whether it is a struct.
+func structTypes(files []*ast.File) map[string]bool {
 	structs := map[string]bool{}
 	for _, f := range files {
 		for _, decl := range f.Decls {
@@ -1089,36 +1107,27 @@ func constructorViolations(files []*ast.File) []string {
 				continue
 			}
 			for _, spec := range gen.Specs {
-				if ts := spec.(*ast.TypeSpec); ts != nil {
-					_, isStruct := ts.Type.(*ast.StructType)
-					structs[ts.Name.Name] = isStruct
-				}
+				ts := spec.(*ast.TypeSpec)
+				_, isStruct := ts.Type.(*ast.StructType)
+				structs[ts.Name.Name] = isStruct
 			}
 		}
 	}
+	return structs
+}
 
-	var out []string
-	for _, f := range files {
-		for _, decl := range f.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Recv != nil || !fn.Name.IsExported() || !isConstructorName(fn.Name.Name) {
-				continue
-			}
-			var results []ast.Expr
-			if fn.Type.Results != nil {
-				for _, field := range fn.Type.Results.List {
-					n := max(len(field.Names), 1)
-					for range n {
-						results = append(results, field.Type)
-					}
-				}
-			}
-			if !returnsConcretePointer(results, structs) {
-				out = append(out, fn.Name.Name)
-			}
+// resultTypes lists fn's result types, one entry per returned value.
+func resultTypes(fn *ast.FuncDecl) []ast.Expr {
+	var results []ast.Expr
+	if fn.Type.Results == nil {
+		return results
+	}
+	for _, field := range fn.Type.Results.List {
+		for range max(len(field.Names), 1) {
+			results = append(results, field.Type)
 		}
 	}
-	return out
+	return results
 }
 
 func returnsConcretePointer(results []ast.Expr, structs map[string]bool) bool {
@@ -1160,27 +1169,12 @@ func TestConstructorsReturnConcreteTypes(t *testing.T) {
 	root := filepath.Join("..", "..")
 	for _, tree := range constructorTrees {
 		err := fs.WalkDir(os.DirFS(root), tree, func(p string, d fs.DirEntry, err error) error {
-			if err != nil || !d.IsDir() {
+			if err != nil || !d.IsDir() || constructorDirSkipped(p) {
 				return err
 			}
-			entries, err := os.ReadDir(filepath.Join(root, p))
+			files, err := parseNonTestSources(filepath.Join(root, p))
 			if err != nil {
 				return err
-			}
-			if constructorDirSkipped(p) {
-				return nil
-			}
-			fset := token.NewFileSet()
-			var files []*ast.File
-			for _, e := range entries {
-				if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
-					continue
-				}
-				f, err := parser.ParseFile(fset, filepath.Join(root, p, e.Name()), nil, 0)
-				if err != nil {
-					return err
-				}
-				files = append(files, f)
 			}
 			for _, name := range constructorViolations(files) {
 				t.Errorf("%s: %s must return a pointer to a struct (and optionally an error), not an interface", p, name)
@@ -1191,6 +1185,27 @@ func TestConstructorsReturnConcreteTypes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+// parseNonTestSources parses the .go files directly in dir, test files excluded.
+func parseNonTestSources(dir string) ([]*ast.File, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	fset := token.NewFileSet()
+	var files []*ast.File
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, e.Name()), nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	return files, nil
 }
 
 func TestConstructorRuleDetectsViolations(t *testing.T) {
