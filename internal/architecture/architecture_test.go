@@ -218,20 +218,20 @@ var rules = []rule{
 	},
 	{
 		tree:                "internal/handlers",
-		forbidInternal:      []string{"internal/services", "internal/repositories", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrate", "internal/migrations", "internal/testutil"},
+		forbidInternal:      []string{"internal/services", "internal/repositories", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrate", "internal/migrations", "internal/router", "internal/testutil"},
 		forbidExternal:      []string{gormPkg, redisPkg},
 		testsToo:            true,
 		testInternalAllowed: []string{"internal/infrastructure/token", "internal/infrastructure/cache/permission", "internal/config"},
 	},
 	{
 		tree:                "internal/repositories",
-		forbidInternal:      []string{"internal/services", "internal/handlers", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrate", "internal/migrations"},
+		forbidInternal:      []string{"internal/services", "internal/handlers", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrate", "internal/migrations", "internal/router"},
 		forbidExternal:      []string{ginPkg},
 		testInternalAllowed: []string{"internal/testutil"},
 	},
 	{
 		tree:           "internal/infrastructure",
-		forbidInternal: []string{"internal/services", "internal/handlers", "internal/repositories", "internal/moduleseed", "internal/migrate", "internal/migrations"},
+		forbidInternal: []string{"internal/services", "internal/handlers", "internal/repositories", "internal/moduleseed", "internal/migrate", "internal/migrations", "internal/router"},
 	},
 	{
 		// Infrastructure owns its own types. The one exception is
@@ -239,6 +239,19 @@ var rules = []rule{
 		tree:           "internal/infrastructure",
 		forbidInternal: []string{"internal/domain"},
 		exceptTrees:    []string{"internal/infrastructure/cache"},
+	},
+	{
+		// The composition root wires everything and so imports every layer, but
+		// it ships no test fixtures and none of the seed or migration SQL.
+		tree:                "internal/router",
+		forbidInternal:      []string{"internal/testutil", "internal/moduleseed", "internal/migrate", "internal/migrations"},
+		testInternalAllowed: []string{"internal/testutil"},
+	},
+	{
+		// Deps names the handlers and nothing else, so a module's register.go
+		// cannot reach a service or a repository through it.
+		tree:            "internal/router/module",
+		internalAllowed: []string{"internal/handlers/http"},
 	},
 	{
 		// The migration runner owns the embedded SQL and nothing else; its tests
@@ -261,6 +274,21 @@ var rules = []rule{
 		internalAllowed:     []string{"internal/domain", "internal/handlers/http/shared"},
 		testInternalAllowed: []string{"internal/infrastructure/token", "internal/infrastructure/cache/permission"},
 	},
+}
+
+// routerModules are the modules internal/router mounts. Each mounts routes
+// from module.Deps and imports nothing else of the module.
+var routerModules = []string{"appconfig", "audit", "menu", "permission", "role", "session", "user"}
+
+func init() {
+	for _, m := range routerModules {
+		rules = append(rules, rule{
+			tree:            "internal/router/" + m,
+			internalAllowed: []string{"internal/router/module"},
+			externalAllowed: []string{ginPkg},
+			testsToo:        true,
+		})
+	}
 }
 
 // knownLayers is every top-level directory of internal/. A new layer needs a
@@ -528,6 +556,7 @@ func TestRulesDetectViolations(t *testing.T) {
 	services, domain, dto := byTree["internal/services"], byTree["internal/domain"], byTree["internal/dto"]
 	handlers, repos, leaf := byTree["internal/handlers"], byTree["internal/repositories"], byTree[middlewareLeaf]
 	cfg := byTree["internal/config"]
+	userRouter := byTree["internal/router/user"]
 	cases := []struct {
 		name   string
 		r      rule
@@ -592,6 +621,11 @@ func TestRulesDetectViolations(t *testing.T) {
 		{"repository imports gin", repos, "github.com/gin-gonic/gin", false, true},
 		{"repository imports gorm", repos, "gorm.io/gorm", false, false},
 		{"repository imports domain", repos, "github.com/zazhedho/authkit/internal/domain/user", false, false},
+		{"router module imports a service", userRouter, "github.com/zazhedho/authkit/internal/services/user", false, true},
+		{"router module imports the shared deps", userRouter, "github.com/zazhedho/authkit/internal/router/module", false, false},
+		{"router module imports gin", userRouter, "github.com/gin-gonic/gin", false, false},
+		{"router module imports gorm", userRouter, "gorm.io/gorm", false, true},
+		{"handler imports the router", handlers, "github.com/zazhedho/authkit/internal/router", false, true},
 		{"config imports a service", cfg, "github.com/zazhedho/authkit/internal/services/user", false, true},
 		{"config imports a repository", cfg, "github.com/zazhedho/authkit/internal/repositories/user", false, true},
 		{"config imports the token package", cfg, "github.com/zazhedho/authkit/internal/infrastructure/token", false, false},

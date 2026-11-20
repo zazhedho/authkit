@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -46,6 +47,30 @@ func newTestKit(t *testing.T, mutate func(*Config)) (*Kit, *testutil.Driver) {
 		t.Fatalf("New: %v", err)
 	}
 	return kit, drv
+}
+
+func registeredRoutes(engine *gin.Engine) []string {
+	got := make([]string, 0, len(engine.Routes()))
+	for _, r := range engine.Routes() {
+		got = append(got, r.Method+" "+r.Path)
+	}
+	sort.Strings(got)
+	return got
+}
+
+func newMiniRedis(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	return mr, client
+}
+
+func mountedEngine(t *testing.T, kit *Kit) *gin.Engine {
+	t.Helper()
+	engine := gin.New()
+	kit.Mount(engine.Group("/api"))
+	return engine
 }
 
 func tokenFor(t *testing.T, kit *Kit, id, role string) string {
@@ -737,20 +762,6 @@ func TestNewWithRedisButNoMailerKeepsOTPAndResetInert(t *testing.T) {
 	}
 }
 
-func TestStartupWarnings(t *testing.T) {
-	if got := startupWarnings(true); len(got) != 1 || !strings.Contains(got[0], "Redis is not configured") {
-		t.Errorf("redis nil: warnings = %v", got)
-	}
-	if got := startupWarnings(false); len(got) != 0 {
-		t.Errorf("redis set: warnings = %v", got)
-	}
-	for _, w := range startupWarnings(true) {
-		if strings.Contains(w, testJWTKey) {
-			t.Errorf("warning leaks a secret: %q", w)
-		}
-	}
-}
-
 func TestAuthRejectsATokenForAUserThatDoesNotExist(t *testing.T) {
 	kit, _ := newTestKit(t, nil)
 	engine := gin.New()
@@ -800,5 +811,24 @@ func TestNewTreatsATypedNilRedisAsDisabled(t *testing.T) {
 		if strings.Contains(r, "/sessions") || strings.Contains(r, "/session/") {
 			t.Fatalf("session route %s mounted for a typed-nil Redis", r)
 		}
+	}
+}
+
+func TestMountServesPublicAndProtectedRoutes(t *testing.T) {
+	kit, _ := newTestKit(t, nil)
+	engine := mountedEngine(t, kit)
+	if code := do(engine, http.MethodGet, "/api/user/register/status", "").Code; code != http.StatusOK {
+		t.Fatalf("public route: got %d, want 200", code)
+	}
+	if code := do(engine, http.MethodGet, "/api/users", "").Code; code != http.StatusUnauthorized {
+		t.Fatalf("protected route: got %d, want 401", code)
+	}
+	if got := len(registeredRoutes(engine)); got != 42 {
+		t.Fatalf("%d routes without Redis, want 42", got)
+	}
+	_, client := newMiniRedis(t)
+	withRedis, _ := newTestKit(t, func(c *Config) { c.Redis = client })
+	if got := len(registeredRoutes(mountedEngine(t, withRedis))); got != 45 {
+		t.Fatalf("%d routes with Redis, want 45", got)
 	}
 }

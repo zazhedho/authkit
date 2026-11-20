@@ -130,3 +130,14 @@ func untypedNil(c redis.UniversalClient) redis.UniversalClient {
 	}
 	return c
 }
+
+// Warnings returns the warnings New logs for risky configuration. cfg should
+// have its defaults applied.
+func Warnings(c Config) []string {
+	var out []string
+	if c.Redis == nil {
+		out = append(out, "authkit: Redis is not configured: login rate limiting, register rate limiting, "+
+			"sessions, OTP and email password reset are inactive")
+	}
+	return out
+}

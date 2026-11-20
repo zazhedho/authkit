@@ -578,3 +578,19 @@ func TestTypedNilRedisCountsAsDisabled(t *testing.T) {
 		t.Fatalf("WithDefaults kept a typed nil Redis: %#v", got.Redis)
 	}
 }
+
+func TestWarnings(t *testing.T) {
+	noRedis := validConfig()
+	noRedis.Redis = nil
+	if got := Warnings(noRedis); len(got) != 1 || !strings.Contains(got[0], "Redis is not configured") {
+		t.Errorf("redis nil: warnings = %v", got)
+	}
+	if got := Warnings(validConfig()); len(got) != 0 {
+		t.Errorf("redis set: warnings = %v", got)
+	}
+	for _, w := range Warnings(noRedis) {
+		if strings.Contains(w, testJWTKey) {
+			t.Errorf("warning leaks a secret: %q", w)
+		}
+	}
+}

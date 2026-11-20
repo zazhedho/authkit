@@ -1,4 +1,4 @@
-package authkit
+package router
 
 import (
 	"context"
@@ -16,14 +16,18 @@ import (
 // AuditService and AppConfigService interfaces take gokit.BaseParams. These
 // adapters keep those signatures.
 
-type auditFacade struct{ *serviceaudit.Service }
+// AuditList is the audit service with the public gokit.BaseParams signature.
+type AuditList struct{ *serviceaudit.Service }
 
-func (a auditFacade) GetAll(ctx context.Context, params gokit.BaseParams) ([]dtoaudit.AuditTrailResponse, int64, error) {
+// GetAll lists audit entries for params.
+func (a AuditList) GetAll(ctx context.Context, params gokit.BaseParams) ([]dtoaudit.AuditTrailResponse, int64, error) {
 	return a.Service.GetAll(ctx, httpshared.ListRequest(params))
 }
 
-type appConfigFacade struct{ *serviceappconfig.Service }
+// AppConfigList is the app-config service with the public gokit.BaseParams signature.
+type AppConfigList struct{ *serviceappconfig.Service }
 
-func (a appConfigFacade) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainappconfig.AppConfig, int64, error) {
+// GetAll lists app-config entries for params.
+func (a AppConfigList) GetAll(ctx context.Context, params gokit.BaseParams) ([]domainappconfig.AppConfig, int64, error) {
 	return a.Service.GetAll(ctx, httpshared.ListRequest(params))
 }

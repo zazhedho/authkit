@@ -1,8 +1,9 @@
-package authkit
+package router
 
 import (
 	"flag"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,6 +14,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/zazhedho/authkit/internal/config"
+	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	"github.com/zazhedho/authkit/internal/testutil"
 )
 
@@ -79,6 +82,46 @@ func requireSameRoutes(t *testing.T, got, want []string) {
 	}
 }
 
+func init() { gin.SetMode(gin.TestMode) }
+
+const testJWTKey = "test-secret-must-be-at-least-32-bytes"
+
+// newCore wires the module set over the in-memory driver, with the defaults New
+// would apply.
+func newCore(t *testing.T, mutate func(*config.Config)) (*Core, *testutil.Driver) {
+	t.Helper()
+	db, drv := testutil.NewDB(t)
+	cfg := config.Config{DB: db, AppName: "testapp", JWTKey: testJWTKey}
+	if mutate != nil {
+		mutate(&cfg)
+	}
+	cfg = config.WithDefaults(cfg)
+	core, err := Wire(cfg)
+	if err != nil {
+		t.Fatalf("Wire: %v", err)
+	}
+	return core, drv
+}
+
+func tokenFor(t *testing.T, core *Core, id, role string) string {
+	t.Helper()
+	tok, err := core.Tokens.GenerateWithClaims(id, "User "+id, role, "authkit-issued", &token.AppClaims{NoSession: true})
+	if err != nil {
+		t.Fatalf("generate token: %v", err)
+	}
+	return tok
+}
+
+func do(engine http.Handler, method, path, token string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+	return rec
+}
+
 func newMiniRedis(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
 	t.Helper()
 	mr := miniredis.RunT(t)
@@ -87,16 +130,16 @@ func newMiniRedis(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
 	return mr, client
 }
 
-func mountedEngine(t *testing.T, kit *Kit) *gin.Engine {
+func mountedEngine(t *testing.T, core *Core) *gin.Engine {
 	t.Helper()
 	engine := gin.New()
-	kit.Mount(engine.Group("/api"))
+	Mount(engine.Group("/api"), core.Deps)
 	return engine
 }
 
 func TestMountRegistersExactlyBaseRoutesWithoutRedis(t *testing.T) {
-	kit, _ := newTestKit(t, nil)
-	requireSameRoutes(t, registeredRoutes(mountedEngine(t, kit)), baseRoutes)
+	core, _ := newCore(t, nil)
+	requireSameRoutes(t, registeredRoutes(mountedEngine(t, core)), baseRoutes)
 	if len(baseRoutes) != 42 {
 		t.Fatalf("baseRoutes has %d entries, want 42", len(baseRoutes))
 	}
@@ -104,22 +147,22 @@ func TestMountRegistersExactlyBaseRoutesWithoutRedis(t *testing.T) {
 
 func TestMountRegistersSessionRoutesWithRedis(t *testing.T) {
 	_, client := newMiniRedis(t)
-	kit, _ := newTestKit(t, func(c *Config) { c.Redis = client })
-	requireSameRoutes(t, registeredRoutes(mountedEngine(t, kit)), sortedCopy(baseRoutes, sessionRoutes))
+	core, _ := newCore(t, func(c *config.Config) { c.Redis = client })
+	requireSameRoutes(t, registeredRoutes(mountedEngine(t, core)), sortedCopy(baseRoutes, sessionRoutes))
 }
 
 func TestMountRegistersSessionRoutesWithRedisButNoMailer(t *testing.T) {
 	// Redis without Mailer still mounts sessions; OTP and reset stay inert.
 	_, client := newMiniRedis(t)
-	kit, _ := newTestKit(t, func(c *Config) { c.Redis = client; c.Mailer = nil })
-	requireSameRoutes(t, registeredRoutes(mountedEngine(t, kit)), sortedCopy(baseRoutes, sessionRoutes))
+	core, _ := newCore(t, func(c *config.Config) { c.Redis = client; c.Mailer = nil })
+	requireSameRoutes(t, registeredRoutes(mountedEngine(t, core)), sortedCopy(baseRoutes, sessionRoutes))
 }
 
 func TestMountCanServeTwoGroups(t *testing.T) {
-	kit, _ := newTestKit(t, nil)
+	core, _ := newCore(t, nil)
 	engine := gin.New()
-	kit.Mount(engine.Group("/api"))
-	kit.Mount(engine.Group("/v2"))
+	Mount(engine.Group("/api"), core.Deps)
+	Mount(engine.Group("/v2"), core.Deps)
 
 	for _, prefix := range []string{"/api", "/v2"} {
 		if code := do(engine, http.MethodGet, prefix+"/user/register/status", "").Code; code != http.StatusOK {
@@ -132,15 +175,15 @@ func TestMountCanServeTwoGroups(t *testing.T) {
 }
 
 func TestProtectedRouteRequiresToken(t *testing.T) {
-	kit, _ := newTestKit(t, nil)
-	if code := do(mountedEngine(t, kit), http.MethodGet, "/api/users", "").Code; code != http.StatusUnauthorized {
+	core, _ := newCore(t, nil)
+	if code := do(mountedEngine(t, core), http.MethodGet, "/api/users", "").Code; code != http.StatusUnauthorized {
 		t.Fatalf("got %d, want 401", code)
 	}
 }
 
 func TestPublicRouteNeedsNoToken(t *testing.T) {
-	kit, _ := newTestKit(t, nil)
-	if code := do(mountedEngine(t, kit), http.MethodGet, "/api/user/register/status", "").Code; code != http.StatusOK {
+	core, _ := newCore(t, nil)
+	if code := do(mountedEngine(t, core), http.MethodGet, "/api/user/register/status", "").Code; code != http.StatusOK {
 		t.Fatalf("got %d, want 200", code)
 	}
 }
@@ -203,8 +246,8 @@ var routePermissions = []routePermission{
 
 func TestMountAppliesPermissionPerRoute(t *testing.T) {
 	_, client := newMiniRedis(t)
-	kit, drv := newTestKit(t, func(c *Config) { c.Redis = client })
-	engine := mountedEngine(t, kit)
+	core, drv := newCore(t, func(c *config.Config) { c.Redis = client })
+	engine := mountedEngine(t, core)
 
 	// Every distinct permission any route demands.
 	all := map[string]bool{}
@@ -225,7 +268,7 @@ func TestMountAppliesPermissionPerRoute(t *testing.T) {
 				// Authentication only: a user with no permissions at all passes the gate.
 				id := "u-none-" + strings.ReplaceAll(name, " ", "_")
 				drv.AddUser(testutil.User{ID: id, Role: "viewer"})
-				code := do(engine, rp.method, rp.path, tokenFor(t, kit, id, "viewer")).Code
+				code := do(engine, rp.method, rp.path, tokenFor(t, core, id, "viewer")).Code
 				if code == http.StatusUnauthorized || code == http.StatusForbidden {
 					t.Fatalf("auth-only route rejected a valid token: %d", code)
 				}
@@ -243,13 +286,13 @@ func TestMountAppliesPermissionPerRoute(t *testing.T) {
 
 			deniedID := "u-denied-" + strings.ReplaceAll(name, " ", "_")
 			drv.AddUser(testutil.User{ID: deniedID, Role: "viewer", Permissions: others})
-			if code := do(engine, rp.method, rp.path, tokenFor(t, kit, deniedID, "viewer")).Code; code != http.StatusForbidden {
+			if code := do(engine, rp.method, rp.path, tokenFor(t, core, deniedID, "viewer")).Code; code != http.StatusForbidden {
 				t.Fatalf("user with every other permission: got %d, want 403", code)
 			}
 
 			allowedID := "u-allowed-" + strings.ReplaceAll(name, " ", "_")
 			drv.AddUser(testutil.User{ID: allowedID, Role: "viewer", Permissions: []string{want}})
-			code := do(engine, rp.method, rp.path, tokenFor(t, kit, allowedID, "viewer")).Code
+			code := do(engine, rp.method, rp.path, tokenFor(t, core, allowedID, "viewer")).Code
 			if code == http.StatusUnauthorized || code == http.StatusForbidden {
 				t.Fatalf("user with exactly %s: got %d", want, code)
 			}
@@ -259,7 +302,7 @@ func TestMountAppliesPermissionPerRoute(t *testing.T) {
 
 var updateRoutes = flag.Bool("update-routes", false, "rewrite the route table golden")
 
-const routesGolden = "internal/router/testdata/routes.golden"
+const routesGolden = "testdata/routes.golden"
 
 // chainToken names one handler of a route's chain by what it is, so the table
 // does not move when the code that builds the middleware does.
@@ -276,7 +319,7 @@ func chainToken(name string) string {
 }
 
 // routeTable lists every route with its full handler chain, in order.
-func routeTable(t *testing.T, kit *Kit) string {
+func routeTable(t *testing.T, core *Core) string {
 	t.Helper()
 	chains := map[string][]string{}
 	engine := gin.New()
@@ -289,7 +332,7 @@ func routeTable(t *testing.T, kit *Kit) string {
 		chains[c.Request.Method+" "+c.FullPath()] = chain
 		c.Abort()
 	})
-	kit.Mount(engine.Group("/api"))
+	Mount(engine.Group("/api"), core.Deps)
 	for _, r := range engine.Routes() {
 		path := strings.Split(r.Path, "/")
 		for i, seg := range path {
@@ -312,9 +355,9 @@ func routeTable(t *testing.T, kit *Kit) string {
 }
 
 func TestRouteTableIsPinned(t *testing.T) {
-	plain, _ := newTestKit(t, nil)
+	plain, _ := newCore(t, nil)
 	_, client := newMiniRedis(t)
-	withRedis, _ := newTestKit(t, func(c *Config) { c.Redis = client })
+	withRedis, _ := newCore(t, func(c *config.Config) { c.Redis = client })
 	got := "# without Redis\n" + routeTable(t, plain) + "\n# with Redis\n" + routeTable(t, withRedis)
 	if *updateRoutes {
 		if err := os.MkdirAll(filepath.Dir(routesGolden), 0o750); err != nil {
