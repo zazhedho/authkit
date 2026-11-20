@@ -13,12 +13,12 @@ import (
 
 type Service struct {
 	PermissionRepo  Repository
-	PermissionCache PermissionCache
+	PermissionCache Cache
 	// NewID makes record ids; nil uses a UUID v7.
 	NewID func() string
 }
 
-func NewService(permissionRepo Repository, invalidators ...PermissionCache) *Service {
+func NewService(permissionRepo Repository, invalidators ...Cache) *Service {
 	service := &Service{
 		PermissionRepo: permissionRepo,
 		NewID:          serviceshared.NewID,
@@ -29,14 +29,17 @@ func NewService(permissionRepo Repository, invalidators ...PermissionCache) *Ser
 	return service
 }
 
-func (s *Service) Create(ctx context.Context, req dtopermission.PermissionCreate) (domainpermission.Permission, error) {
-	existing, _ := s.PermissionRepo.GetByName(ctx, req.Name)
-	if existing.Id != "" {
-		return domainpermission.Permission{}, errors.New("permission with this name already exists")
+func (s *Service) Create(ctx context.Context, req dtopermission.Create) (domainpermission.Permission, error) {
+	existing, err := s.PermissionRepo.GetByName(ctx, req.Name)
+	if err != nil && !errors.Is(err, domainpermission.ErrNotFound) {
+		return domainpermission.Permission{}, err
+	}
+	if err == nil && existing.ID != "" {
+		return domainpermission.Permission{}, domainpermission.ErrDuplicate
 	}
 
 	data := domainpermission.Permission{
-		Id:          s.newID(),
+		ID:          s.newID(),
 		Name:        req.Name,
 		DisplayName: req.DisplayName,
 		Description: req.Description,
@@ -61,18 +64,27 @@ func (s *Service) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]doma
 	return s.PermissionRepo.GetAll(ctx, req)
 }
 
-func (s *Service) GetByResource(ctx context.Context, resource string) ([]domainpermission.Permission, error) {
-	return s.PermissionRepo.GetByResource(ctx, resource)
+func (s *Service) GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error) {
+	return s.PermissionRepo.GetUserPermissions(ctx, userID)
 }
 
-func (s *Service) GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error) {
-	return s.PermissionRepo.GetUserPermissions(ctx, userId)
-}
-
-func (s *Service) Update(ctx context.Context, id string, req dtopermission.PermissionUpdate) (domainpermission.Permission, error) {
+func (s *Service) Update(ctx context.Context, id string, req dtopermission.Update) (domainpermission.Permission, error) {
 	permission, err := s.PermissionRepo.GetByID(ctx, id)
 	if err != nil {
 		return domainpermission.Permission{}, err
+	}
+
+	repoints := (req.Resource != "" && req.Resource != permission.Resource) || (req.Action != "" && req.Action != permission.Action)
+	if repoints {
+		// Changing resource or action silently changes what every role that
+		// holds the permission can do.
+		grants, err := s.PermissionRepo.CountGrants(ctx, id)
+		if err != nil {
+			return domainpermission.Permission{}, err
+		}
+		if grants > 0 {
+			return domainpermission.Permission{}, domainpermission.ErrInUse
+		}
 	}
 
 	if req.DisplayName != "" {

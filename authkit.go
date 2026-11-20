@@ -1,222 +1,216 @@
 // Package authkit provides users, sessions, RBAC, audit and app config for gin
 // services: build a Config, New, Kit.Migrate, Kit.Mount. Only ConfigFromEnv
-// reads the environment.
+// reads the environment. The logic lives under internal/.
 package authkit
 
 import (
 	"context"
-	"fmt"
-	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 
+	"github.com/zazhedho/authkit/internal/config"
+	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
+	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
-	httpappconfig "github.com/zazhedho/authkit/internal/handlers/http/appconfig"
-	httpaudit "github.com/zazhedho/authkit/internal/handlers/http/audit"
-	httpmenu "github.com/zazhedho/authkit/internal/handlers/http/menu"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+	dtoappconfig "github.com/zazhedho/authkit/internal/dto/appconfig"
+	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
 	"github.com/zazhedho/authkit/internal/handlers/http/middleware"
-	httppermission "github.com/zazhedho/authkit/internal/handlers/http/permission"
-	httprole "github.com/zazhedho/authkit/internal/handlers/http/role"
-	httpsession "github.com/zazhedho/authkit/internal/handlers/http/session"
-	httpuser "github.com/zazhedho/authkit/internal/handlers/http/user"
-	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
-	"github.com/zazhedho/authkit/internal/infrastructure/ratelimit"
+	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
+	"github.com/zazhedho/authkit/internal/infrastructure/async"
+	"github.com/zazhedho/authkit/internal/infrastructure/mailer"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
-	repositoryappconfig "github.com/zazhedho/authkit/internal/repositories/appconfig"
-	repositoryaudit "github.com/zazhedho/authkit/internal/repositories/audit"
-	repositoryauth "github.com/zazhedho/authkit/internal/repositories/auth"
-	repositorymenu "github.com/zazhedho/authkit/internal/repositories/menu"
-	repositoryotp "github.com/zazhedho/authkit/internal/repositories/otp"
-	repositorypermission "github.com/zazhedho/authkit/internal/repositories/permission"
-	repositoryreset "github.com/zazhedho/authkit/internal/repositories/reset"
-	repositoryrole "github.com/zazhedho/authkit/internal/repositories/role"
-	repositorysession "github.com/zazhedho/authkit/internal/repositories/session"
-	repositoryuser "github.com/zazhedho/authkit/internal/repositories/user"
-	serviceappconfig "github.com/zazhedho/authkit/internal/services/appconfig"
-	serviceaudit "github.com/zazhedho/authkit/internal/services/audit"
-	servicemenu "github.com/zazhedho/authkit/internal/services/menu"
-	serviceotp "github.com/zazhedho/authkit/internal/services/otp"
-	servicepermission "github.com/zazhedho/authkit/internal/services/permission"
-	servicereset "github.com/zazhedho/authkit/internal/services/reset"
-	servicerole "github.com/zazhedho/authkit/internal/services/role"
-	servicesession "github.com/zazhedho/authkit/internal/services/session"
-	serviceuser "github.com/zazhedho/authkit/internal/services/user"
+	"github.com/zazhedho/authkit/internal/migrate"
+	"github.com/zazhedho/authkit/internal/router"
+	"github.com/zazhedho/authkit/internal/router/module"
 )
 
-// Kit is the assembled users, auth and RBAC module. Build it once with New and
-// mount its routes with Mount; it is safe for concurrent use after New returns.
+// ---- The kit ----
+
+// Kit is safe for concurrent use after New returns.
 type Kit struct {
 	cfg Config
 
 	tokens     *token.Tokens
 	middleware *middleware.Middleware
+	deps       module.Deps
 
-	users     httpuser.Service // kept for white-box wiring tests
+	async     *async.Runner
 	audit     AuditService
 	appConfig AppConfigService
-
-	userHandler       *httpuser.Handler
-	roleHandler       *httprole.Handler
-	permissionHandler *httppermission.Handler
-	menuHandler       *httpmenu.Handler
-	appConfigHandler  *httpappconfig.Handler
-	auditHandler      *httpaudit.Handler
-	sessionHandler    *httpsession.Handler // nil without Redis
-
-	registerLimiter gin.HandlerFunc
 }
 
-// startupWarnings returns the warnings New logs for risky configuration. They
-// never contain configuration values other than the fixed AppEnv names.
-func startupWarnings(appEnv string, redisNil bool) []string {
-	var out []string
-	if isDevEnv(appEnv) {
-		out = append(out, "authkit: AppEnv is a development value ("+strings.Join(devEnvValues, ", ")+"): "+
-			"when the email password reset flag is disabled, POST /user/forgot-password returns a password reset token "+
-			"directly in the API response for any registered email; never enable this mode on a reachable server")
-	}
-	if redisNil {
-		out = append(out, "authkit: Redis is not configured: login rate limiting, register rate limiting, "+
-			"sessions, OTP and email password reset are inactive")
-	}
-	return out
-}
-
-// New validates cfg (after defaults) and wires everything without touching the
-// database. Nil Redis or Mailer is allowed; dependent features become inert (see README).
+// New validates cfg and wires everything without touching the database. A nil
+// Redis or mailer is allowed; the features that need them stay inert.
 func New(cfg Config) (*Kit, error) {
-	cfg = cfg.withDefaults()
+	cfg = config.WithDefaults(cfg)
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-
-	for _, w := range startupWarnings(cfg.AppEnv, cfg.Redis == nil) {
-		logus.WriteLog(logus.LogLevelWarn, w)
+	for _, w := range config.Warnings(cfg) {
+		logus.Log(logus.LevelWarn, w)
 	}
-
-	tokens, err := token.NewTokens(token.TokenConfig{
-		Key:        cfg.JWTKey,
-		AppName:    cfg.AppName,
-		AccessTTL:  cfg.AccessTokenTTL,
-		RefreshTTL: cfg.RefreshTokenTTL,
-		ResetTTL:   cfg.Reset.TTL,
-	})
+	core, err := router.Wire(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("authkit: tokens: %w", err)
+		return nil, err
 	}
-
-	db := cfg.DB
-	blacklistRepo := repositoryauth.NewRepository(db)
-	userRepo := repositoryuser.NewRepository(db)
-	roleRepo := repositoryrole.NewRepository(db)
-	permissionRepo := repositorypermission.NewRepository(db)
-	menuRepo := repositorymenu.NewRepository(db)
-
-	invalidator := cachepermission.NewInvalidator(cfg.Redis)
-
-	auditCore := serviceaudit.NewService(repositoryaudit.NewRepository(db))
-	appConfigCore := serviceappconfig.NewService(repositoryappconfig.NewRepository(db))
-	auditSvc := auditFacade{auditCore}
-	appConfigSvc := appConfigFacade{appConfigCore}
-	userSvc := serviceuser.NewService(userRepo, blacklistRepo, roleRepo, permissionRepo, serviceuser.Options{
-		Tokens:          tokens,
-		DefaultRole:     cfg.DefaultRole,
-		GoogleClientIDs: cfg.GoogleClientIDs,
-		PermissionCache: invalidator,
-	})
-
-	// Without Redis: no login limiter or sessions, and OTP/reset get nil deps.
-	// With Redis but no Mailer only the limiter and sessions are active.
-	var (
-		loginLimiter ratelimit.LoginLimiter
-		sessionSvc   httpuser.SessionService // stays a nil interface without Redis
-		sessionHdlr  *httpsession.Handler
-		otpSvc       = serviceotp.NewService(nil, nil, serviceotp.Config(cfg.OTP))
-		resetSvc     = servicereset.NewService(nil, nil, servicereset.Config(cfg.Reset))
-	)
-	if cfg.Redis != nil {
-		loginLimiter = ratelimit.NewRedisLoginLimiter(cfg.Redis, cfg.Login.Limit, cfg.Login.Window, cfg.Login.BlockDuration)
-		sessions := servicesession.NewService(repositorysession.NewRepository(cfg.Redis), cfg.RefreshTokenTTL)
-		sessionSvc = sessions
-		sessionHdlr = httpsession.New(sessions, auditSvc)
-		if cfg.Mailer != nil {
-			otpSvc = serviceotp.NewService(repositoryotp.NewRepository(cfg.Redis), cfg.Mailer, serviceotp.Config(cfg.OTP))
-			resetSvc = servicereset.NewService(repositoryreset.NewRepository(cfg.Redis), cfg.Mailer, servicereset.Config(cfg.Reset))
-		}
-	}
-
 	return &Kit{
-		cfg:        cfg,
-		tokens:     tokens,
-		middleware: middleware.NewMiddleware(blacklistRepo, permissionRepo, cachepermission.NewCache(cfg.Redis), tokens, cfg.PermissionCacheTTL),
-		users:      userSvc,
-		audit:      auditSvc,
-		appConfig:  appConfigSvc,
-		userHandler: httpuser.New(userSvc, sessionSvc, loginLimiter, auditSvc, httpuser.Options{
-			AppConfigService: appConfigSvc,
-			OTPService:       otpSvc,
-			ResetService:     resetSvc,
-			Tokens:           tokens,
-			Settings: httpuser.Settings{
-				AppEnv:        cfg.AppEnv,
-				DevEnv:        isDevEnv(cfg.AppEnv),
-				EmailAppName:  cfg.EmailAppName,
-				AccessTTL:     cfg.AccessTokenTTL,
-				RefreshTTL:    cfg.RefreshTokenTTL,
-				OTPCooldown:   cfg.OTP.Cooldown,
-				ResetCooldown: cfg.Reset.Cooldown,
-				Flags:         httpuser.FlagKeys(cfg.Flags),
-			},
-		}),
-		roleHandler:       httprole.New(servicerole.NewService(roleRepo, permissionRepo, menuRepo, invalidator), auditSvc),
-		permissionHandler: httppermission.New(servicepermission.NewService(permissionRepo, invalidator), auditSvc),
-		menuHandler:       httpmenu.New(servicemenu.NewService(menuRepo, permissionRepo), auditSvc),
-		appConfigHandler:  httpappconfig.New(appConfigCore, auditSvc),
-		auditHandler:      httpaudit.New(auditCore),
-		sessionHandler:    sessionHdlr,
-		registerLimiter:   gokit.IPRateLimitMiddleware(cfg.Redis, "user_register", cfg.Register.Limit, cfg.Register.Window),
+		cfg: cfg, tokens: core.Tokens, middleware: core.Middleware, deps: core.Deps,
+		async: core.Async, audit: core.Audit, appConfig: core.AppConfig,
 	}, nil
 }
 
-// Auth returns the middleware that requires a valid access token and puts the
-// authenticated scope on the request context.
+// Mount registers the routes on r and returns every module's error. Call it
+// once per group: gin panics on duplicate routes.
+func (k *Kit) Mount(r gin.IRouter) error { return router.Mount(r, k.deps) }
+
+// Close waits, bounded by ctx, for background mail sends; call it after the
+// HTTP server has stopped.
+func (k *Kit) Close(ctx context.Context) error { return k.async.Close(ctx) }
+
+// Migrate is safe on every start: instances serialize on an advisory lock. ctx
+// bounds the connection checkout only.
+func (k *Kit) Migrate(ctx context.Context) error { return migrate.Up(ctx, k.cfg.DB) }
+
 func (k *Kit) Auth() gin.HandlerFunc { return k.middleware.AuthMiddleware() }
 
-// Can returns the middleware that requires the authenticated user to hold the
-// (resource, action) permission. Superadmin bypasses it. Use it after Auth.
+// Can needs Auth before it; the superadmin bypasses it.
 func (k *Kit) Can(resource, action string) gin.HandlerFunc {
 	return k.middleware.PermissionMiddleware(resource, action)
 }
 
-// LoadPermissions returns the middleware that loads the user's permissions into
-// the scope without requiring any, so a handler can branch on Scope.Has (for
-// "_any" style checks). Use it after Auth.
+// LoadPermissions never rejects for a missing permission, so a handler can
+// branch on Scope.Has ("_any" checks). It needs Auth before it.
 func (k *Kit) LoadPermissions() gin.HandlerFunc {
 	return k.middleware.LoadPermissionsMiddleware()
 }
 
-// Role returns the middleware that requires the authenticated user to have one
-// of the allowed roles. Superadmin bypasses it. Use it after Auth.
+// Role needs Auth before it; the superadmin bypasses it.
 func (k *Kit) Role(allowed ...string) gin.HandlerFunc {
 	return k.middleware.RoleMiddleware(allowed...)
 }
 
-// Audit returns the kit's audit trail service, for recording and querying
-// events from your own handlers.
 func (k *Kit) Audit() AuditService { return k.audit }
 
-// AppConfig returns the kit's app-config service, which backs the feature
-// flags the kit consults at request time.
 func (k *Kit) AppConfig() AppConfigService { return k.appConfig }
 
-// IssueAccessToken issues an access token that passes Auth like a login one.
-// It does not check the user exists; for tests and tooling.
+// IssueAccessToken is for tests and tooling: a session-less token that Auth accepts.
 func (k *Kit) IssueAccessToken(userID, name, role string) (string, error) {
-	return k.tokens.Generate(userID, name, role, "authkit-issued")
+	return k.tokens.GenerateNoSession(userID, name, role, time.Time{})
 }
 
-// ScopeFrom returns the scope on ctx. After Auth alone the permission set is
-// empty (Has is false for non-superadmins); Can or LoadPermissions loads it.
+// ---- Request scope ----
+
+type Scope = domainauth.Scope
+
+// ScopeFrom has an empty permission set after Auth alone; Can or
+// LoadPermissions loads it.
 func ScopeFrom(ctx context.Context) Scope { return domainauth.FromContext(ctx) }
+
+// WithScope is for tests and tooling.
+func WithScope(ctx context.Context, scope Scope) context.Context {
+	return domainauth.WithContext(ctx, scope)
+}
+
+// NewScope is for tests and tooling; permissions are written "resource:action".
+func NewScope(userID, username, role string, permissions []string) Scope {
+	return domainauth.New(userID, username, role, permissions)
+}
+
+func RequestLogger() gin.HandlerFunc { return middleware.RequestLogger() }
+
+// ---- Roles ----
+
+// Built-in role names.
+const (
+	RoleSuperAdmin = domainuser.RoleSuperAdmin
+	RoleAdmin      = domainuser.RoleAdmin
+	RoleStaff      = domainuser.RoleStaff
+	RoleViewer     = domainuser.RoleViewer
+)
+
+// ---- Audit ----
+
+type AuditEvent = domainaudit.AuditEvent
+
+// Audit actions for AuditEvent.Action.
+const (
+	ActionCreate  = domainaudit.ActionCreate
+	ActionUpdate  = domainaudit.ActionUpdate
+	ActionDelete  = domainaudit.ActionDelete
+	ActionAssign  = domainaudit.ActionAssign
+	ActionLogin   = domainaudit.ActionLogin
+	ActionLogout  = domainaudit.ActionLogout
+	ActionRefresh = domainaudit.ActionRefresh
+)
+
+// Audit statuses for AuditEvent.Status.
+const (
+	StatusSuccess = domainaudit.StatusSuccess
+	StatusFailed  = domainaudit.StatusFailed
+)
+
+type AuditTrailResponse = dtoaudit.AuditTrailResponse
+
+type AuditService interface {
+	Store(ctx context.Context, req AuditEvent) error
+	GetAll(ctx context.Context, params gokit.BaseParams) ([]AuditTrailResponse, int64, error)
+	GetByID(ctx context.Context, id string) (AuditTrailResponse, error)
+}
+
+type AuditWriter = httpshared.AuditWriter
+
+// NewAuditWriter tags the failures it logs with scope, a short component name.
+func NewAuditWriter(service AuditService, scope string) AuditWriter {
+	return httpshared.NewAuditWriter(service, scope)
+}
+
+// ---- App config ----
+
+type AppConfig = domainappconfig.AppConfig
+
+type UpdateAppConfig = dtoappconfig.UpdateAppConfig
+
+type AppConfigService interface {
+	GetAll(ctx context.Context, params gokit.BaseParams) ([]AppConfig, int64, error)
+	GetByID(ctx context.Context, id string) (AppConfig, error)
+	GetByKey(ctx context.Context, configKey string) (AppConfig, error)
+	Update(ctx context.Context, id string, req UpdateAppConfig) (AppConfig, error)
+	GetString(ctx context.Context, configKey string, fallback string) (string, error)
+	GetBool(ctx context.Context, configKey string, fallback bool) (bool, error)
+	GetInt(ctx context.Context, configKey string, fallback int) (int, error)
+	GetDuration(ctx context.Context, configKey string, fallback time.Duration) (time.Duration, error)
+	DecodeJSON(ctx context.Context, configKey string, target any) error
+	IsEnabled(ctx context.Context, configKey string, fallback bool) (bool, error)
+}
+
+// ---- Mail ----
+
+type OTPMailer = config.OTPMailer
+
+type ResetMailer = config.ResetMailer
+
+type Mailer = config.Mailer
+
+// BrevoConfig requires Host, Pass and From; the rest has defaults.
+type BrevoConfig = mailer.BrevoConfig
+
+func NewBrevoMailer(cfg BrevoConfig) (Mailer, error) {
+	sender, err := mailer.NewBrevoSender(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return sender, nil
+}
+
+// ---- Migrations ----
+
+// MigrationsTable keeps authkit clear of the host's own golang-migrate table.
+const MigrationsTable = migrate.Table
+
+// ErrMigrationsDirty means a migration failed half way: repair the database by
+// hand and clear the dirty flag; never delete the record.
+var ErrMigrationsDirty = migrate.ErrDirty

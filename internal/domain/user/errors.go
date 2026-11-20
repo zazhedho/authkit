@@ -16,3 +16,10 @@ var (
 	ErrGoogleEmailMissing         = errors.New("google account email is not available")
 	ErrPublicRegistrationDisabled = errors.New("public registration is currently disabled")
 )
+
+// Credential and password failures. Handlers map them to 400.
+var (
+	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrPasswordTooLong    = errors.New("password must be at most 72 bytes long")
+	ErrWeakPassword       = errors.New("password does not meet the strength rules")
+)

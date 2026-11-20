@@ -39,11 +39,11 @@ func RequestLogger() gin.HandlerFunc {
 
 		switch {
 		case status >= http.StatusInternalServerError:
-			logus.WriteLogWithContext(ctx, logus.LogLevelError, msg)
+			logus.LogContext(ctx, logus.LevelError, msg)
 		case status >= http.StatusBadRequest:
-			logus.WriteLogWithContext(ctx, logus.LogLevelWarn, msg)
+			logus.LogContext(ctx, logus.LevelWarn, msg)
 		default:
-			logus.WriteLogWithContext(ctx, logus.LogLevelInfo, msg)
+			logus.LogContext(ctx, logus.LevelInfo, msg)
 		}
 	}
 }

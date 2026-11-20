@@ -4,13 +4,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 func TestClaimsFromRequestReadsAuthorizationHeader(t *testing.T) {
 	tokens := newTestTokens(t)
-	token, err := tokens.Generate("user-1", "Jane", roleViewer, "log-1")
+	token, err := tokens.Generate("user-1", "Jane", roleViewer, time.Time{})
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
@@ -28,4 +29,4 @@ func TestClaimsFromRequestReadsAuthorizationHeader(t *testing.T) {
 
 const roleViewer = "viewer"
 
-type testUser struct{ Id, Name, Role string }
+type testUser struct{ ID, Name, Role string }

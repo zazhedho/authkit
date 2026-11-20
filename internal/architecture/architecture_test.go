@@ -97,7 +97,7 @@ func TestFatalRuleDetectsViolations(t *testing.T) {
 // connectionVars lists package-level variables whose type is a database or
 // cache client; connections are built in the root package and passed down.
 func connectionVars(file *ast.File) []string {
-	banned := map[string]bool{"redis.Client": true, "gorm.DB": true, "sql.DB": true}
+	banned := map[string]bool{"redis.Client": true, "redis.UniversalClient": true, "gorm.DB": true, "sql.DB": true}
 	var out []string
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
@@ -218,20 +218,20 @@ var rules = []rule{
 	},
 	{
 		tree:                "internal/handlers",
-		forbidInternal:      []string{"internal/services", "internal/repositories", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrations", "internal/testutil"},
+		forbidInternal:      []string{"internal/services", "internal/repositories", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrate", "internal/migrations", "internal/router", "internal/testutil"},
 		forbidExternal:      []string{gormPkg, redisPkg},
 		testsToo:            true,
 		testInternalAllowed: []string{"internal/infrastructure/token", "internal/infrastructure/cache/permission", "internal/config"},
 	},
 	{
 		tree:                "internal/repositories",
-		forbidInternal:      []string{"internal/services", "internal/handlers", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrations"},
+		forbidInternal:      []string{"internal/services", "internal/handlers", "internal/infrastructure", "internal/config", "internal/moduleseed", "internal/migrate", "internal/migrations", "internal/router"},
 		forbidExternal:      []string{ginPkg},
 		testInternalAllowed: []string{"internal/testutil"},
 	},
 	{
 		tree:           "internal/infrastructure",
-		forbidInternal: []string{"internal/services", "internal/handlers", "internal/repositories", "internal/moduleseed", "internal/migrations"},
+		forbidInternal: []string{"internal/services", "internal/handlers", "internal/repositories", "internal/moduleseed", "internal/migrate", "internal/migrations", "internal/router"},
 	},
 	{
 		// Infrastructure owns its own types. The one exception is
@@ -241,8 +241,30 @@ var rules = []rule{
 		exceptTrees:    []string{"internal/infrastructure/cache"},
 	},
 	{
-		tree:           "internal/config",
-		forbidInternal: []string{"internal/"},
+		// The composition root wires everything and so imports every layer, but
+		// it ships no test fixtures and none of the seed or migration SQL.
+		tree:                "internal/router",
+		forbidInternal:      []string{"internal/testutil", "internal/moduleseed", "internal/migrate", "internal/migrations"},
+		testInternalAllowed: []string{"internal/testutil"},
+	},
+	{
+		// Deps names the handlers and nothing else, so a module's register.go
+		// cannot reach a service or a repository through it.
+		tree:            "internal/router/module",
+		internalAllowed: []string{"internal/handlers/http"},
+	},
+	{
+		// The migration runner owns the embedded SQL and nothing else; its tests
+		// also run the module-seed SQL.
+		tree:                "internal/migrate",
+		internalAllowed:     []string{"internal/migrations"},
+		testInternalAllowed: []string{"internal/moduleseed"},
+	},
+	{
+		// Config validates the JWT key with the token package and names the
+		// mailer ports and the default role; it imports no business layer.
+		tree:            "internal/config",
+		internalAllowed: []string{"internal/domain/user", "internal/infrastructure/mailer", "internal/infrastructure/token"},
 	},
 	{
 		// The middleware is a transport-level leaf, not a business module: it
@@ -254,10 +276,25 @@ var rules = []rule{
 	},
 }
 
+// routerModules are the modules internal/router mounts. Each mounts routes
+// from module.Deps and imports nothing else of the module.
+var routerModules = []string{"appconfig", "audit", "menu", "permission", "role", "session", "user"}
+
+func init() {
+	for _, m := range routerModules {
+		rules = append(rules, rule{
+			tree:            "internal/router/" + m,
+			internalAllowed: []string{"internal/router/module"},
+			externalAllowed: []string{ginPkg},
+			testsToo:        true,
+		})
+	}
+}
+
 // knownLayers is every top-level directory of internal/. A new layer needs a
 // rule in rules above and a line in the README's dependency rule before it is
 // added here.
-var knownLayers = []string{"architecture", "config", "domain", "dto", "handlers", "infrastructure", "migrations", "moduleseed", "repositories", "services", "testutil"}
+var knownLayers = []string{"architecture", "config", "domain", "dto", "handlers", "infrastructure", "migrate", "migrations", "moduleseed", "repositories", "router", "services", "testutil"}
 
 // layerProblems compares the directories found under internal/ with knownLayers.
 func layerProblems(found []string) []string {
@@ -519,6 +556,7 @@ func TestRulesDetectViolations(t *testing.T) {
 	services, domain, dto := byTree["internal/services"], byTree["internal/domain"], byTree["internal/dto"]
 	handlers, repos, leaf := byTree["internal/handlers"], byTree["internal/repositories"], byTree[middlewareLeaf]
 	cfg := byTree["internal/config"]
+	userRouter := byTree["internal/router/user"]
 	cases := []struct {
 		name   string
 		r      rule
@@ -583,7 +621,16 @@ func TestRulesDetectViolations(t *testing.T) {
 		{"repository imports gin", repos, "github.com/gin-gonic/gin", false, true},
 		{"repository imports gorm", repos, "gorm.io/gorm", false, false},
 		{"repository imports domain", repos, "github.com/zazhedho/authkit/internal/domain/user", false, false},
-		{"config imports any internal package", cfg, "github.com/zazhedho/authkit/internal/domain/user", false, true},
+		{"router module imports a service", userRouter, "github.com/zazhedho/authkit/internal/services/user", false, true},
+		{"router module imports the shared deps", userRouter, "github.com/zazhedho/authkit/internal/router/module", false, false},
+		{"router module imports gin", userRouter, "github.com/gin-gonic/gin", false, false},
+		{"router module imports gorm", userRouter, "gorm.io/gorm", false, true},
+		{"handler imports the router", handlers, "github.com/zazhedho/authkit/internal/router", false, true},
+		{"config imports a service", cfg, "github.com/zazhedho/authkit/internal/services/user", false, true},
+		{"config imports a repository", cfg, "github.com/zazhedho/authkit/internal/repositories/user", false, true},
+		{"config imports the token package", cfg, "github.com/zazhedho/authkit/internal/infrastructure/token", false, false},
+		{"config imports the mailer ports", cfg, "github.com/zazhedho/authkit/internal/infrastructure/mailer", false, false},
+		{"config imports domain user", cfg, "github.com/zazhedho/authkit/internal/domain/user", false, false},
 		{"config imports stdlib", cfg, "time", false, false},
 		{"middleware imports a service", leaf, "github.com/zazhedho/authkit/internal/services/user", false, true},
 		{"middleware imports a repository", leaf, "github.com/zazhedho/authkit/internal/repositories/auth", false, true},

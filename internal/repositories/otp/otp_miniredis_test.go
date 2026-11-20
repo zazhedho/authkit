@@ -16,15 +16,10 @@ func TestOTPRepositoryWithRedisMock(t *testing.T) {
 
 	mock.ExpectSet("otp:register:"+email, "hashed", time.Minute).SetVal("OK")
 	mock.ExpectGet("otp:register:" + email).SetVal("hashed")
-	mock.ExpectIncr("otp:attempt:" + email).SetVal(1)
-	mock.ExpectExpire("otp:attempt:"+email, time.Minute).SetVal(true)
 	mock.ExpectDel("otp:attempt:" + email).SetVal(1)
 	mock.ExpectSet("otp:cooldown:"+email, "1", time.Minute).SetVal("OK")
 	mock.ExpectTTL("otp:cooldown:" + email).SetVal(time.Minute)
 	mock.ExpectDel("otp:cooldown:" + email).SetVal(1)
-	mock.ExpectIncr("otp:rate:" + email).SetVal(1)
-	mock.ExpectExpire("otp:rate:"+email, time.Minute).SetVal(true)
-	mock.ExpectTTL("otp:rate:" + email).SetVal(time.Minute)
 	mock.ExpectDel("otp:rate:" + email).SetVal(1)
 	mock.ExpectDel("otp:register:" + email).SetVal(1)
 
@@ -35,10 +30,6 @@ func TestOTPRepositoryWithRedisMock(t *testing.T) {
 		t.Fatalf("get otp: got=%q err=%v", got, err)
 	}
 
-	attempts, err := repo.IncrementAttempts(ctx, email, time.Minute)
-	if err != nil || attempts != 1 {
-		t.Fatalf("increment attempts: got=%d err=%v", attempts, err)
-	}
 	if err := repo.ResetAttempts(ctx, email); err != nil {
 		t.Fatalf("reset attempts: %v", err)
 	}
@@ -53,10 +44,6 @@ func TestOTPRepositoryWithRedisMock(t *testing.T) {
 		t.Fatalf("clear cooldown: %v", err)
 	}
 
-	count, retryAfter, err := repo.IncrementSendCount(ctx, email, time.Minute)
-	if err != nil || count != 1 || retryAfter <= 0 {
-		t.Fatalf("increment send count: count=%d retry=%v err=%v", count, retryAfter, err)
-	}
 	if err := repo.ClearSendCount(ctx, email); err != nil {
 		t.Fatalf("clear send count: %v", err)
 	}

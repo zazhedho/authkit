@@ -72,7 +72,7 @@ func TestRespondHelpersWriteTheStandardEnvelopes(t *testing.T) {
 	f, rec = newTestFlow(http.MethodGet, "/", "")
 	RespondNotFound(f.Ctx, f.LogID, "user")
 	body := decode(t, rec)
-	if rec.Code != http.StatusNotFound || body["message"] != "Not Found" || errorMessage(t, body) != "user not found" {
+	if rec.Code != http.StatusNotFound || body["message"] != "User not found" || errorMessage(t, body) != "user not found" {
 		t.Fatalf("unexpected not-found response %d %v", rec.Code, body)
 	}
 }

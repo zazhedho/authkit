@@ -11,41 +11,41 @@ import (
 )
 
 type auditRepoMock struct {
-	stored domainaudit.AuditTrail
-	item   domainaudit.AuditTrail
-	items  []domainaudit.AuditTrail
+	stored domainaudit.Trail
+	item   domainaudit.Trail
+	items  []domainaudit.Trail
 	total  int64
 	err    error
 }
 
-func (m *auditRepoMock) Store(ctx context.Context, data domainaudit.AuditTrail) error {
+func (m *auditRepoMock) Store(ctx context.Context, data domainaudit.Trail) error {
 	m.stored = data
 	return m.err
 }
 
-func (m *auditRepoMock) GetByID(ctx context.Context, id string) (domainaudit.AuditTrail, error) {
+func (m *auditRepoMock) GetByID(ctx context.Context, id string) (domainaudit.Trail, error) {
 	if m.err != nil {
-		return domainaudit.AuditTrail{}, m.err
+		return domainaudit.Trail{}, m.err
 	}
 	return m.item, nil
 }
 
-func (m *auditRepoMock) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainaudit.AuditTrail, int64, error) {
+func (m *auditRepoMock) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainaudit.Trail, int64, error) {
 	if m.err != nil {
 		return nil, 0, m.err
 	}
-	return append([]domainaudit.AuditTrail{}, m.items...), m.total, nil
+	return append([]domainaudit.Trail{}, m.items...), m.total, nil
 }
 
-func (m *auditRepoMock) Update(ctx context.Context, data domainaudit.AuditTrail) error { return nil }
-func (m *auditRepoMock) Delete(ctx context.Context, id string) error                   { return nil }
+func (m *auditRepoMock) Update(ctx context.Context, data domainaudit.Trail) error { return nil }
+func (m *auditRepoMock) Delete(ctx context.Context, id string) error              { return nil }
 func (m *auditRepoMock) SoftDelete(ctx context.Context, id, deletedBy string) error {
 	return nil
 }
 
 func TestGetAllDelegatesToRepository(t *testing.T) {
 	repo := &auditRepoMock{
-		items: []domainaudit.AuditTrail{
+		items: []domainaudit.Trail{
 			{
 				ID:        "audit-1",
 				Action:    "refresh token",
@@ -83,7 +83,7 @@ func TestGetAllDelegatesToRepository(t *testing.T) {
 
 func TestGetByIDDelegatesToRepository(t *testing.T) {
 	repo := &auditRepoMock{
-		item: domainaudit.AuditTrail{ID: "audit-1", Action: "login", Resource: "auth", Status: domainaudit.StatusSuccess},
+		item: domainaudit.Trail{ID: "audit-1", Action: "login", Resource: "auth", Status: domainaudit.StatusSuccess},
 	}
 	service := NewService(repo)
 
@@ -167,5 +167,18 @@ func TestStoreUsesInjectedIDGenerator(t *testing.T) {
 	}
 	if len(repo.stored.ID) != 36 {
 		t.Fatalf("expected a generated uuid when NewID is unset, got %q", repo.stored.ID)
+	}
+}
+
+func TestStoreRefusesIncompleteEventsWithSentinels(t *testing.T) {
+	service := NewService(&auditRepoMock{})
+	for want, event := range map[error]domainaudit.AuditEvent{
+		domainaudit.ErrActionRequired:   {Resource: "r", Status: "success"},
+		domainaudit.ErrResourceRequired: {Action: "a", Status: "success"},
+		domainaudit.ErrStatusRequired:   {Action: "a", Resource: "r"},
+	} {
+		if err := service.Store(context.Background(), event); !errors.Is(err, want) {
+			t.Errorf("err = %v, want %v", err, want)
+		}
 	}
 }

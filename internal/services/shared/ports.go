@@ -9,5 +9,5 @@ import (
 // PermissionRepository is the lookup HasPermission needs; each service passes
 // its own repository port, which already has this method.
 type PermissionRepository interface {
-	GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error)
+	GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error)
 }

@@ -22,7 +22,8 @@ func TestPermissionMutationErrorResponseMapsNotFound(t *testing.T) {
 		{"wrapped permission not found", fmt.Errorf("load: %w", domainpermission.ErrNotFound), http.StatusNotFound},
 		{"other domain not found", domainuser.ErrNotFound, http.StatusNotFound},
 		{"menu not found", domainmenu.ErrNotFound, http.StatusNotFound},
-		{"duplicate", domainpermission.ErrDuplicate, http.StatusBadRequest},
+		{"duplicate", domainpermission.ErrDuplicate, http.StatusConflict},
+		{"in use", domainpermission.ErrInUse, http.StatusConflict},
 		{"unrelated error", fmt.Errorf("boom"), http.StatusInternalServerError},
 	}
 	for _, tt := range tests {

@@ -86,10 +86,16 @@ func TestAuditGetByIDValidatesUUIDAndReturnsNotFound(t *testing.T) {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	handler = New(&auditServiceTestDouble{err: errors.New("not found")})
+	handler = New(&auditServiceTestDouble{err: domainaudit.ErrNotFound})
 	rec = performAuditRequest(http.MethodGet, "/audits/:id", "/audits/550e8400-e29b-41d4-a716-446655440000", handler.GetByID)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	handler = New(&auditServiceTestDouble{err: errors.New("database down")})
+	rec = performAuditRequest(http.MethodGet, "/audits/:id", "/audits/550e8400-e29b-41d4-a716-446655440000", handler.GetByID)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("a storage failure must not look like a missing record: got %d", rec.Code)
 	}
 }
 

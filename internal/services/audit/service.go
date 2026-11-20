@@ -2,7 +2,6 @@ package audit
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -27,13 +26,13 @@ func NewService(auditRepo Repository) *Service {
 
 func (s *Service) Store(ctx context.Context, req domainaudit.AuditEvent) error {
 	if strings.TrimSpace(req.Action) == "" {
-		return errors.New("action is required")
+		return domainaudit.ErrActionRequired
 	}
 	if strings.TrimSpace(req.Resource) == "" {
-		return errors.New("resource is required")
+		return domainaudit.ErrResourceRequired
 	}
 	if strings.TrimSpace(req.Status) == "" {
-		return errors.New("status is required")
+		return domainaudit.ErrStatusRequired
 	}
 
 	occurredAt := req.OccurredAt
@@ -45,7 +44,7 @@ func (s *Service) Store(ctx context.Context, req domainaudit.AuditEvent) error {
 	after := serviceshared.RedactSensitivePayload(req.AfterData)
 	meta := serviceshared.RedactSensitivePayload(req.Metadata)
 
-	data := domainaudit.AuditTrail{
+	data := domainaudit.Trail{
 		ID:           s.newID(),
 		OccurredAt:   occurredAt,
 		ActorUserID:  serviceshared.NormalizeUUIDPointer(req.ActorUserID),
@@ -59,9 +58,9 @@ func (s *Service) Store(ctx context.Context, req domainaudit.AuditEvent) error {
 		RequestID:    strings.TrimSpace(req.RequestID),
 		IPAddress:    strings.TrimSpace(req.IPAddress),
 		UserAgent:    strings.TrimSpace(req.UserAgent),
-		BeforeData:   serviceshared.JsonEncode(before),
-		AfterData:    serviceshared.JsonEncode(after),
-		Metadata:     serviceshared.JsonEncode(meta),
+		BeforeData:   serviceshared.JSONEncode(before),
+		AfterData:    serviceshared.JSONEncode(after),
+		Metadata:     serviceshared.JSONEncode(meta),
 		CreatedAt:    time.Now(),
 	}
 

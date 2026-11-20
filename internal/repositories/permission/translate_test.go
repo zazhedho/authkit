@@ -26,7 +26,7 @@ func TestRepositoryTranslatesErrorsToDomain(t *testing.T) {
 	requireTranslated(t, err, domainpermission.ErrNotFound, gorm.ErrRecordNotFound)
 
 	mock.ExpectExec(".*").WillReturnError(gorm.ErrDuplicatedKey)
-	err = repo.Store(ctx, domainpermission.Permission{Id: "p1"})
+	err = repo.Store(ctx, domainpermission.Permission{ID: "p1"})
 	requireTranslated(t, err, domainpermission.ErrDuplicate, gorm.ErrDuplicatedKey)
 
 	if err := mock.ExpectationsWereMet(); err != nil {

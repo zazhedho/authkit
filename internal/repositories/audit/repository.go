@@ -1,0 +1,50 @@
+package audit
+
+import (
+	"context"
+
+	"github.com/zazhedho/gokit"
+
+	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
+	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
+
+	"gorm.io/gorm"
+)
+
+type Repository struct {
+	*gokit.Repository[domainaudit.Trail]
+}
+
+func NewRepository(db *gorm.DB) *Repository {
+	return &Repository{Repository: gokit.NewRepository[domainaudit.Trail](db)}
+}
+
+func (r *Repository) GetAll(ctx context.Context, req dtoshared.ListRequest) (ret []domainaudit.Trail, totalData int64, err error) {
+	return r.Repository.GetAll(ctx, repositoryshared.BaseParams(req), gokit.QueryOptions{
+		MaxLimit:       dtoshared.PagedList.MaxLimit,
+		AllowAll:       dtoshared.PagedList.AllowAll,
+		Search:         gokit.BuildSearchFunc("action", "resource", "status", "actor_role", "message", "error_message", "request_id", "ip_address"),
+		AllowedFilters: []string{"actor_user_id", "actor_role", "action", "resource", "status", "request_id"},
+		AllowedOrderColumns: []string{
+			"occurred_at",
+			"created_at",
+			"action",
+			"resource",
+			"status",
+			"actor_role",
+		},
+		DefaultOrders: []string{"occurred_at DESC", "created_at DESC"},
+	})
+}
+
+func (r *Repository) GetByID(ctx context.Context, id string) (domainaudit.Trail, error) {
+	ret, err := r.Repository.GetByID(ctx, id)
+	return ret, repositoryshared.Gorm(err, domainaudit.ErrNotFound, nil)
+}
+
+// Store writes one audit trail. gokit's Store takes a pointer; the service
+// port passes the trail by value.
+func (r *Repository) Store(ctx context.Context, trail domainaudit.Trail) error {
+	return r.Repository.Store(ctx, &trail)
+}

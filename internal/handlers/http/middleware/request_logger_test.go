@@ -18,7 +18,7 @@ func TestRequestLoggerAndRecoveryMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(RequestLogger())
-	router.Use(gin.CustomRecovery(gokit.ErrorHandler))
+	router.Use(gokit.Recovery())
 	router.GET("/panic", func(ctx *gin.Context) {
 		panic("boom")
 	})
@@ -34,7 +34,7 @@ func TestRequestLoggerAndRecoveryMiddleware(t *testing.T) {
 }
 
 func TestRoleMiddlewareAllowsAndRejectsRoles(t *testing.T) {
-	mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
+	mdw := newForTest(t, &authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
 
 	rec := performMiddlewareRequest(
 		testToken(t, "access", domainuser.RoleAdmin),

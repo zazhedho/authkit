@@ -1,0 +1,46 @@
+package session
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	domainsession "github.com/zazhedho/authkit/internal/domain/session"
+)
+
+func expectPanic(t *testing.T, fn func()) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic")
+		}
+	}()
+	fn()
+}
+
+func TestNewSessionRepositoryAndNilRedisMethodPanics(t *testing.T) {
+	repo := NewRepository(nil)
+	if repo == nil {
+		t.Fatal("expected repo")
+	}
+
+	ctx := context.Background()
+	session := &domainsession.Session{
+		SessionID:    "session-1",
+		UserID:       "user-1",
+		AccessToken:  "access",
+		RefreshToken: "refresh",
+		ExpiresAt:    time.Now().Add(time.Hour),
+	}
+
+	expectPanic(t, func() { _ = repo.Create(ctx, session) })
+	expectPanic(t, func() { _, _ = repo.GetBySessionID(ctx, "session-1") })
+	expectPanic(t, func() { _, _ = repo.GetByUserID(ctx, "user-1") })
+	expectPanic(t, func() { _, _ = repo.GetByToken(ctx, "access") })
+	expectPanic(t, func() { _, _ = repo.GetByRefreshToken(ctx, "refresh") })
+	expectPanic(t, func() { _ = repo.Delete(ctx, "session-1") })
+	expectPanic(t, func() { _ = repo.DeleteByUserID(ctx, "user-1") })
+	expectPanic(t, func() {
+		_ = repo.RotateTokens(ctx, "session-1", "new-access", "new-refresh", time.Now().Add(time.Hour))
+	})
+}

@@ -2,8 +2,6 @@ package shared
 
 import (
 	"encoding/json"
-	"html"
-	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -13,12 +11,6 @@ import (
 
 // The helpers in this file replace the gokit string helpers the services used,
 // so services need no framework package. text_test.go pins their output.
-
-var (
-	htmlScript = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
-	htmlStyle  = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
-	htmlTag    = regexp.MustCompile(`<[^>]*>`)
-)
 
 // NewID returns a UUID v7 string, falling back to v4 if v7 cannot be made.
 // It is the default for the services' injected NewID.
@@ -34,13 +26,10 @@ func NormalizeKey(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
-// StripHTML removes script and style blocks and tags, unescapes entities and
-// collapses whitespace.
-func StripHTML(s string) string {
-	s = htmlScript.ReplaceAllString(s, " ")
-	s = htmlStyle.ReplaceAllString(s, " ")
-	s = htmlTag.ReplaceAllString(s, " ")
-	return strings.Join(strings.Fields(html.UnescapeString(s)), " ")
+// CleanText only trims. Text is not HTML-processed: stripping then unescaping
+// once turned "&lt;script&gt;" into a live tag. Escaping is the renderer's job.
+func CleanText(s string) string {
+	return strings.TrimSpace(s)
 }
 
 // HumanizeKey turns snake_case and kebab-case keys into space separated words.
@@ -72,8 +61,8 @@ func TitleHumanized(value string) string {
 	return strings.Join(words, " ")
 }
 
-// JsonEncode marshals data, returning "" when it cannot be encoded.
-func JsonEncode(data any) string {
+// JSONEncode marshals data, returning "" when it cannot be encoded.
+func JSONEncode(data any) string {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return ""

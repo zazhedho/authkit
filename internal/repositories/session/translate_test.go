@@ -17,8 +17,9 @@ func TestMissingSessionKeysAreDomainNotFoundWithOriginalText(t *testing.T) {
 	ctx := context.Background()
 
 	mock.ExpectGet(sessionKeyPrefix + "s1").RedisNil()
-	mock.ExpectGet(accessTokenSessionKey + "t1").RedisNil()
-	mock.ExpectGet(refreshTokenSessionKey + "r1").RedisNil()
+	mock.ExpectGet(accessTokenSessionKey + HashToken("t1")).RedisNil()
+	mock.ExpectGet(refreshTokenSessionKey + HashToken("r1")).RedisNil()
+	mock.ExpectGet(refreshUsedKey + HashToken("r1")).RedisNil()
 
 	_, err1 := repo.GetBySessionID(ctx, "s1")
 	_, err2 := repo.GetByToken(ctx, "t1")

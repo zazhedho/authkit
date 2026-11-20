@@ -1,0 +1,285 @@
+package permission
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/zazhedho/gokit"
+
+	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
+	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
+	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
+	dtoaudit "github.com/zazhedho/authkit/internal/dto/audit"
+	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
+
+	"github.com/gin-gonic/gin"
+)
+
+type permissionServiceTestDouble struct {
+	permission      domainpermission.Permission
+	permissions     []domainpermission.Permission
+	total           int64
+	createReq       dtopermission.Create
+	updateReq       dtopermission.Update
+	deleteID        string
+	userPermissions []domainpermission.Permission
+	err             error
+}
+
+func (m *permissionServiceTestDouble) Create(ctx context.Context, req dtopermission.Create) (domainpermission.Permission, error) {
+	m.createReq = req
+	if m.err != nil {
+		return domainpermission.Permission{}, m.err
+	}
+	return m.permission, nil
+}
+func (m *permissionServiceTestDouble) GetByID(ctx context.Context, id string) (domainpermission.Permission, error) {
+	if m.err != nil {
+		return domainpermission.Permission{}, m.err
+	}
+	return m.permission, nil
+}
+func (m *permissionServiceTestDouble) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainpermission.Permission, int64, error) {
+	if m.err != nil {
+		return nil, 0, m.err
+	}
+	return m.permissions, m.total, nil
+}
+func (m *permissionServiceTestDouble) GetByResource(ctx context.Context, resource string) ([]domainpermission.Permission, error) {
+	return m.permissions, nil
+}
+func (m *permissionServiceTestDouble) GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.userPermissions, nil
+}
+func (m *permissionServiceTestDouble) Update(ctx context.Context, id string, req dtopermission.Update) (domainpermission.Permission, error) {
+	m.updateReq = req
+	if m.err != nil {
+		return domainpermission.Permission{}, m.err
+	}
+	return m.permission, nil
+}
+func (m *permissionServiceTestDouble) Delete(ctx context.Context, id string) error {
+	m.deleteID = id
+	return m.err
+}
+
+type auditServicePermissionTestDouble struct {
+	events []domainaudit.AuditEvent
+}
+
+func (m *auditServicePermissionTestDouble) Store(ctx context.Context, req domainaudit.AuditEvent) error {
+	m.events = append(m.events, req)
+	return nil
+}
+func (m *auditServicePermissionTestDouble) GetAll(ctx context.Context, params gokit.BaseParams) ([]dtoaudit.AuditTrailResponse, int64, error) {
+	return nil, 0, nil
+}
+func (m *auditServicePermissionTestDouble) GetByID(ctx context.Context, id string) (dtoaudit.AuditTrailResponse, error) {
+	return dtoaudit.AuditTrailResponse{}, nil
+}
+
+// testID is a valid UUID standing in for the :id path segment.
+const testID = "550e8400-e29b-41d4-a716-446655440000"
+
+func performPermissionRequest(
+	method string,
+	path string,
+	body any,
+	handler gin.HandlerFunc,
+	scope domainauth.Scope,
+) *httptest.ResponseRecorder {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	routePath, _, _ := strings.Cut(path, "?")
+	router.Handle(method, routePath, func(ctx *gin.Context) {
+		if scope.UserID != "" || scope.Role != "" {
+			ctx.Request = ctx.Request.WithContext(domainauth.WithContext(ctx.Request.Context(), scope))
+		}
+		handler(ctx)
+	})
+
+	var reqBody *bytes.Reader
+	if body == nil {
+		reqBody = bytes.NewReader(nil)
+	} else {
+		raw, _ := json.Marshal(body)
+		reqBody = bytes.NewReader(raw)
+	}
+	req := httptest.NewRequest(method, strings.Replace(path, "/:id", "/"+testID, 1), reqBody)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func performPermissionRawRequest(method, path, body string, handler gin.HandlerFunc) *httptest.ResponseRecorder {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	routePath, _, _ := strings.Cut(path, "?")
+	router.Handle(method, routePath, handler)
+	req := httptest.NewRequest(method, strings.Replace(path, "/:id", "/"+testID, 1), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestCreatePermissionReturnsCreatedAndWritesAudit(t *testing.T) {
+	auditSvc := &auditServicePermissionTestDouble{}
+	service := &permissionServiceTestDouble{permission: domainpermission.Permission{
+		ID:          "perm-1",
+		Name:        "list_users",
+		DisplayName: "List Users",
+		Resource:    "users",
+		Action:      "list",
+	}}
+	handler := New(service, auditSvc)
+
+	rec := performPermissionRequest(http.MethodPost, "/permissions", dtopermission.Create{
+		Name:        "list_users",
+		DisplayName: "List Users",
+		Resource:    "users",
+		Action:      "list",
+	}, handler.Create, domainauth.Scope{})
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if service.createReq.Name != "list_users" {
+		t.Fatalf("expected service request to be captured, got %+v", service.createReq)
+	}
+	if len(auditSvc.events) != 1 || auditSvc.events[0].Status != domainaudit.StatusSuccess {
+		t.Fatalf("expected success audit event, got %+v", auditSvc.events)
+	}
+}
+
+func TestCreatePermissionRejectsInvalidJSON(t *testing.T) {
+	handler := New(&permissionServiceTestDouble{}, &auditServicePermissionTestDouble{})
+	rec := performPermissionRequest(http.MethodPost, "/permissions", map[string]string{"name": "ab"}, handler.Create, domainauth.Scope{})
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetPermissionByIDReturnsNotFound(t *testing.T) {
+	handler := New(
+		&permissionServiceTestDouble{err: domainpermission.ErrNotFound},
+		&auditServicePermissionTestDouble{},
+	)
+
+	rec := performPermissionRequest(http.MethodGet, "/permissions/:id", nil, handler.GetByID, domainauth.Scope{})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetAllPermissionsReturnsPagination(t *testing.T) {
+	handler := New(&permissionServiceTestDouble{
+		permissions: []domainpermission.Permission{{ID: "perm-1", Name: "list_users"}},
+		total:       1,
+	}, &auditServicePermissionTestDouble{})
+
+	rec := performPermissionRequest(http.MethodGet, "/permissions?page=1&limit=10", nil, handler.GetAll, domainauth.Scope{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &decoded); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if decoded["total_data"].(float64) != 1 {
+		t.Fatalf("expected total_data 1, got %+v", decoded)
+	}
+}
+
+func TestGetAllPermissionsReturnsServiceError(t *testing.T) {
+	handler := New(&permissionServiceTestDouble{err: errors.New("database down")}, &auditServicePermissionTestDouble{})
+
+	rec := performPermissionRequest(http.MethodGet, "/permissions", nil, handler.GetAll, domainauth.Scope{})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUpdatePermissionMapsDuplicateError(t *testing.T) {
+	handler := New(
+		&permissionServiceTestDouble{err: domainpermission.ErrDuplicate},
+		&auditServicePermissionTestDouble{},
+	)
+
+	rec := performPermissionRequest(http.MethodPut, "/permissions/:id", dtopermission.Update{
+		DisplayName: "List Users",
+	}, handler.Update, domainauth.Scope{})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = performPermissionRawRequest(http.MethodPut, "/permissions/:id", `{`, handler.Update)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid json 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeletePermissionDelegatesToService(t *testing.T) {
+	service := &permissionServiceTestDouble{permission: domainpermission.Permission{ID: "perm-1"}}
+	handler := New(service, &auditServicePermissionTestDouble{})
+
+	rec := performPermissionRequest(http.MethodDelete, "/permissions/:id", nil, handler.Delete, domainauth.Scope{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if service.deleteID != testID {
+		t.Fatalf("expected delete id from the route param, got %q", service.deleteID)
+	}
+
+	handler = New(&permissionServiceTestDouble{err: errors.New("database down")}, &auditServicePermissionTestDouble{})
+	rec = performPermissionRequest(http.MethodDelete, "/permissions/:id", nil, handler.Delete, domainauth.Scope{})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected delete 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetUserPermissionsRequiresAuthScope(t *testing.T) {
+	handler := New(&permissionServiceTestDouble{}, &auditServicePermissionTestDouble{})
+
+	rec := performPermissionRequest(http.MethodGet, "/permissions/me", nil, handler.GetUserPermissions, domainauth.Scope{})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetUserPermissionsUsesAuthScopeUserID(t *testing.T) {
+	handler := New(&permissionServiceTestDouble{
+		userPermissions: []domainpermission.Permission{{ID: "perm-1", Resource: "users", Action: "list"}},
+	}, &auditServicePermissionTestDouble{})
+
+	rec := performPermissionRequest(http.MethodGet, "/permissions/me", nil, handler.GetUserPermissions, domainauth.New("user-1", "Jane", "viewer", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPermissionRoutesRejectANonUUIDID(t *testing.T) {
+	handler := New(&permissionServiceTestDouble{}, &auditServicePermissionTestDouble{})
+	for name, call := range map[string]gin.HandlerFunc{"get": handler.GetByID, "update": handler.Update, "delete": handler.Delete} {
+		rec := performPermissionRawRequest(http.MethodGet, "/permissions/not-a-uuid", `{}`, call)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: got %d, want 400", name, rec.Code)
+		}
+	}
+}

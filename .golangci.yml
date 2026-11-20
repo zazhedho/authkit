@@ -24,12 +24,18 @@ linters:
     - nilerr
     - noctx
     - prealloc
+    - revive
     - rowserrcheck
     - sqlclosecheck
     - staticcheck
     - unconvert
     - unused
   settings:
+    revive:
+      rules:
+        - name: var-naming
+        - name: exported
+        - name: package-comments
     dupl:
       threshold: 80
     misspell:
@@ -43,10 +49,26 @@ linters:
         linters:
           - gosec
         text: "G117:"
-      - path: internal/services/reset/reset_service_test.go
+      - path: internal/services/reset/service_test.go
         linters:
           - gosec
         text: "G101: Potential hardcoded credentials"
+      # Exported names and package comments are checked on the public root
+      # package only; internal/ code is not an API.
+      - path: ^internal/
+        linters:
+          - revive
+        text: "exported|package-comments|should have a package comment"
+      # A comment on an exported name of the root package must still start with
+      # that name, but a missing one is fine: restating the name adds nothing.
+      - path: ^[^/]+\.go$
+        linters:
+          - revive
+        text: "should have comment or be unexported"
+      - path: ^cmd/
+        linters:
+          - revive
+        text: "package-comments|should have a package comment"
       - path: _test\.go
         linters:
           - noctx

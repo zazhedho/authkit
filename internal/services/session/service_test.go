@@ -1,0 +1,170 @@
+package session
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	domainsession "github.com/zazhedho/authkit/internal/domain/session"
+	domainuser "github.com/zazhedho/authkit/internal/domain/user"
+)
+
+type sessionRepoTestDouble struct {
+	session        *domainsession.Session
+	userSessions   []*domainsession.Session
+	deletedIDs     []string
+	rotatedID      string
+	deleteByUserID string
+	keptSessionID  string
+}
+
+func (m *sessionRepoTestDouble) Create(ctx context.Context, session *domainsession.Session) error {
+	m.session = new(*session)
+	return nil
+}
+func (m *sessionRepoTestDouble) GetBySessionID(ctx context.Context, sessionID string) (*domainsession.Session, error) {
+	if m.session == nil {
+		return nil, errors.New("not found")
+	}
+	return m.session, nil
+}
+func (m *sessionRepoTestDouble) GetByUserID(ctx context.Context, userID string) ([]*domainsession.Session, error) {
+	return append([]*domainsession.Session{}, m.userSessions...), nil
+}
+func (m *sessionRepoTestDouble) GetByToken(ctx context.Context, token string) (*domainsession.Session, error) {
+	if m.session == nil {
+		return nil, errors.New("not found")
+	}
+	return m.session, nil
+}
+func (m *sessionRepoTestDouble) GetByRefreshToken(ctx context.Context, refreshToken string) (*domainsession.Session, error) {
+	if m.session == nil {
+		return nil, errors.New("not found")
+	}
+	return m.session, nil
+}
+func (m *sessionRepoTestDouble) RotateTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
+	m.rotatedID = sessionID
+	return nil
+}
+func (m *sessionRepoTestDouble) Delete(ctx context.Context, sessionID string) error {
+	m.deletedIDs = append(m.deletedIDs, sessionID)
+	return nil
+}
+func (m *sessionRepoTestDouble) DeleteOthers(ctx context.Context, userID, keepSessionID string) error {
+	m.keptSessionID = keepSessionID
+	return nil
+}
+func (m *sessionRepoTestDouble) DeleteByUserID(ctx context.Context, userID string) error {
+	m.deleteByUserID = userID
+	return nil
+}
+
+func TestCreateSessionStoresSessionWithDerivedDeviceInfo(t *testing.T) {
+	repo := &sessionRepoTestDouble{}
+	svc := NewService(repo, time.Hour)
+
+	session, err := svc.CreateSession(context.Background(), &domainuser.Users{
+		ID:    "user-1",
+		Name:  "Jane",
+		Email: "jane@example.com",
+		Role:  "viewer",
+	}, "access", "refresh", domainsession.RequestMeta{
+		IP:        "127.0.0.1",
+		UserAgent: "Mozilla/5.0 (Windows NT 10.0)",
+	})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+
+	if session.SessionID == "" || repo.session == nil {
+		t.Fatalf("expected session to be stored, got %+v", session)
+	}
+	if session.DeviceInfo != "Windows PC" {
+		t.Fatalf("expected derived Windows device info, got %q", session.DeviceInfo)
+	}
+	if !session.ExpiresAt.After(time.Now()) {
+		t.Fatalf("expected future expiry, got %v", session.ExpiresAt)
+	}
+	if diff := time.Until(session.ExpiresAt) - time.Hour; diff > 5*time.Second || diff < -5*time.Second {
+		t.Fatalf("expected expiry about now+1h from the injected TTL, got %v", session.ExpiresAt)
+	}
+}
+
+func TestExtractDeviceInfoVariants(t *testing.T) {
+	tests := map[string]string{
+		"Mozilla/5.0 (Linux; Android 13; Pixel)":       "Android Mobile",
+		"Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)":     "iOS Mobile",
+		"Mozilla/5.0 (Mobile; rv:109.0)":               "Mobile Device",
+		"Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS)":  "Tablet",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)": "Mac",
+		"Mozilla/5.0 (X11; Linux x86_64)":              "Linux",
+		"unknown":                                      "Unknown Device",
+	}
+
+	for userAgent, want := range tests {
+		if got := extractDeviceInfo(userAgent); got != want {
+			t.Fatalf("user agent %q: expected %q, got %q", userAgent, want, got)
+		}
+	}
+}
+
+func TestDestroyOtherSessionsKeepsCurrentSession(t *testing.T) {
+	repo := &sessionRepoTestDouble{userSessions: []*domainsession.Session{
+		{SessionID: "current"},
+		{SessionID: "old-1"},
+		{SessionID: "old-2"},
+	}}
+	svc := NewService(repo, time.Hour)
+
+	if err := svc.DestroyOtherSessions(context.Background(), "user-1", "current"); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if repo.keptSessionID != "current" {
+		t.Fatalf("expected the current session to be kept, got %q", repo.keptSessionID)
+	}
+}
+
+func TestSessionServicePassThroughMethods(t *testing.T) {
+	repo := &sessionRepoTestDouble{
+		session: &domainsession.Session{SessionID: "session-1", ExpiresAt: time.Now().Add(time.Hour)},
+		userSessions: []*domainsession.Session{
+			{SessionID: "session-1", DeviceInfo: "Browser", IP: "127.0.0.1"},
+		},
+	}
+	svc := NewService(repo, time.Hour)
+	ctx := context.Background()
+
+	infos, err := svc.GetUserSessions(ctx, "user-1", "session-1")
+	if err != nil || len(infos) != 1 || !infos[0].IsCurrentSession {
+		t.Fatalf("get user sessions: infos=%+v err=%v", infos, err)
+	}
+	if err := svc.DestroySession(ctx, "session-1"); err != nil {
+		t.Fatalf("destroy session: %v", err)
+	}
+	if err := svc.DestroySessionByToken(ctx, "access"); err != nil {
+		t.Fatalf("destroy by token: %v", err)
+	}
+	if got, err := svc.GetSessionByToken(ctx, "access"); err != nil || got.SessionID != "session-1" {
+		t.Fatalf("get by token: session=%+v err=%v", got, err)
+	}
+	if got, err := svc.GetSessionByRefreshToken(ctx, "refresh"); err != nil || got.SessionID != "session-1" {
+		t.Fatalf("get by refresh: session=%+v err=%v", got, err)
+	}
+	if got, err := svc.GetSessionBySessionID(ctx, "session-1"); err != nil || got.SessionID != "session-1" {
+		t.Fatalf("get by session id: session=%+v err=%v", got, err)
+	}
+	if err := svc.RotateSessionTokens(ctx, "session-1", "access-2", "refresh-2", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("rotate tokens: %v", err)
+	}
+	if repo.rotatedID != "session-1" {
+		t.Fatalf("expected rotation to be delegated, got %q", repo.rotatedID)
+	}
+	if err := svc.DestroyAllUserSessions(ctx, "user-1"); err != nil {
+		t.Fatalf("destroy all user sessions: %v", err)
+	}
+	if repo.deleteByUserID != "user-1" {
+		t.Fatalf("expected delete by user id, got %q", repo.deleteByUserID)
+	}
+}

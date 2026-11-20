@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/zazhedho/gokit"
 	"gorm.io/gorm"
 )
 
@@ -32,14 +33,14 @@ func wrap(domain, cause error) error {
 	return &translated{domain: domain, cause: cause}
 }
 
-// Gorm maps gorm.ErrRecordNotFound and gorm.ErrDuplicatedKey to the given
-// domain errors; any other error, and nil, pass through. A nil domain error
-// leaves that case untranslated.
+// Gorm maps gorm.ErrRecordNotFound (a read, update or delete that matched no
+// row) and ErrDuplicatedKey to the domain errors; others pass through. A nil
+// domain error leaves that case untranslated.
 func Gorm(err, notFound, duplicate error) error {
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, gorm.ErrRecordNotFound):
+	case errors.Is(err, gokit.ErrNotFound):
 		return wrap(notFound, err)
 	case errors.Is(err, gorm.ErrDuplicatedKey):
 		return wrap(duplicate, err)

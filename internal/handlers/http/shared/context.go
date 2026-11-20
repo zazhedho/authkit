@@ -17,6 +17,7 @@ type (
 	anyKeyGetter    interface{ Get(key any) (any, bool) }
 )
 
+// WithAuthData returns a copy of ctx carrying the auth data.
 func WithAuthData(ctx context.Context, data map[string]any) context.Context {
 	if ctx == nil {
 		ctx = context.Background()

@@ -3,6 +3,8 @@ package appconfig
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strconv"
 	"time"
 
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
@@ -13,10 +15,21 @@ import (
 
 type Service struct {
 	Repo Repository
+	// boolKeys are the keys whose value must be a boolean (the feature flags).
+	boolKeys map[string]struct{}
 }
 
 func NewService(repo Repository) *Service {
 	return &Service{Repo: repo}
+}
+
+// SetBoolKeys declares the keys that hold booleans; Update rejects any other
+// value for them, so a typo cannot reach the routes that read the flag.
+func (s *Service) SetBoolKeys(keys ...string) {
+	s.boolKeys = make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		s.boolKeys[k] = struct{}{}
+	}
 }
 
 func (s *Service) GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainappconfig.AppConfig, int64, error) {
@@ -37,7 +50,15 @@ func (s *Service) Update(ctx context.Context, id string, req dtoappconfig.Update
 		return domainappconfig.AppConfig{}, err
 	}
 
-	config.Value = serviceshared.StripHTML(req.Value)
+	value := serviceshared.CleanText(req.Value)
+	if _, isBool := s.boolKeys[config.ConfigKey]; isBool {
+		parsed, parseErr := parseBool(value, false)
+		if parseErr != nil || value == "" {
+			return domainappconfig.AppConfig{}, fmt.Errorf("%w: %s must be true or false", domainappconfig.ErrInvalidValue, config.ConfigKey)
+		}
+		value = strconv.FormatBool(parsed)
+	}
+	config.Value = value
 	if req.IsActive != nil {
 		config.IsActive = *req.IsActive
 	}

@@ -12,9 +12,8 @@ import (
 const minJWTKeyLength = 32
 
 const (
-	TokenTypeAccess        = "access"
-	TokenTypeRefresh       = "refresh"
-	TokenTypePasswordReset = "password_reset"
+	TokenTypeAccess  = "access"
+	TokenTypeRefresh = "refresh"
 )
 
 var (
@@ -24,14 +23,23 @@ var (
 )
 
 type AppClaims struct {
-	UserId           string `json:"user_id"`
-	Username         string `json:"username"`
-	Role             string `json:"role"`
-	TokenType        string `json:"token_type,omitempty"`
-	IsImpersonated   bool   `json:"is_impersonated,omitempty"`
-	OriginalUserId   string `json:"original_user_id,omitempty"`
+	UserID         string `json:"user_id"`
+	Username       string `json:"username"`
+	Role           string `json:"role"`
+	TokenType      string `json:"token_type,omitempty"`
+	IsImpersonated bool   `json:"is_impersonated,omitempty"`
+	// NoSession marks a token that has no Redis session: impersonation tokens
+	// and tokens from Kit.IssueAccessToken.
+	NoSession        bool   `json:"no_session,omitempty"`
+	OriginalUserID   string `json:"original_user_id,omitempty"`
 	OriginalUsername string `json:"original_username,omitempty"`
 	OriginalRole     string `json:"original_role,omitempty"`
+	// ActorSessionID and ActorTokenHash bind an impersonation token to the actor's
+	// session and access token, so ending either ends the impersonation.
+	ActorSessionID string `json:"actor_sid,omitempty"`
+	ActorTokenHash string `json:"actor_th,omitempty"`
+	// IssuedAtMS is iat in milliseconds; the registered iat only has seconds.
+	IssuedAtMS int64 `json:"iat_ms,omitempty"`
 	*jwt.RegisteredClaims
 }
 
@@ -39,6 +47,9 @@ func GetAuthToken(request *http.Request) string {
 	if request == nil {
 		return ""
 	}
-	bearerToken := request.Header.Get("Authorization")
-	return strings.ReplaceAll(bearerToken, "Bearer ", "")
+	token, ok := strings.CutPrefix(request.Header.Get("Authorization"), "Bearer ")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(token)
 }

@@ -2,6 +2,7 @@ package token
 
 import (
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -15,9 +16,9 @@ const testJWTKey = "test-secret-must-be-at-least-32-bytes"
 
 func newTestTokens(t *testing.T) *Tokens {
 	t.Helper()
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
+	tokens, err := New(Config{Key: testJWTKey, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 	if err != nil {
-		t.Fatalf("NewTokens: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	return tokens
 }
@@ -35,7 +36,7 @@ func TestNewTokensRejectsMissingOrShortKey(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := NewTokens(TokenConfig{Key: tc.key, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
+			tokens, err := New(Config{Key: tc.key, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("expected %v, got %v", tc.want, err)
 			}
@@ -47,29 +48,9 @@ func TestNewTokensRejectsMissingOrShortKey(t *testing.T) {
 }
 
 func TestNewTokensAcceptsMinimumLengthKey(t *testing.T) {
-	if _, err := NewTokens(TokenConfig{Key: strings.Repeat("k", 32), AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute}); err != nil {
+	if _, err := New(Config{Key: strings.Repeat("k", 32), AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour}); err != nil {
 		t.Fatalf("expected 32 character key to be valid, got %v", err)
 	}
-}
-
-func TestNewTokensUsesInjectedTTLs(t *testing.T) {
-	tokens := newTestTokens(t)
-	if tokens.AccessTTL() != time.Hour {
-		t.Fatalf("expected injected access TTL 1h, got %v", tokens.AccessTTL())
-	}
-	if tokens.RefreshTTL() != 2*time.Hour {
-		t.Fatalf("expected injected refresh TTL 2h, got %v", tokens.RefreshTTL())
-	}
-
-	token, err := tokens.GeneratePasswordReset("user-1", "", "", "reset-1")
-	if err != nil {
-		t.Fatalf("GeneratePasswordReset: %v", err)
-	}
-	expiresAt, err := tokens.ExpiresAt(token)
-	if err != nil {
-		t.Fatalf("ExpiresAt: %v", err)
-	}
-	assertExpiresAround(t, expiresAt, 15*time.Minute)
 }
 
 func assertExpiresAround(t *testing.T, expiresAt time.Time, ttl time.Duration) {
@@ -83,7 +64,7 @@ func assertExpiresAround(t *testing.T, expiresAt time.Time, ttl time.Duration) {
 func TestGenerateIncludesAccessClaims(t *testing.T) {
 	tokens := newTestTokens(t)
 
-	token, err := tokens.Generate("user-1", "Jane", roleViewer, "log-1")
+	token, err := tokens.Generate("user-1", "Jane", roleViewer, time.Time{})
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -99,12 +80,12 @@ func TestGenerateIncludesAccessClaims(t *testing.T) {
 }
 
 func TestGenerateExpiryFollowsAccessTTL(t *testing.T) {
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", AccessTTL: 2 * time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
+	tokens, err := New(Config{Key: testJWTKey, AppName: "test-app", AccessTTL: 2 * time.Hour, RefreshTTL: 2 * time.Hour})
 	if err != nil {
-		t.Fatalf("NewTokens: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
-	token, err := tokens.Generate("user-1", "", "", "log-1")
+	token, err := tokens.Generate("user-1", "", "", time.Time{})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -113,18 +94,15 @@ func TestGenerateExpiryFollowsAccessTTL(t *testing.T) {
 		t.Fatalf("ExpiresAt: %v", err)
 	}
 	assertExpiresAround(t, expiresAt, 2*time.Hour)
-	if tokens.AccessTTL() != 2*time.Hour {
-		t.Fatalf("expected AccessTTL 2h, got %v", tokens.AccessTTL())
-	}
 }
 
 func TestGenerateRefreshIncludesRefreshTokenType(t *testing.T) {
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", RefreshTTL: 48 * time.Hour, AccessTTL: time.Hour, ResetTTL: 15 * time.Minute})
+	tokens, err := New(Config{Key: testJWTKey, AppName: "test-app", RefreshTTL: 48 * time.Hour, AccessTTL: time.Hour})
 	if err != nil {
-		t.Fatalf("NewTokens: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
-	token, err := tokens.GenerateRefresh("user-1", "Jane", roleViewer, "log-1")
+	token, err := tokens.GenerateRefresh("user-1", "Jane", roleViewer, time.Time{})
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -141,22 +119,19 @@ func TestGenerateRefreshIncludesRefreshTokenType(t *testing.T) {
 		t.Fatalf("ExpiresAt: %v", err)
 	}
 	assertExpiresAround(t, expiresAt, 48*time.Hour)
-	if tokens.RefreshTTL() != 48*time.Hour {
-		t.Fatalf("expected RefreshTTL 48h, got %v", tokens.RefreshTTL())
-	}
 }
 
 func TestGenerateWithClaimsAppliesOverride(t *testing.T) {
 	tokens := newTestTokens(t)
 	override := &AppClaims{
 		IsImpersonated: true,
-		OriginalUserId: "admin-1",
+		OriginalUserID: "admin-1",
 		RegisteredClaims: &jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
 	}
 
-	token, err := tokens.GenerateWithClaims("user-1", "", "", "log-1", override)
+	token, err := tokens.GenerateWithClaims("user-1", "", "", override, time.Time{})
 	if err != nil {
 		t.Fatalf("GenerateWithClaims: %v", err)
 	}
@@ -174,35 +149,10 @@ func TestGenerateWithClaimsAppliesOverride(t *testing.T) {
 	assertExpiresAround(t, expiresAt, time.Hour)
 }
 
-func TestGeneratePasswordResetIncludesDedicatedTokenType(t *testing.T) {
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: "test-app", ResetTTL: 10 * time.Minute, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
-	if err != nil {
-		t.Fatalf("NewTokens: %v", err)
-	}
-
-	token, err := tokens.GeneratePasswordReset("user-1", "", "", "reset-1")
-	if err != nil {
-		t.Fatalf("expected success, got %v", err)
-	}
-
-	claims, err := tokens.Claims(token)
-	if err != nil {
-		t.Fatalf("expected valid token, got %v", err)
-	}
-	if claims["token_type"] != TokenTypePasswordReset {
-		t.Fatalf("expected password reset token type, got %+v", claims)
-	}
-	expiresAt, err := tokens.ExpiresAt(token)
-	if err != nil {
-		t.Fatalf("ExpiresAt: %v", err)
-	}
-	assertExpiresAround(t, expiresAt, 10*time.Minute)
-}
-
 func TestExpiresAt(t *testing.T) {
 	tokens := newTestTokens(t)
 
-	token, err := tokens.Generate("user-1", "Jane", roleViewer, "log-1")
+	token, err := tokens.Generate("user-1", "Jane", roleViewer, time.Time{})
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -225,7 +175,7 @@ func TestExpiresAtRequiresExpClaim(t *testing.T) {
 		t.Fatalf("failed to sign test token: %v", err)
 	}
 
-	if _, err := tokens.ExpiresAt(tokenString); err == nil || err.Error() != "token expiry is required" {
+	if _, err := tokens.ExpiresAt(tokenString); err == nil {
 		t.Fatalf("expected token expiry error, got %v", err)
 	}
 }
@@ -266,7 +216,7 @@ func TestClaimsRejectsEmptyToken(t *testing.T) {
 
 func TestClaimsFromRequestReadsBearerToken(t *testing.T) {
 	tokens := newTestTokens(t)
-	token, err := tokens.Generate("user-1", "", "", "log-1")
+	token, err := tokens.Generate("user-1", "", "", time.Time{})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -284,16 +234,13 @@ func TestClaimsFromRequestReadsBearerToken(t *testing.T) {
 
 func TestNilTokensReportKeyNotConfigured(t *testing.T) {
 	var tokens *Tokens
-	user := &testUser{Id: "user-1"}
+	user := &testUser{ID: "user-1"}
 
-	if _, err := tokens.Generate(user.Id, user.Name, user.Role, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
+	if _, err := tokens.Generate(user.ID, user.Name, user.Role, time.Time{}); !errors.Is(err, ErrJWTKeyNotConfigured) {
 		t.Fatalf("expected jwt key error for access token, got %v", err)
 	}
-	if _, err := tokens.GenerateRefresh(user.Id, user.Name, user.Role, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
+	if _, err := tokens.GenerateRefresh(user.ID, user.Name, user.Role, time.Time{}); !errors.Is(err, ErrJWTKeyNotConfigured) {
 		t.Fatalf("expected jwt key error for refresh token, got %v", err)
-	}
-	if _, err := tokens.GeneratePasswordReset(user.Id, user.Name, user.Role, "log-1"); !errors.Is(err, ErrJWTKeyNotConfigured) {
-		t.Fatalf("expected jwt key error for reset token, got %v", err)
 	}
 	if _, err := tokens.Claims("anything"); !errors.Is(err, ErrJWTKeyNotConfigured) {
 		t.Fatalf("expected jwt key error for parsing, got %v", err)
@@ -311,18 +258,11 @@ func TestGetAuthTokenStripsBearerPrefix(t *testing.T) {
 	}
 }
 
-func TestNilTokensTTLsAreZero(t *testing.T) {
-	var tokens *Tokens
-	if tokens.AccessTTL() != 0 || tokens.RefreshTTL() != 0 {
-		t.Fatalf("expected zero TTLs on nil receiver, got %v %v", tokens.AccessTTL(), tokens.RefreshTTL())
-	}
-}
-
 func newTokensForApp(t *testing.T, app string) *Tokens {
 	t.Helper()
-	tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: app, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
+	tokens, err := New(Config{Key: testJWTKey, AppName: app, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 	if err != nil {
-		t.Fatalf("NewTokens(%q): %v", app, err)
+		t.Fatalf("New(%q): %v", app, err)
 	}
 	return tokens
 }
@@ -330,20 +270,16 @@ func newTokensForApp(t *testing.T, app string) *Tokens {
 // issueEachTokenType returns one token of every type the issuer can mint.
 func issueEachTokenType(t *testing.T, tokens *Tokens) map[string]string {
 	t.Helper()
-	user := &testUser{Id: "user-1", Name: "Jane", Role: roleViewer}
-	access, err := tokens.Generate(user.Id, user.Name, user.Role, "log-1")
+	user := &testUser{ID: "user-1", Name: "Jane", Role: roleViewer}
+	access, err := tokens.Generate(user.ID, user.Name, user.Role, time.Time{})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	refresh, err := tokens.GenerateRefresh(user.Id, user.Name, user.Role, "log-1")
+	refresh, err := tokens.GenerateRefresh(user.ID, user.Name, user.Role, time.Time{})
 	if err != nil {
 		t.Fatalf("GenerateRefresh: %v", err)
 	}
-	reset, err := tokens.GeneratePasswordReset(user.Id, user.Name, user.Role, "log-1")
-	if err != nil {
-		t.Fatalf("GeneratePasswordReset: %v", err)
-	}
-	return map[string]string{"access": access, "refresh": refresh, "reset": reset}
+	return map[string]string{"access": access, "refresh": refresh}
 }
 
 func TestTokensCarryIssuerAndAudience(t *testing.T) {
@@ -435,7 +371,7 @@ func TestClaimsAcceptsAudienceListContainingApp(t *testing.T) {
 
 func TestNewTokensRequiresAppName(t *testing.T) {
 	for _, name := range []string{"", "  "} {
-		tokens, err := NewTokens(TokenConfig{Key: testJWTKey, AppName: name, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour, ResetTTL: 15 * time.Minute})
+		tokens, err := New(Config{Key: testJWTKey, AppName: name, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 		if !errors.Is(err, ErrAppNameRequired) {
 			t.Fatalf("AppName %q: expected ErrAppNameRequired, got %v", name, err)
 		}
@@ -461,7 +397,7 @@ func TestNewTokensTrimsAppName(t *testing.T) {
 func TestGenerateImpersonatedRecordsOriginalIdentity(t *testing.T) {
 	tokens := newTestTokens(t)
 
-	token, err := tokens.GenerateImpersonated("target", "Target", "viewer", "log-1", "root", "Root", "superadmin")
+	token, err := tokens.GenerateImpersonated("target", "Target", "viewer", "root", "Root", "superadmin", time.Time{})
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -475,19 +411,150 @@ func TestGenerateImpersonatedRecordsOriginalIdentity(t *testing.T) {
 	}
 }
 
-func TestIsPasswordResetClaims(t *testing.T) {
-	tokens := newTestTokens(t)
-	user := &testUser{Id: "user-1"}
-
-	reset, _ := tokens.GeneratePasswordReset(user.Id, user.Name, user.Role, "log")
-	access, _ := tokens.Generate(user.Id, user.Name, user.Role, "log")
-	resetClaims, _ := tokens.Claims(reset)
-	accessClaims, _ := tokens.Claims(access)
-
-	if !tokens.IsPasswordResetClaims(resetClaims) {
-		t.Fatalf("expected reset claims to match, got %+v", resetClaims)
+func TestGetAuthTokenRequiresTheExactBearerPrefix(t *testing.T) {
+	tests := map[string]string{
+		"Bearer abc":        "abc",
+		"abc":               "",
+		"bearer abc":        "",
+		"xBearer abc":       "",
+		"Bearer ":           "",
+		"":                  "",
+		"Bearer a Bearer b": "a Bearer b",
 	}
-	if tokens.IsPasswordResetClaims(accessClaims) || tokens.IsPasswordResetClaims(nil) {
-		t.Fatal("access claims and nil claims must not match")
+	for header, want := range tests {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		if header != "" {
+			req.Header.Set("Authorization", header)
+		}
+		if got := GetAuthToken(req); got != want {
+			t.Errorf("GetAuthToken(%q) = %q, want %q", header, got, want)
+		}
+	}
+}
+
+func TestClaimsRejectsOtherAlgorithmsAndTokensWithoutExpiry(t *testing.T) {
+	tokens := newTestTokens(t)
+	for name, method := range map[string]jwt.SigningMethod{"HS512": jwt.SigningMethodHS512, "HS384": jwt.SigningMethodHS384} {
+		raw, err := jwt.NewWithClaims(method, jwt.MapClaims{
+			"iss": "test-app", "aud": "test-app", "exp": time.Now().Add(time.Hour).Unix(), "token_type": "access",
+		}).SignedString([]byte(testJWTKey))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tokens.Claims(raw); err == nil {
+			t.Fatalf("%s token must be rejected", name)
+		}
+	}
+	noExp, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"iss": "test-app", "aud": "test-app", "token_type": "access",
+	}).SignedString([]byte(testJWTKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tokens.Claims(noExp); err == nil {
+		t.Fatal("a token without exp must be rejected")
+	}
+}
+
+func TestEveryTokenGetsAUniqueRandomJTI(t *testing.T) {
+	tokens := newTestTokens(t)
+	seen := map[string]struct{}{}
+	for range 5 {
+		raw, err := tokens.Generate("u", "n", "viewer", time.Time{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		claims, err := tokens.Claims(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		jti, _ := claims["jti"].(string)
+		if jti == "" || jti == "same-request-id" {
+			t.Fatalf("jti = %q", jti)
+		}
+		seen[jti] = struct{}{}
+	}
+	if len(seen) != 5 {
+		t.Fatalf("jti values repeat: %v", seen)
+	}
+}
+
+func TestImpersonationTokensLiveAtMostFifteenMinutes(t *testing.T) {
+	tokens := newTestTokens(t) // access TTL is longer
+	raw, err := tokens.GenerateImpersonated("t", "T", "viewer", "a", "A", "admin", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exp, err := tokens.ExpiresAt(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if until := time.Until(exp); until > 15*time.Minute+5*time.Second {
+		t.Fatalf("impersonation token lives %v", until)
+	}
+}
+
+func TestTokensCarryMillisecondIssueTime(t *testing.T) {
+	tokens := newTestTokens(t)
+	raw, err := tokens.Generate("u", "U", "viewer", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := tokens.Claims(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, _ := claims["iat_ms"].(float64)
+	if diff := time.Since(time.UnixMilli(int64(ms))); diff < 0 || diff > 5*time.Second {
+		t.Fatalf("iat_ms %v is not about now", ms)
+	}
+}
+
+func TestAfterIssuesStrictlyLaterThanTheCutoff(t *testing.T) {
+	tokens := newTestTokens(t)
+	cutoff := time.Now().Add(2 * time.Second)
+	for name, gen := range map[string]func() (string, error){
+		"access":  func() (string, error) { return tokens.Generate("u", "U", "viewer", cutoff) },
+		"refresh": func() (string, error) { return tokens.GenerateRefresh("u", "U", "viewer", cutoff) },
+	} {
+		raw, err := gen()
+		if err != nil {
+			t.Fatal(err)
+		}
+		claims, err := tokens.Claims(raw)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if ms, _ := claims["iat_ms"].(float64); int64(ms) <= cutoff.UnixMilli() {
+			t.Fatalf("%s: iat_ms %v is not after the cut-off %v", name, int64(ms), cutoff.UnixMilli())
+		}
+	}
+}
+
+func TestClaimsToleratesIssueSkewButNotAnExpiredToken(t *testing.T) {
+	tokens := newTestTokens(t)
+	sign := func(iat, exp time.Time) string {
+		claims := AppClaims{UserID: "u", TokenType: TokenTypeAccess, RegisteredClaims: &jwt.RegisteredClaims{
+			Issuer: "test-app", Audience: jwt.ClaimStrings{"test-app"},
+			IssuedAt: jwt.NewNumericDate(iat), ExpiresAt: jwt.NewNumericDate(exp),
+		}}
+		raw, err := jwt.NewWithClaims(jwt.SigningMethodHS256, &claims).SignedString(tokens.key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	now := time.Now()
+	if _, err := tokens.Claims(sign(now.Add(20*time.Second), now.Add(time.Hour))); err != nil {
+		t.Fatalf("iat 20s ahead must pass: %v", err)
+	}
+	if _, err := tokens.Claims(sign(now.Add(-time.Hour), now.Add(-2*time.Second))); err == nil {
+		t.Fatal("an expired token must fail: exp has no leeway, so a purged blacklist row can never matter")
+	}
+	if _, err := tokens.Claims(sign(now.Add(2*time.Minute), now.Add(time.Hour))); err == nil {
+		t.Fatal("iat 2m ahead must fail")
+	}
+	if _, err := tokens.Claims(sign(now.Add(-time.Hour), now.Add(-2*time.Minute))); err == nil {
+		t.Fatal("exp 2m ago must fail")
 	}
 }

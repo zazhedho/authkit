@@ -2,7 +2,6 @@ package shared
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/zazhedho/gokit"
@@ -23,13 +22,16 @@ type Resource[T any] struct {
 	Audit string
 	// ID reads the identifier off a service result.
 	ID func(T) string
+	// Strict makes a failed audit write fail the request after a successful
+	// change (RBAC resources), instead of only logging it.
+	Strict bool
 	// MutationError maps a failed create, update or delete to its response.
-	MutationError func(logID uuid.UUID, err error) (int, *gokit.ApiResponse)
+	MutationError func(logID uuid.UUID, err error) (int, *gokit.APIResponse)
 }
 
 // InternalErrorResponse is a MutationError that hides every failure behind a
 // 500.
-func InternalErrorResponse(logID uuid.UUID, _ error) (int, *gokit.ApiResponse) {
+func InternalErrorResponse(logID uuid.UUID, _ error) (int, *gokit.APIResponse) {
 	return http.StatusInternalServerError, gokit.InternalServerError(logID)
 }
 
@@ -49,6 +51,10 @@ func GetByID[T any](f Flow, name, step, id string, get func(context.Context, str
 	data, err := get(f.ReqCtx(), id)
 	if err != nil {
 		f.LogError(step, err)
+		if !IsNotFound(err) {
+			RespondInternalError(f.Ctx, f.LogID)
+			return
+		}
 		RespondNotFound(f.Ctx, f.LogID, name)
 		return
 	}
@@ -63,6 +69,9 @@ type ListOptions struct {
 	OrderBy   string
 	Direction string
 	Limit     int
+	// Policy is the page-size policy the module's repository applies. The zero
+	// value means dtoshared.PagedList.
+	Policy dtoshared.ListPolicy
 	// FilterKeys, when set, drops every query filter outside the list.
 	FilterKeys []string
 }
@@ -72,8 +81,7 @@ func List[T any](f Flow, opts ListOptions, fetch func(context.Context, dtoshared
 	params, err := gokit.GetBaseParams(f.Ctx.Request.URL.Query(), opts.OrderBy, opts.Direction, opts.Limit)
 	if err != nil {
 		f.LogError("GetBaseParams", err)
-		res := gokit.Response(http.StatusBadRequest, gokit.MsgInvalidRequest, f.LogID, nil)
-		res.Error = gokit.Errors{Code: http.StatusBadRequest, Message: "invalid query parameters"}
+		res := gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgInvalidRequest, f.LogID, "invalid query parameters")
 		f.Ctx.JSON(http.StatusBadRequest, res)
 		return
 	}
@@ -88,7 +96,7 @@ func List[T any](f Flow, opts ListOptions, fetch func(context.Context, dtoshared
 		return
 	}
 
-	res := gokit.PaginationResponse(http.StatusOK, int(total), params.Page, params.Limit, f.LogID, data)
+	res := gokit.PaginationResponse(http.StatusOK, total, params.Page, PageSize(opts.Policy, params), f.LogID, data)
 	f.LogResponse(data)
 	f.Ctx.JSON(http.StatusOK, res)
 }
@@ -98,7 +106,7 @@ func List[T any](f Flow, opts ListOptions, fetch func(context.Context, dtoshared
 func ForCurrentUser[T any](f Flow, step, message string, load func(context.Context, string) (T, error)) {
 	scope := domainauth.FromContext(f.ReqCtx())
 	if scope.UserID == "" {
-		logus.WriteLogWithContext(f.Ctx, logus.LogLevelError, fmt.Sprintf("%s; User ID not found in context", f.Prefix))
+		logus.LogContextf(f.Ctx, logus.LevelError, "%s; User ID not found in context", f.Prefix)
 		RespondUnauthorized(f.Ctx, f.LogID)
 		return
 	}
@@ -130,14 +138,16 @@ func Create[Req, T any](f Flow, w AuditWriter, r Resource[T], req Req, create fu
 		respondMutationError(f, r, "Service.Create", err)
 		return
 	}
-	w.WriteAudit(f.Ctx, domainaudit.AuditEvent{
+	if !auditSuccess(f, w, r, domainaudit.AuditEvent{
 		Action:     domainaudit.ActionCreate,
 		Resource:   r.Audit,
 		ResourceID: r.ID(data),
 		Status:     domainaudit.StatusSuccess,
 		Message:    "Created " + r.Name,
 		AfterData:  data,
-	})
+	}) {
+		return
+	}
 
 	res := gokit.Response(http.StatusCreated, capitalize(r.Name)+" created successfully", f.LogID, data)
 	f.LogResponse(data)
@@ -167,7 +177,7 @@ func Update[Req, T, B any](
 		respondMutationError(f, r, "Service.Update", err)
 		return
 	}
-	w.WriteAudit(f.Ctx, domainaudit.AuditEvent{
+	if !auditSuccess(f, w, r, domainaudit.AuditEvent{
 		Action:     domainaudit.ActionUpdate,
 		Resource:   r.Audit,
 		ResourceID: r.ID(data),
@@ -175,7 +185,9 @@ func Update[Req, T, B any](
 		Message:    "Updated " + r.Name,
 		BeforeData: beforeData,
 		AfterData:  data,
-	})
+	}) {
+		return
+	}
 
 	res := gokit.Response(http.StatusOK, capitalize(r.Name)+" updated successfully", f.LogID, data)
 	f.LogResponse(data)
@@ -203,14 +215,16 @@ func Delete[T, B any](
 		respondMutationError(f, r, "Service.Delete", err)
 		return
 	}
-	w.WriteAudit(f.Ctx, domainaudit.AuditEvent{
+	if !auditSuccess(f, w, r, domainaudit.AuditEvent{
 		Action:     domainaudit.ActionDelete,
 		Resource:   r.Audit,
 		ResourceID: id,
 		Status:     domainaudit.StatusSuccess,
 		Message:    "Deleted " + r.Name,
 		BeforeData: beforeData,
-	})
+	}) {
+		return
+	}
 
 	res := gokit.Response(http.StatusOK, capitalize(r.Name)+" deleted successfully", f.LogID, nil)
 	f.LogResponseText(capitalize(r.Name) + " deleted")
@@ -223,4 +237,19 @@ func respondMutationError[T any](f Flow, r Resource[T], step string, err error) 
 	f.LogError(step, err)
 	statusCode, res := r.MutationError(f.LogID, err)
 	f.Ctx.JSON(statusCode, res)
+}
+
+// auditSuccess records a successful change. For a Strict resource a failed
+// write answers 500 (the change itself is already committed) and returns false.
+func auditSuccess[T any](f Flow, w AuditWriter, r Resource[T], event domainaudit.AuditEvent) bool {
+	if !r.Strict {
+		w.WriteAudit(f.Ctx, event)
+		return true
+	}
+	if err := w.WriteAuditStrict(f.Ctx, event); err != nil {
+		f.LogError("audit", err)
+		RespondInternalError(f.Ctx, f.LogID)
+		return false
+	}
+	return true
 }

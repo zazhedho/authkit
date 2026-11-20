@@ -10,10 +10,10 @@ import (
 )
 
 type Service interface {
-	Create(ctx context.Context, req dtopermission.PermissionCreate) (domainpermission.Permission, error)
+	Create(ctx context.Context, req dtopermission.Create) (domainpermission.Permission, error)
 	GetByID(ctx context.Context, id string) (domainpermission.Permission, error)
 	GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainpermission.Permission, int64, error)
-	GetUserPermissions(ctx context.Context, userId string) ([]domainpermission.Permission, error)
-	Update(ctx context.Context, id string, req dtopermission.PermissionUpdate) (domainpermission.Permission, error)
+	GetUserPermissions(ctx context.Context, userID string) ([]domainpermission.Permission, error)
+	Update(ctx context.Context, id string, req dtopermission.Update) (domainpermission.Permission, error)
 	Delete(ctx context.Context, id string) error
 }

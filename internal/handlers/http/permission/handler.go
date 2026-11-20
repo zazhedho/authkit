@@ -1,0 +1,80 @@
+package permission
+
+import (
+	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
+	dtopermission "github.com/zazhedho/authkit/internal/dto/permission"
+	dtoshared "github.com/zazhedho/authkit/internal/dto/shared"
+	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
+
+	"github.com/gin-gonic/gin"
+)
+
+type Handler struct {
+	Service Service
+	httpshared.AuditWriter
+}
+
+func New(s Service, auditService httpshared.AuditService) *Handler {
+	return &Handler{
+		Service:     s,
+		AuditWriter: httpshared.NewAuditWriter(auditService, "PermissionHandler"),
+	}
+}
+
+var permissionResource = httpshared.Resource[domainpermission.Permission]{
+	Name:          "permission",
+	Audit:         "permission",
+	ID:            func(p domainpermission.Permission) string { return p.ID },
+	Strict:        true,
+	MutationError: permissionMutationErrorResponse,
+}
+
+func (h *Handler) Create(ctx *gin.Context) {
+	f := httpshared.NewFlow(ctx, "[PermissionHandler][Create]")
+	req, ok := httpshared.Bind[dtopermission.Create](f)
+	if !ok {
+		return
+	}
+	httpshared.Create(f, h.AuditWriter, permissionResource, req, h.Service.Create)
+}
+
+func (h *Handler) GetByID(ctx *gin.Context) {
+	f := httpshared.NewFlow(ctx, "[PermissionHandler][GetByID]")
+	id, ok := f.UUIDParam()
+	if !ok {
+		return
+	}
+	httpshared.GetByID(f, "permission", "Service.GetByID", id, h.Service.GetByID)
+}
+
+func (h *Handler) GetAll(ctx *gin.Context) {
+	f := httpshared.NewFlow(ctx, "[PermissionHandler][GetAll]")
+	httpshared.List(f, httpshared.ListOptions{OrderBy: "resource", Direction: "asc", Limit: 10, Policy: dtoshared.ReferenceList}, h.Service.GetAll)
+}
+
+func (h *Handler) Update(ctx *gin.Context) {
+	f := httpshared.NewFlow(ctx, "[PermissionHandler][Update]")
+	id, ok := f.UUIDParam()
+	if !ok {
+		return
+	}
+	req, ok := httpshared.Bind[dtopermission.Update](f)
+	if !ok {
+		return
+	}
+	httpshared.Update(f, h.AuditWriter, permissionResource, id, req, h.Service.GetByID, h.Service.Update)
+}
+
+func (h *Handler) Delete(ctx *gin.Context) {
+	f := httpshared.NewFlow(ctx, "[PermissionHandler][Delete]")
+	id, ok := f.UUIDParam()
+	if !ok {
+		return
+	}
+	httpshared.Delete(f, h.AuditWriter, permissionResource, id, h.Service.GetByID, h.Service.Delete)
+}
+
+func (h *Handler) GetUserPermissions(ctx *gin.Context) {
+	f := httpshared.NewFlow(ctx, "[PermissionHandler][GetUserPermissions]")
+	httpshared.ForCurrentUser(f, "Service.GetUserPermissions", "Get user permissions successfully", h.Service.GetUserPermissions)
+}

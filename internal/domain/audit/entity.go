@@ -2,11 +2,11 @@ package audit
 
 import "time"
 
-func (AuditTrail) TableName() string {
+func (Trail) TableName() string {
 	return "audit_trails"
 }
 
-type AuditTrail struct {
+type Trail struct {
 	ID           string    `json:"id" gorm:"column:id;primaryKey"`
 	OccurredAt   time.Time `json:"occurred_at" gorm:"column:occurred_at"`
 	ActorUserID  *string   `json:"actor_user_id,omitempty" gorm:"column:actor_user_id"`
@@ -26,7 +26,7 @@ type AuditTrail struct {
 	CreatedAt    time.Time `json:"created_at" gorm:"column:created_at"`
 }
 
-type AuditEvent struct {
+type AuditEvent struct { //nolint:revive // public API type (authkit.AuditEvent); renaming it is a breaking change
 	OccurredAt   time.Time
 	ActorUserID  string
 	ActorRole    string

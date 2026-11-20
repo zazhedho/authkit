@@ -1,6 +1,9 @@
 package mailer
 
 import (
+	"context"
+	"errors"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -119,10 +122,97 @@ func TestBrevoSenderSendMethodsReturnSMTPError(t *testing.T) {
 		AppName:      "Starter",
 	}
 
-	if err := sender.SendOTP("to@example.com", "123456", "", 0); err == nil {
+	if err := sender.SendOTP(context.Background(), "to@example.com", "123456", "", 0); err == nil {
 		t.Fatal("expected otp smtp error")
 	}
-	if err := sender.SendPasswordReset("to@example.com", "token", "", "", 0); err == nil {
+	if err := sender.SendPasswordReset(context.Background(), "to@example.com", "token", "", "", 0); err == nil {
 		t.Fatal("expected reset smtp error")
+	}
+}
+
+func TestMessagesCarryDateAndAUniqueMessageID(t *testing.T) {
+	a := string(buildOTPMessage("Starter <noreply@example.com>", "to@example.com", "OTP", "App", "123456", time.Minute))
+	b := string(buildOTPMessage("Starter <noreply@example.com>", "to@example.com", "OTP", "App", "123456", time.Minute))
+	for _, header := range []string{"Date: ", "Message-ID: <"} {
+		if !strings.Contains(a, header) {
+			t.Errorf("message lacks the %q header", header)
+		}
+	}
+	if !strings.Contains(a, "@example.com>") {
+		t.Error("Message-ID must use the sender's domain")
+	}
+	idOf := func(m string) string {
+		i := strings.Index(m, "Message-ID: ")
+		return m[i : i+strings.Index(m[i:], "\r\n")]
+	}
+	if idOf(a) == idOf(b) {
+		t.Error("two messages must not share a Message-ID")
+	}
+}
+
+func TestSendGivesUpOnAStalledServer(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() { // accepts and never speaks
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = c.Close() })
+		}
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	sender := &BrevoSender{Host: "127.0.0.1", Port: port, From: "noreply@example.com", Pass: "x", SendTimeout: 300 * time.Millisecond}
+
+	start := time.Now()
+	err = sender.SendOTP(context.Background(), "to@example.com", "123456", "App", time.Minute)
+	if err == nil {
+		t.Fatal("a server that never answers must be an error")
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("send took %v, the timeout did not apply", elapsed)
+	}
+}
+
+func TestSendRejectsLineBreaksInAddresses(t *testing.T) {
+	sender := &BrevoSender{Host: "127.0.0.1", Port: 1, From: "noreply@example.com", Pass: "x"}
+	if err := sender.SendOTP(context.Background(), "a@example.com\r\nBcc: evil@example.com", "1", "App", time.Minute); err == nil || !strings.Contains(err.Error(), "line break") {
+		t.Fatalf("err = %v, want a line-break rejection", err)
+	}
+}
+
+func TestSendStopsWhenTheCallersContextIsCancelled(t *testing.T) {
+	sender := &BrevoSender{Host: "127.0.0.1", Port: 1, From: "from@example.com"}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := sender.SendOTP(ctx, "to@example.com", "123456", "App", time.Minute); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if err := sender.SendPasswordReset(ctx, "to@example.com", "t", "App", "", time.Minute); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}
+
+func TestTLSIsRequiredExceptOnLoopback(t *testing.T) {
+	for _, tc := range []struct {
+		host string
+		want bool
+	}{
+		{"smtp-relay.brevo.com", false},
+		{"10.0.0.5", false},
+		{"localhost", true},
+		{"127.0.0.1", true},
+		{"::1", true},
+	} {
+		if got := isLoopbackHost(tc.host); got != tc.want {
+			t.Errorf("isLoopbackHost(%q) = %v, want %v", tc.host, got, tc.want)
+		}
+	}
+	if !errors.Is(ErrTLSRequired, ErrTLSRequired) || ErrTLSRequired.Error() == "" {
+		t.Fatal("ErrTLSRequired must be a usable sentinel")
 	}
 }

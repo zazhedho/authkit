@@ -7,7 +7,7 @@ import (
 
 type Repository interface {
 	SetToken(ctx context.Context, hash, email string, ttl time.Duration) error
-	GetEmailByToken(ctx context.Context, hash string) (string, error)
+	ConsumeToken(ctx context.Context, hash string) (string, error)
 	DeleteToken(ctx context.Context, hash string) error
 	SetCooldown(ctx context.Context, email string, ttl time.Duration) error
 	GetCooldownTTL(ctx context.Context, email string) (time.Duration, error)
@@ -18,5 +18,5 @@ type Repository interface {
 
 // Mailer delivers the password reset link. ttl is how long the token stays valid.
 type Mailer interface {
-	SendPasswordReset(to, token, appName, resetURL string, ttl time.Duration) error
+	SendPasswordReset(ctx context.Context, to, token, appName, resetURL string, ttl time.Duration) error
 }

@@ -15,20 +15,17 @@ func TestPasswordResetRepositoryWithRedisMock(t *testing.T) {
 	email := "jane@example.com"
 
 	mock.ExpectSet("reset:token:hash", email, time.Minute).SetVal("OK")
-	mock.ExpectGet("reset:token:hash").SetVal(email)
+	mock.ExpectGetDel("reset:token:hash").SetVal(email)
 	mock.ExpectSet("reset:cooldown:"+email, "1", time.Minute).SetVal("OK")
 	mock.ExpectTTL("reset:cooldown:" + email).SetVal(time.Minute)
 	mock.ExpectDel("reset:cooldown:" + email).SetVal(1)
-	mock.ExpectIncr("reset:rate:" + email).SetVal(1)
-	mock.ExpectExpire("reset:rate:"+email, time.Minute).SetVal(true)
-	mock.ExpectTTL("reset:rate:" + email).SetVal(time.Minute)
 	mock.ExpectDel("reset:rate:" + email).SetVal(1)
 	mock.ExpectDel("reset:token:hash").SetVal(1)
 
 	if err := repo.SetToken(ctx, "hash", email, time.Minute); err != nil {
 		t.Fatalf("set token: %v", err)
 	}
-	if got, err := repo.GetEmailByToken(ctx, "hash"); err != nil || got != "jane@example.com" {
+	if got, err := repo.ConsumeToken(ctx, "hash"); err != nil || got != "jane@example.com" {
 		t.Fatalf("get token: got=%q err=%v", got, err)
 	}
 
@@ -42,10 +39,6 @@ func TestPasswordResetRepositoryWithRedisMock(t *testing.T) {
 		t.Fatalf("clear cooldown: %v", err)
 	}
 
-	count, retryAfter, err := repo.IncrementSendCount(ctx, email, time.Minute)
-	if err != nil || count != 1 || retryAfter <= 0 {
-		t.Fatalf("increment send count: count=%d retry=%v err=%v", count, retryAfter, err)
-	}
 	if err := repo.ClearSendCount(ctx, email); err != nil {
 		t.Fatalf("clear send count: %v", err)
 	}

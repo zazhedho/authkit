@@ -3,9 +3,11 @@ package role
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
+	domainpermission "github.com/zazhedho/authkit/internal/domain/permission"
 	domainrole "github.com/zazhedho/authkit/internal/domain/role"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	dtorole "github.com/zazhedho/authkit/internal/dto/role"
@@ -40,17 +42,21 @@ func NewService(
 	return service
 }
 
-func (s *Service) Create(ctx context.Context, req dtorole.RoleCreate) (domainrole.Role, error) {
-	existing, _ := s.RoleRepo.GetByName(ctx, req.Name)
-	if existing.Id != "" {
-		return domainrole.Role{}, errors.New("role with this name already exists")
+func (s *Service) Create(ctx context.Context, req dtorole.Create) (domainrole.Role, error) {
+	name := serviceshared.NormalizeKey(serviceshared.CleanText(req.Name))
+	existing, err := s.RoleRepo.GetByName(ctx, name)
+	if err != nil && !errors.Is(err, domainrole.ErrNotFound) {
+		return domainrole.Role{}, err
+	}
+	if err == nil && existing.ID != "" {
+		return domainrole.Role{}, domainrole.ErrDuplicate
 	}
 
 	data := domainrole.Role{
-		Id:          s.newID(),
-		Name:        serviceshared.StripHTML(req.Name),
-		DisplayName: serviceshared.StripHTML(req.DisplayName),
-		Description: serviceshared.StripHTML(req.Description),
+		ID:          s.newID(),
+		Name:        name,
+		DisplayName: serviceshared.CleanText(req.DisplayName),
+		Description: serviceshared.CleanText(req.Description),
 		IsSystem:    false,
 		CreatedAt:   time.Now(),
 	}
@@ -66,20 +72,20 @@ func (s *Service) GetByID(ctx context.Context, id string) (domainrole.Role, erro
 	return s.RoleRepo.GetByID(ctx, id)
 }
 
-func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.RoleWithDetails, error) {
+func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.WithDetails, error) {
 	role, err := s.RoleRepo.GetByID(ctx, id)
 	if err != nil {
-		return dtorole.RoleWithDetails{}, err
+		return dtorole.WithDetails{}, err
 	}
 
-	permissionIds, err := s.RoleRepo.GetRolePermissions(ctx, id)
+	permissionIDs, err := s.RoleRepo.GetRolePermissions(ctx, id)
 	if err != nil {
-		return dtorole.RoleWithDetails{}, err
+		return dtorole.WithDetails{}, err
 	}
 
-	menuIds, err := s.deriveMenuIDsFromPermissions(ctx, permissionIds)
+	menuIDs, err := s.deriveMenuIDsFromPermissions(ctx, permissionIDs)
 	if err != nil {
-		return dtorole.RoleWithDetails{}, err
+		return dtorole.WithDetails{}, err
 	}
 
 	updatedAt := ""
@@ -87,14 +93,14 @@ func (s *Service) GetByIDWithDetails(ctx context.Context, id string) (dtorole.Ro
 		updatedAt = role.UpdatedAt.Format(time.RFC3339)
 	}
 
-	return dtorole.RoleWithDetails{
-		Id:            role.Id,
+	return dtorole.WithDetails{
+		ID:            role.ID,
 		Name:          role.Name,
 		DisplayName:   role.DisplayName,
 		Description:   role.Description,
 		IsSystem:      role.IsSystem,
-		PermissionIds: permissionIds,
-		MenuIds:       menuIds,
+		PermissionIDs: permissionIDs,
+		MenuIDs:       menuIDs,
 		CreatedAt:     role.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:     updatedAt,
 	}, nil
@@ -107,20 +113,22 @@ func (s *Service) GetAll(ctx context.Context, actor domainauth.Actor, req dtosha
 	})
 }
 
-func (s *Service) Update(ctx context.Context, id string, req dtorole.RoleUpdate) (domainrole.Role, error) {
+func (s *Service) Update(ctx context.Context, id string, req dtorole.Update) (domainrole.Role, error) {
 	role, err := s.RoleRepo.GetByID(ctx, id)
 	if err != nil {
 		return domainrole.Role{}, err
 	}
 
 	if role.IsSystem {
-		return domainrole.Role{}, errors.New("cannot update system roles")
+		return domainrole.Role{}, domainrole.ErrSystemRole
 	}
 
 	if req.DisplayName != "" {
-		role.DisplayName = serviceshared.StripHTML(req.DisplayName)
+		role.DisplayName = serviceshared.CleanText(req.DisplayName)
 	}
-	role.Description = serviceshared.StripHTML(req.Description)
+	if req.Description != nil {
+		role.Description = serviceshared.CleanText(*req.Description)
+	}
 	role.UpdatedAt = new(time.Now())
 
 	if err := s.RoleRepo.Update(ctx, role); err != nil {
@@ -137,7 +145,14 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	}
 
 	if role.IsSystem {
-		return errors.New("cannot delete system roles")
+		return domainrole.ErrSystemRole
+	}
+	users, err := s.RoleRepo.CountUsers(ctx, id)
+	if err != nil {
+		return err
+	}
+	if users > 0 {
+		return domainrole.ErrInUse
 	}
 
 	if err := s.RoleRepo.Delete(ctx, id); err != nil {
@@ -147,8 +162,8 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Service) AssignPermissions(ctx context.Context, actor domainauth.Actor, roleId string, req dtorole.AssignPermissions) error {
-	role, err := s.RoleRepo.GetByID(ctx, roleId)
+func (s *Service) AssignPermissions(ctx context.Context, actor domainauth.Actor, roleID string, req dtorole.AssignPermissions) error {
+	role, err := s.RoleRepo.GetByID(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -159,20 +174,36 @@ func (s *Service) AssignPermissions(ctx context.Context, actor domainauth.Actor,
 			return err
 		}
 		if !canManageSystem {
-			return errors.New("access denied: missing permission roles:manage_system")
+			return fmt.Errorf("%w: missing permission roles:manage_system", domainuser.ErrAccessDenied)
 		}
 		if role.Name == domainuser.RoleSuperAdmin && actor.Role != domainuser.RoleSuperAdmin {
-			return errors.New("access denied: cannot modify superadmin role")
+			return fmt.Errorf("%w: cannot modify superadmin role", domainuser.ErrAccessDenied)
 		}
 	}
 
-	for _, permId := range req.PermissionIds {
-		if _, err := s.PermissionRepo.GetByID(ctx, permId); err != nil {
-			return errors.New("invalid permission ID: " + permId)
+	// The call replaces the whole set, so it can also strip permissions: the
+	// actor must cover the role being rewritten, not only what it is given.
+	if err := serviceshared.CheckRoleCoverage(ctx, s.PermissionRepo, actor, role.Name); err != nil {
+		return err
+	}
+
+	permissionIDs := dedupe(req.PermissionIDs)
+	for _, permID := range permissionIDs {
+		permission, err := s.PermissionRepo.GetByID(ctx, permID)
+		if err != nil {
+			if errors.Is(err, domainpermission.ErrNotFound) {
+				return fmt.Errorf("%w: %s", domainrole.ErrInvalidPermission, permID)
+			}
+			return err
+		}
+		// An actor may only grant what they hold, so assign_permissions cannot
+		// be used to climb above the actor's own role.
+		if !actor.Has(permission.Resource, permission.Action) {
+			return domainuser.ErrRoleAboveActor
 		}
 	}
 
-	if err := s.RoleRepo.AssignPermissions(ctx, roleId, req.PermissionIds); err != nil {
+	if err := s.RoleRepo.AssignPermissions(ctx, roleID, permissionIDs); err != nil {
 		return err
 	}
 	s.invalidatePermissionCache(ctx)
@@ -185,15 +216,15 @@ func (s *Service) invalidatePermissionCache(ctx context.Context) {
 	}
 }
 
-func (s *Service) GetRolePermissions(ctx context.Context, roleId string) ([]string, error) {
-	return s.RoleRepo.GetRolePermissions(ctx, roleId)
+func (s *Service) GetRolePermissions(ctx context.Context, roleID string) ([]string, error) {
+	return s.RoleRepo.GetRolePermissions(ctx, roleID)
 }
 
-func (s *Service) deriveMenuIDsFromPermissions(ctx context.Context, permissionIds []string) ([]string, error) {
-	resources := make([]string, 0, len(permissionIds))
+func (s *Service) deriveMenuIDsFromPermissions(ctx context.Context, permissionIDs []string) ([]string, error) {
+	resources := make([]string, 0, len(permissionIDs))
 
-	for _, permissionId := range permissionIds {
-		permission, err := s.PermissionRepo.GetByID(ctx, permissionId)
+	for _, permissionID := range permissionIDs {
+		permission, err := s.PermissionRepo.GetByID(ctx, permissionID)
 		if err != nil {
 			return nil, err
 		}
@@ -218,4 +249,17 @@ func (s *Service) newID() string {
 		return s.NewID()
 	}
 	return serviceshared.NewID()
+}
+
+func dedupe(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }

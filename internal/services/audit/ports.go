@@ -9,7 +9,7 @@ import (
 )
 
 type Repository interface {
-	Store(ctx context.Context, data domainaudit.AuditTrail) error
-	GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainaudit.AuditTrail, int64, error)
-	GetByID(ctx context.Context, id string) (domainaudit.AuditTrail, error)
+	Store(ctx context.Context, data domainaudit.Trail) error
+	GetAll(ctx context.Context, req dtoshared.ListRequest) ([]domainaudit.Trail, int64, error)
+	GetByID(ctx context.Context, id string) (domainaudit.Trail, error)
 }

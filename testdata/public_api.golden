@@ -5,6 +5,28 @@ const ActionLogin untyped string = "login"
 const ActionLogout untyped string = "logout"
 const ActionRefresh untyped string = "refresh"
 const ActionUpdate untyped string = "update"
+type AppConfig alias struct
+	field ID string
+	tag ID json:"id" gorm:"column:id;primaryKey"
+	field ConfigKey string
+	tag ConfigKey json:"config_key" gorm:"column:config_key"
+	field DisplayName string
+	tag DisplayName json:"display_name" gorm:"column:display_name"
+	field Category string
+	tag Category json:"category" gorm:"column:category"
+	field Value string
+	tag Value json:"value" gorm:"column:value"
+	field Description string
+	tag Description json:"description,omitempty" gorm:"column:description"
+	field IsActive bool
+	tag IsActive json:"is_active" gorm:"column:is_active"
+	field CreatedAt time.Time
+	tag CreatedAt json:"created_at" gorm:"column:created_at"
+	field UpdatedAt *time.Time
+	tag UpdatedAt json:"updated_at,omitempty" gorm:"column:updated_at"
+	field DeletedAt gorm.io/gorm.DeletedAt
+	tag DeletedAt json:"-" gorm:"column:deleted_at"
+	method (T) TableName() string
 type AppConfigService interface
 	method DecodeJSON(ctx context.Context, configKey string, target any) error
 	method GetAll(ctx context.Context, params github.com/zazhedho/gokit.BaseParams) ([]AppConfig, int64, error)
@@ -36,141 +58,7 @@ type AuditService interface
 	method GetAll(ctx context.Context, params github.com/zazhedho/gokit.BaseParams) ([]AuditTrailResponse, int64, error)
 	method GetByID(ctx context.Context, id string) (AuditTrailResponse, error)
 	method Store(ctx context.Context, req AuditEvent) error
-type AuditWriter alias struct
-	field Service AuditService
-	field Scope string
-	method (T) WriteAudit(ctx *github.com/gin-gonic/gin.Context, event AuditEvent)
-const BaselineVersion untyped int = 4
-type BrevoConfig alias struct
-	field Host string
-	field Port int
-	field User string
-	field Pass string
-	field From string
-	field OTPSubject string
-	field ResetSubject string
-	field AppName string
-type Config struct
-	field DB *gorm.io/gorm.DB
-	field Redis *github.com/redis/go-redis/v9.Client
-	field Mailer Mailer
-	field AppName string
-	field AppEnv string
-	field JWTKey string
-	field AccessTokenTTL time.Duration
-	field RefreshTokenTTL time.Duration
-	field DefaultRole string
-	field GoogleClientIDs []string
-	field EmailAppName string
-	field PermissionCacheTTL time.Duration
-	field Login LoginLimit
-	field Register RateLimit
-	field OTP OTPConfig
-	field Reset PasswordResetConfig
-	field Flags FlagKeys
-	method (T) GoString() string
-	method (T) String() string
-	method (T) Validate() error
-func ConfigFromEnv() Config
-var ErrLegacySchemaIncomplete error
-var ErrMigrationsDirty error
-type FlagKeys alias struct
-	field PublicRegistration string
-	field RegisterOTP string
-	field PasswordResetEmail string
-type Kit struct
-	method (*T) AppConfig() AppConfigService
-	method (*T) Audit() AuditService
-	method (*T) Auth() github.com/gin-gonic/gin.HandlerFunc
-	method (*T) Can(resource string, action string) github.com/gin-gonic/gin.HandlerFunc
-	method (*T) IssueAccessToken(userID string, name string, role string) (string, error)
-	method (*T) LoadPermissions() github.com/gin-gonic/gin.HandlerFunc
-	method (*T) Migrate(ctx context.Context) error
-	method (*T) Mount(r github.com/gin-gonic/gin.IRouter)
-	method (*T) Role(allowed ...string) github.com/gin-gonic/gin.HandlerFunc
-type LoginLimit alias struct
-	field Limit int
-	field Window time.Duration
-	field BlockDuration time.Duration
-type Mailer interface
-	method SendOTP(to string, code string, appName string, ttl time.Duration) error
-	method SendPasswordReset(to string, token string, appName string, resetURL string, ttl time.Duration) error
-const MigrationsTable untyped string = "authkit_schema_migrations"
-func New(cfg Config) (*Kit, error)
-func NewAuditWriter(service AuditService, scope string) AuditWriter
-func NewBrevoMailer(cfg BrevoConfig) (Mailer, error)
-func NewScope(userID string, username string, role string, permissions []string) Scope
-type OTPConfig alias struct
-	field TTL time.Duration
-	field MaxAttempts int
-	field RateLimit int
-	field RateWindow time.Duration
-	field Cooldown time.Duration
-	field Secret string
-type PasswordResetConfig alias struct
-	field TTL time.Duration
-	field Cooldown time.Duration
-	field RateWindow time.Duration
-	field RateLimit int
-	field Secret string
-	field URLTemplate string
-type RateLimit alias struct
-	field Limit int
-	field Window time.Duration
-func RequestLogger() github.com/gin-gonic/gin.HandlerFunc
-const RoleAdmin untyped string = "admin"
-const RoleMember untyped string = "member"
-const RoleStaff untyped string = "staff"
-const RoleSuperAdmin untyped string = "superadmin"
-const RoleViewer untyped string = "viewer"
-type Scope alias struct
-	field UserID string
-	field Username string
-	field Role string
-	field Permissions map[string]struct{}
-	field IsImpersonated bool
-	field OriginalUserID string
-	field OriginalUsername string
-	field OriginalRole string
-	method (T) ActorRole() string
-	method (T) ActorUserID() string
-	method (T) Has(resource string, action string) bool
-func ScopeFrom(ctx context.Context) Scope
-const StatusFailed untyped string = "failed"
-const StatusSuccess untyped string = "success"
-func WithScope(ctx context.Context, scope Scope) context.Context
-reachable type AppConfig struct
-	field Id string
-	tag Id json:"id" gorm:"column:id;primaryKey"
-	field ConfigKey string
-	tag ConfigKey json:"config_key" gorm:"column:config_key"
-	field DisplayName string
-	tag DisplayName json:"display_name" gorm:"column:display_name"
-	field Category string
-	tag Category json:"category" gorm:"column:category"
-	field Value string
-	tag Value json:"value" gorm:"column:value"
-	field Description string
-	tag Description json:"description,omitempty" gorm:"column:description"
-	field IsActive bool
-	tag IsActive json:"is_active" gorm:"column:is_active"
-	field CreatedAt time.Time
-	tag CreatedAt json:"created_at" gorm:"column:created_at"
-	field UpdatedAt *time.Time
-	tag UpdatedAt json:"updated_at,omitempty" gorm:"column:updated_at"
-	field DeletedAt gorm.io/gorm.DeletedAt
-	tag DeletedAt json:"-" gorm:"column:deleted_at"
-	method (T) TableName() string
-reachable type AuditActor struct
-	field UserID *string
-	tag UserID json:"user_id,omitempty"
-	field Role string
-	tag Role json:"role,omitempty"
-reachable type AuditService interface
-	method GetAll(ctx context.Context, params github.com/zazhedho/gokit.BaseParams) ([]AuditTrailResponse, int64, error)
-	method GetByID(ctx context.Context, id string) (AuditTrailResponse, error)
-	method Store(ctx context.Context, req AuditEvent) error
-reachable type AuditTrailResponse struct
+type AuditTrailResponse alias struct
 	field ID string
 	tag ID json:"id"
 	field OccurredAt time.Time
@@ -211,8 +99,129 @@ reachable type AuditTrailResponse struct
 	tag Metadata json:"metadata,omitempty"
 	field CreatedAt time.Time
 	tag CreatedAt json:"created_at"
-reachable type UpdateAppConfig struct
+type AuditWriter alias struct
+	field Service AuditService
+	field Scope string
+	method (T) WriteAudit(ctx *github.com/gin-gonic/gin.Context, event AuditEvent)
+	method (T) WriteAuditStrict(ctx *github.com/gin-gonic/gin.Context, event AuditEvent) error
+type BrevoConfig alias struct
+	field Host string
+	field Port int
+	field User string
+	field Pass string
+	field From string
+	field OTPSubject string
+	field ResetSubject string
+	field AppName string
+type Config alias struct
+	field DB *gorm.io/gorm.DB
+	field Redis github.com/redis/go-redis/v9.UniversalClient
+	field Mailer Mailer
+	field OTPMailer OTPMailer
+	field ResetMailer ResetMailer
+	field AppName string
+	field AppEnv string
+	field JWTKey string
+	field AccessTokenTTL time.Duration
+	field RefreshTokenTTL time.Duration
+	field SessionMaxLifetime time.Duration
+	field FailClosedLimiters bool
+	field PhoneLogin bool
+	field DefaultRole string
+	field GoogleClientIDs []string
+	field EmailAppName string
+	field PermissionCacheTTL time.Duration
+	field Login LoginLimit
+	field Register RateLimit
+	field AuthRate RateLimit
+	field OTP OTPConfig
+	field Reset PasswordResetConfig
+	field Flags FlagKeys
+	method (T) GoString() string
+	method (T) String() string
+	method (T) Validate() error
+func ConfigFromEnv() (Config, error)
+var ErrMigrationsDirty error
+type FlagKeys alias struct
+	field PublicRegistration string
+	field RegisterOTP string
+	field PasswordResetEmail string
+type Kit struct
+	method (*T) AppConfig() AppConfigService
+	method (*T) Audit() AuditService
+	method (*T) Auth() github.com/gin-gonic/gin.HandlerFunc
+	method (*T) Can(resource string, action string) github.com/gin-gonic/gin.HandlerFunc
+	method (*T) Close(ctx context.Context) error
+	method (*T) IssueAccessToken(userID string, name string, role string) (string, error)
+	method (*T) LoadPermissions() github.com/gin-gonic/gin.HandlerFunc
+	method (*T) Migrate(ctx context.Context) error
+	method (*T) Mount(r github.com/gin-gonic/gin.IRouter) error
+	method (*T) Role(allowed ...string) github.com/gin-gonic/gin.HandlerFunc
+type LoginLimit alias struct
+	field Limit int
+	field Window time.Duration
+	field BlockDuration time.Duration
+type Mailer alias interface
+	method SendOTP(ctx context.Context, to string, code string, appName string, ttl time.Duration) error
+	method SendPasswordReset(ctx context.Context, to string, token string, appName string, resetURL string, ttl time.Duration) error
+const MigrationsTable untyped string = "authkit_schema_migrations"
+func New(cfg Config) (*Kit, error)
+func NewAuditWriter(service AuditService, scope string) AuditWriter
+func NewBrevoMailer(cfg BrevoConfig) (Mailer, error)
+func NewScope(userID string, username string, role string, permissions []string) Scope
+type OTPConfig alias struct
+	field TTL time.Duration
+	field MaxAttempts int
+	field RateLimit int
+	field RateWindow time.Duration
+	field Cooldown time.Duration
+	field Secret string
+type OTPMailer alias interface
+	method SendOTP(ctx context.Context, to string, code string, appName string, ttl time.Duration) error
+type PasswordResetConfig alias struct
+	field TTL time.Duration
+	field Cooldown time.Duration
+	field RateWindow time.Duration
+	field RateLimit int
+	field Secret string
+	field URLTemplate string
+type RateLimit alias struct
+	field Limit int
+	field Window time.Duration
+func RequestLogger() github.com/gin-gonic/gin.HandlerFunc
+type ResetMailer alias interface
+	method SendPasswordReset(ctx context.Context, to string, token string, appName string, resetURL string, ttl time.Duration) error
+const RoleAdmin untyped string = "admin"
+const RoleStaff untyped string = "staff"
+const RoleSuperAdmin untyped string = "superadmin"
+const RoleViewer untyped string = "viewer"
+type Scope alias struct
+	field UserID string
+	field Username string
+	field Role string
+	field Permissions map[string]struct{}
+	field IsImpersonated bool
+	field OriginalUserID string
+	field OriginalUsername string
+	field OriginalRole string
+	method (T) ActorRole() string
+	method (T) ActorUserID() string
+	method (T) Has(resource string, action string) bool
+func ScopeFrom(ctx context.Context) Scope
+const StatusFailed untyped string = "failed"
+const StatusSuccess untyped string = "success"
+type UpdateAppConfig alias struct
 	field Value string
 	tag Value json:"value" binding:"required"
 	field IsActive *bool
 	tag IsActive json:"is_active" binding:"omitempty"
+func WithScope(ctx context.Context, scope Scope) context.Context
+reachable type AuditActor struct
+	field UserID *string
+	tag UserID json:"user_id,omitempty"
+	field Role string
+	tag Role json:"role,omitempty"
+reachable type AuditService interface
+	method GetAll(ctx context.Context, params github.com/zazhedho/gokit.BaseParams) ([]AuditTrailResponse, int64, error)
+	method GetByID(ctx context.Context, id string) (AuditTrailResponse, error)
+	method Store(ctx context.Context, req AuditEvent) error

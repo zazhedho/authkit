@@ -12,10 +12,10 @@ type Invalidator interface {
 }
 
 type redisInvalidator struct {
-	client *redis.Client
+	client redis.UniversalClient
 }
 
-func NewInvalidator(client *redis.Client) Invalidator {
+func NewInvalidator(client redis.UniversalClient) Invalidator {
 	if client == nil {
 		return nil
 	}

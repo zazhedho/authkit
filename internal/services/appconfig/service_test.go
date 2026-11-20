@@ -3,6 +3,7 @@ package appconfig
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -218,7 +219,7 @@ func TestGetStringReturnsRepositoryError(t *testing.T) {
 }
 
 func TestUpdateStillWorks(t *testing.T) {
-	nowConfig := domainappconfig.AppConfig{Id: "cfg-1", ConfigKey: "feature.example", Value: "old", IsActive: true}
+	nowConfig := domainappconfig.AppConfig{ID: "cfg-1", ConfigKey: "feature.example", Value: "old", IsActive: true}
 	repo := &appConfigRepoMock{byID: nowConfig}
 	service := NewService(repo)
 
@@ -233,9 +234,9 @@ func TestUpdateStillWorks(t *testing.T) {
 
 func TestAppConfigServicePassThroughMethodsAndIsEnabled(t *testing.T) {
 	repo := &appConfigRepoMock{
-		byID:  domainappconfig.AppConfig{Id: "cfg-1", ConfigKey: "feature.example", Value: "old", IsActive: true},
+		byID:  domainappconfig.AppConfig{ID: "cfg-1", ConfigKey: "feature.example", Value: "old", IsActive: true},
 		byKey: map[string]domainappconfig.AppConfig{"feature.example": {ConfigKey: "feature.example", Value: "true", IsActive: true}},
-		list:  []domainappconfig.AppConfig{{Id: "cfg-1"}},
+		list:  []domainappconfig.AppConfig{{ID: "cfg-1"}},
 		total: 1,
 	}
 	service := NewService(repo)
@@ -244,7 +245,7 @@ func TestAppConfigServicePassThroughMethodsAndIsEnabled(t *testing.T) {
 	if err != nil || total != 1 || len(configs) != 1 {
 		t.Fatalf("get all: configs=%+v total=%d err=%v", configs, total, err)
 	}
-	if cfg, err := service.GetByID(context.Background(), "cfg-1"); err != nil || cfg.Id != "cfg-1" {
+	if cfg, err := service.GetByID(context.Background(), "cfg-1"); err != nil || cfg.ID != "cfg-1" {
 		t.Fatalf("get by id: cfg=%+v err=%v", cfg, err)
 	}
 	if cfg, err := service.GetByKey(context.Background(), "feature.example"); err != nil || cfg.ConfigKey != "feature.example" {
@@ -270,7 +271,7 @@ func TestAppConfigServiceUpdateErrorsAndFallbacks(t *testing.T) {
 	}
 
 	service = NewService(&appConfigRepoMock{
-		byID:      domainappconfig.AppConfig{Id: "cfg-1", Value: "old", IsActive: true},
+		byID:      domainappconfig.AppConfig{ID: "cfg-1", Value: "old", IsActive: true},
 		updateErr: errors.New("database down"),
 	})
 	if _, err := service.Update(context.Background(), "cfg-1", dtoappconfig.UpdateAppConfig{Value: "new"}); err == nil {
@@ -297,5 +298,53 @@ func TestAppConfigServiceUpdateErrorsAndFallbacks(t *testing.T) {
 	var target map[string]any
 	if err := service.DecodeJSON(context.Background(), "jobs.rules", &target); err == nil {
 		t.Fatal("expected json decode error")
+	}
+}
+
+// Regression: see TestRoleServiceCreateDoesNotTurnEntitiesIntoMarkup.
+func TestAppConfigUpdateDoesNotTurnEntitiesIntoMarkup(t *testing.T) {
+	repo := &appConfigRepoMock{byID: domainappconfig.AppConfig{ID: "cfg-1", ConfigKey: "feature.example", Value: "old", IsActive: true}}
+	service := NewService(repo)
+
+	payload := "&lt;script&gt;alert(1)&lt;/script&gt;"
+	updated, err := service.Update(context.Background(), "cfg-1", dtoappconfig.UpdateAppConfig{Value: " " + payload + " "})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if updated.Value != payload || strings.Contains(repo.update.Value, "<script") {
+		t.Fatalf("value = %q, stored %q; want the trimmed raw input", updated.Value, repo.update.Value)
+	}
+}
+
+func TestUpdateRejectsANonBooleanValueForAFlagKey(t *testing.T) {
+	repo := &appConfigRepoMock{byID: domainappconfig.AppConfig{ID: "1", ConfigKey: "auth.flag", Value: "true", IsActive: true}}
+	svc := NewService(repo)
+	svc.SetBoolKeys("auth.flag")
+
+	for _, bad := range []string{"tru", "2", "", "yes please"} {
+		if _, err := svc.Update(context.Background(), "1", dtoappconfig.UpdateAppConfig{Value: bad}); !errors.Is(err, domainappconfig.ErrInvalidValue) {
+			t.Errorf("value %q: err = %v, want ErrInvalidValue", bad, err)
+		}
+	}
+	got, err := svc.Update(context.Background(), "1", dtoappconfig.UpdateAppConfig{Value: "Enabled"})
+	if err != nil || got.Value != "true" {
+		t.Fatalf("a boolean spelling must be stored normalised: %q %v", got.Value, err)
+	}
+}
+
+func TestUpdateLeavesOtherKeysFreeText(t *testing.T) {
+	repo := &appConfigRepoMock{byID: domainappconfig.AppConfig{ID: "1", ConfigKey: "ui.title", IsActive: true}}
+	svc := NewService(repo)
+	svc.SetBoolKeys("auth.flag")
+	if got, err := svc.Update(context.Background(), "1", dtoappconfig.UpdateAppConfig{Value: "anything"}); err != nil || got.Value != "anything" {
+		t.Fatalf("%q %v", got.Value, err)
+	}
+}
+
+func TestAnInvalidStoredBoolIsAnInvalidValueError(t *testing.T) {
+	repo := &appConfigRepoMock{byKey: map[string]domainappconfig.AppConfig{"k": {ConfigKey: "k", Value: "treu", IsActive: true}}}
+	got, err := NewService(repo).GetBool(context.Background(), "k", true)
+	if !errors.Is(err, domainappconfig.ErrInvalidValue) || !got {
+		t.Fatalf("got=%v err=%v, want the fallback and ErrInvalidValue", got, err)
 	}
 }

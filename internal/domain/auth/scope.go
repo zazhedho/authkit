@@ -59,6 +59,7 @@ func WithContext(ctx context.Context, scope Scope) context.Context {
 	return context.WithValue(ctx, scopeContextKey, scope)
 }
 
+// FromContext returns the Scope stored in ctx, or an empty Scope.
 func FromContext(ctx context.Context) Scope {
 	if ctx == nil {
 		return Scope{Permissions: map[string]struct{}{}}

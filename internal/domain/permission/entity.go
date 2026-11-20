@@ -11,7 +11,7 @@ func (Permission) TableName() string {
 }
 
 type Permission struct {
-	Id          string         `json:"id" gorm:"column:id;primaryKey"`
+	ID          string         `json:"id" gorm:"column:id;primaryKey"`
 	Name        string         `json:"name" gorm:"column:name;unique"`
 	DisplayName string         `json:"display_name" gorm:"column:display_name"`
 	Description string         `json:"description,omitempty" gorm:"column:description"`
