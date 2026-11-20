@@ -34,7 +34,7 @@ func TestRequestLoggerAndRecoveryMiddleware(t *testing.T) {
 }
 
 func TestRoleMiddlewareAllowsAndRejectsRoles(t *testing.T) {
-	mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
+	mdw := New(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
 
 	rec := performMiddlewareRequest(
 		testToken(t, "access", domainuser.RoleAdmin),

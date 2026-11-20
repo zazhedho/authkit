@@ -16,9 +16,9 @@ const testJWTKey = "test-secret-must-be-at-least-32-bytes"
 
 func newTestTokens(t *testing.T) *Tokens {
 	t.Helper()
-	tokens, err := NewTokens(Config{Key: testJWTKey, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
+	tokens, err := New(Config{Key: testJWTKey, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 	if err != nil {
-		t.Fatalf("NewTokens: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	return tokens
 }
@@ -36,7 +36,7 @@ func TestNewTokensRejectsMissingOrShortKey(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := NewTokens(Config{Key: tc.key, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
+			tokens, err := New(Config{Key: tc.key, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("expected %v, got %v", tc.want, err)
 			}
@@ -48,7 +48,7 @@ func TestNewTokensRejectsMissingOrShortKey(t *testing.T) {
 }
 
 func TestNewTokensAcceptsMinimumLengthKey(t *testing.T) {
-	if _, err := NewTokens(Config{Key: strings.Repeat("k", 32), AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour}); err != nil {
+	if _, err := New(Config{Key: strings.Repeat("k", 32), AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour}); err != nil {
 		t.Fatalf("expected 32 character key to be valid, got %v", err)
 	}
 }
@@ -90,9 +90,9 @@ func TestGenerateIncludesAccessClaims(t *testing.T) {
 }
 
 func TestGenerateExpiryFollowsAccessTTL(t *testing.T) {
-	tokens, err := NewTokens(Config{Key: testJWTKey, AppName: "test-app", AccessTTL: 2 * time.Hour, RefreshTTL: 2 * time.Hour})
+	tokens, err := New(Config{Key: testJWTKey, AppName: "test-app", AccessTTL: 2 * time.Hour, RefreshTTL: 2 * time.Hour})
 	if err != nil {
-		t.Fatalf("NewTokens: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
 	token, err := tokens.Generate("user-1", "", "", "log-1")
@@ -110,9 +110,9 @@ func TestGenerateExpiryFollowsAccessTTL(t *testing.T) {
 }
 
 func TestGenerateRefreshIncludesRefreshTokenType(t *testing.T) {
-	tokens, err := NewTokens(Config{Key: testJWTKey, AppName: "test-app", RefreshTTL: 48 * time.Hour, AccessTTL: time.Hour})
+	tokens, err := New(Config{Key: testJWTKey, AppName: "test-app", RefreshTTL: 48 * time.Hour, AccessTTL: time.Hour})
 	if err != nil {
-		t.Fatalf("NewTokens: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
 	token, err := tokens.GenerateRefresh("user-1", "Jane", roleViewer, "log-1")
@@ -283,9 +283,9 @@ func TestNilTokensTTLsAreZero(t *testing.T) {
 
 func newTokensForApp(t *testing.T, app string) *Tokens {
 	t.Helper()
-	tokens, err := NewTokens(Config{Key: testJWTKey, AppName: app, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
+	tokens, err := New(Config{Key: testJWTKey, AppName: app, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 	if err != nil {
-		t.Fatalf("NewTokens(%q): %v", app, err)
+		t.Fatalf("New(%q): %v", app, err)
 	}
 	return tokens
 }
@@ -394,7 +394,7 @@ func TestClaimsAcceptsAudienceListContainingApp(t *testing.T) {
 
 func TestNewTokensRequiresAppName(t *testing.T) {
 	for _, name := range []string{"", "  "} {
-		tokens, err := NewTokens(Config{Key: testJWTKey, AppName: name, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
+		tokens, err := New(Config{Key: testJWTKey, AppName: name, AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 		if !errors.Is(err, ErrAppNameRequired) {
 			t.Fatalf("AppName %q: expected ErrAppNameRequired, got %v", name, err)
 		}

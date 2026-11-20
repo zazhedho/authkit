@@ -1,4 +1,4 @@
-// Package testsupport provides a fake database/sql driver for tests.
+// Package testutil provides a fake database/sql driver for tests.
 package testutil
 
 import (

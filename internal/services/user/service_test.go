@@ -1009,7 +1009,7 @@ const testUserJWTKey = "test-secret-must-be-at-least-32-bytes"
 
 func testUserTokens(t *testing.T) *token.Tokens {
 	t.Helper()
-	tokens, err := token.NewTokens(token.Config{Key: testUserJWTKey, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
+	tokens, err := token.New(token.Config{Key: testUserJWTKey, AppName: "test-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 	if err != nil {
 		t.Fatalf("failed to build tokens: %v", err)
 	}
@@ -1174,7 +1174,7 @@ func TestRegisterUserFailsWhenDefaultRoleDoesNotExist(t *testing.T) {
 
 func otherAppUserTokens(t *testing.T) *token.Tokens {
 	t.Helper()
-	tokens, err := token.NewTokens(token.Config{Key: testUserJWTKey, AppName: "other-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
+	tokens, err := token.New(token.Config{Key: testUserJWTKey, AppName: "other-app", AccessTTL: time.Hour, RefreshTTL: 2 * time.Hour})
 	if err != nil {
 		t.Fatalf("failed to build tokens: %v", err)
 	}

@@ -57,7 +57,7 @@ type Core struct {
 // permission invalidator feeds users, roles and permissions, and the session
 // service feeds both the user and session modules.
 func Wire(cfg config.Config) (*Core, error) {
-	tokens, err := token.NewTokens(token.Config{
+	tokens, err := token.New(token.Config{
 		Key:        cfg.JWTKey,
 		AppName:    cfg.AppName,
 		AccessTTL:  cfg.AccessTokenTTL,
@@ -115,9 +115,9 @@ func Wire(cfg config.Config) (*Core, error) {
 		}
 	}
 
-	authMiddleware := middleware.NewMiddleware(blacklistRepo, permissionRepo, cachepermission.NewCache(cfg.Redis), tokens, cfg.PermissionCacheTTL)
+	authMiddleware := middleware.New(blacklistRepo, permissionRepo, cachepermission.New(cfg.Redis), tokens, cfg.PermissionCacheTTL)
 	authMiddleware.Users = userRepo
-	authMiddleware.StateCache = cachepermission.NewCache(cfg.Redis)
+	authMiddleware.StateCache = cachepermission.New(cfg.Redis)
 	if sessionRepo != nil {
 		authMiddleware.Sessions = sessionRepo
 	}

@@ -31,8 +31,8 @@ type Tokens struct {
 	refreshTTL time.Duration
 }
 
-// NewTokens validates cfg and creates the Tokens issuer.
-func NewTokens(cfg Config) (*Tokens, error) {
+// New validates cfg and creates the Tokens issuer.
+func New(cfg Config) (*Tokens, error) {
 	key := strings.TrimSpace(cfg.Key)
 	if key == "" {
 		return nil, ErrJWTKeyNotConfigured

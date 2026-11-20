@@ -113,7 +113,7 @@ func TestSetUserPermissionKeysSkipsCachingWithoutPositiveTTL(t *testing.T) {
 func TestCacheWrapsRedisHelpersAndIsNilSafe(t *testing.T) {
 	client, mock := redismock.NewClientMock()
 	ctx := context.Background()
-	cache := NewCache(client)
+	cache := New(client)
 
 	mock.ExpectSet("permission:v2:user:user-1", `["users:list"]`, time.Minute).SetVal("OK")
 	cache.Set(ctx, "user-1", []string{"users:list"}, time.Minute)
@@ -125,7 +125,7 @@ func TestCacheWrapsRedisHelpersAndIsNilSafe(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, empty := range []*Cache{nil, NewCache(nil)} {
+	for _, empty := range []*Cache{nil, New(nil)} {
 		empty.Set(ctx, "user-1", []string{"x"}, time.Minute)
 		if got, ok := empty.Get(ctx, "user-1"); ok {
 			t.Fatalf("expected miss without a client, got %#v", got)
@@ -135,7 +135,7 @@ func TestCacheWrapsRedisHelpersAndIsNilSafe(t *testing.T) {
 
 func TestAuthStateRoundTripAndNilSafety(t *testing.T) {
 	client, mock := redismock.NewClientMock()
-	cache := NewCache(client)
+	cache := New(client)
 	cutoff := time.Now().Truncate(time.Second)
 	raw, _ := json.Marshal(authState{Role: "viewer", TokensValidAfter: &cutoff})
 	mock.ExpectSet("authstate:v2:user:u1", raw, time.Minute).SetVal("OK")

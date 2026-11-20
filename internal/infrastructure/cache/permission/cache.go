@@ -114,7 +114,7 @@ type Cache struct {
 	client redis.UniversalClient
 }
 
-func NewCache(client redis.UniversalClient) *Cache {
+func New(client redis.UniversalClient) *Cache {
 	return &Cache{client: client}
 }
 

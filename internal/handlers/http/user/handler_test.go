@@ -985,7 +985,7 @@ func TestUserHandlerResetPasswordRevokesSessions(t *testing.T) {
 }
 
 func testHandlerTokens() *token.Tokens {
-	tokens, err := token.NewTokens(token.Config{
+	tokens, err := token.New(token.Config{
 		Key:        "test-secret-must-be-at-least-32-bytes",
 		AppName:    "test-app",
 		AccessTTL:  time.Hour,
@@ -1006,7 +1006,7 @@ func testHandlerOptions() Options {
 }
 
 func otherAppTokens() *token.Tokens {
-	tokens, err := token.NewTokens(token.Config{
+	tokens, err := token.New(token.Config{
 		Key:        "test-secret-must-be-at-least-32-bytes",
 		AppName:    "other-app",
 		AccessTTL:  time.Hour,

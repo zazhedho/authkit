@@ -37,7 +37,7 @@ type Middleware struct {
 	Sessions   SessionIndex
 }
 
-func NewMiddleware(blacklistRepo TokenRevocations,
+func New(blacklistRepo TokenRevocations,
 	permissionRepo PermissionLookup,
 	permissionCache PermissionCache,
 	tokens TokenVerifier,

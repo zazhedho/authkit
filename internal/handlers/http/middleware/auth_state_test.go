@@ -50,7 +50,7 @@ func (d sessionIndexDouble) HasAccessTokenSession(ctx context.Context, tokenStri
 
 func authWith(t *testing.T, users UserStates, cache StateCache, sessions SessionIndex) *Middleware {
 	t.Helper()
-	mdw := NewMiddleware(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
+	mdw := New(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
 	mdw.Users, mdw.StateCache, mdw.Sessions = users, cache, sessions
 	return mdw
 }
