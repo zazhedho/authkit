@@ -162,7 +162,7 @@ func (s *BrevoSender) sendContext(ctx context.Context, to string, msg []byte) er
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 
-	client, err := smtp.NewClient(conn, s.Host)
+	client, err := smtp.NewClient(conn, s.Host) // NOSONAR go:S5332 STARTTLS is enforced below
 	if err != nil {
 		_ = conn.Close()
 		return fmt.Errorf("mailer: %w", err)
