@@ -241,8 +241,10 @@ var rules = []rule{
 		exceptTrees:    []string{"internal/infrastructure/cache"},
 	},
 	{
-		tree:           "internal/config",
-		forbidInternal: []string{"internal/"},
+		// Config validates the JWT key with the token package and names the
+		// mailer ports and the default role; it imports no business layer.
+		tree:            "internal/config",
+		internalAllowed: []string{"internal/domain/user", "internal/infrastructure/mailer", "internal/infrastructure/token"},
 	},
 	{
 		// The middleware is a transport-level leaf, not a business module: it
@@ -583,7 +585,11 @@ func TestRulesDetectViolations(t *testing.T) {
 		{"repository imports gin", repos, "github.com/gin-gonic/gin", false, true},
 		{"repository imports gorm", repos, "gorm.io/gorm", false, false},
 		{"repository imports domain", repos, "github.com/zazhedho/authkit/internal/domain/user", false, false},
-		{"config imports any internal package", cfg, "github.com/zazhedho/authkit/internal/domain/user", false, true},
+		{"config imports a service", cfg, "github.com/zazhedho/authkit/internal/services/user", false, true},
+		{"config imports a repository", cfg, "github.com/zazhedho/authkit/internal/repositories/user", false, true},
+		{"config imports the token package", cfg, "github.com/zazhedho/authkit/internal/infrastructure/token", false, false},
+		{"config imports the mailer ports", cfg, "github.com/zazhedho/authkit/internal/infrastructure/mailer", false, false},
+		{"config imports domain user", cfg, "github.com/zazhedho/authkit/internal/domain/user", false, false},
 		{"config imports stdlib", cfg, "time", false, false},
 		{"middleware imports a service", leaf, "github.com/zazhedho/authkit/internal/services/user", false, true},
 		{"middleware imports a repository", leaf, "github.com/zazhedho/authkit/internal/repositories/auth", false, true},

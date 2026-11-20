@@ -15,6 +15,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
 	"github.com/zazhedho/authkit/internal/config"
@@ -24,6 +25,8 @@ import (
 	serviceuser "github.com/zazhedho/authkit/internal/services/user"
 	"github.com/zazhedho/authkit/internal/testutil"
 )
+
+const testJWTKey = "test-secret-must-be-at-least-32-bytes"
 
 func init() { gin.SetMode(gin.TestMode) }
 
@@ -786,6 +789,16 @@ func TestAuthRoutesShareAPerIPLimit(t *testing.T) {
 		doJSON(e, http.MethodPost, route, "", `{}`)
 		if rec, _ := doJSON(e, http.MethodPost, route, "", `{}`); rec.Code != http.StatusTooManyRequests {
 			t.Errorf("%s: second request got %d, want 429", route, rec.Code)
+		}
+	}
+}
+
+func TestNewTreatsATypedNilRedisAsDisabled(t *testing.T) {
+	var typedNil *redis.Client
+	kit, _ := newTestKit(t, func(c *Config) { c.Redis = typedNil })
+	for _, r := range registeredRoutes(mountedEngine(t, kit)) {
+		if strings.Contains(r, "/sessions") || strings.Contains(r, "/session/") {
+			t.Fatalf("session route %s mounted for a typed-nil Redis", r)
 		}
 	}
 }

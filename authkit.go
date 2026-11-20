@@ -13,6 +13,7 @@ import (
 	"github.com/zazhedho/gokit"
 	"github.com/zazhedho/logus"
 
+	"github.com/zazhedho/authkit/internal/config"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
 	domainuser "github.com/zazhedho/authkit/internal/domain/user"
 	httpappconfig "github.com/zazhedho/authkit/internal/handlers/http/appconfig"
@@ -85,7 +86,7 @@ func startupWarnings(redisNil bool) []string {
 // New validates cfg (after defaults) and wires everything without touching the
 // database. Nil Redis or Mailer is allowed; dependent features become inert (see README).
 func New(cfg Config) (*Kit, error) {
-	cfg = cfg.withDefaults()
+	cfg = config.WithDefaults(cfg)
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -144,10 +145,10 @@ func New(cfg Config) (*Kit, error) {
 		sessionSvc = sessions
 		userSvc.Sessions = sessions
 		sessionHdlr = httpsession.New(sessions, auditSvc)
-		if m := cfg.otpMailer(); m != nil {
+		if m := config.OTPSender(cfg); m != nil {
 			otpSvc = serviceotp.NewService(repositoryotp.NewRepository(cfg.Redis), m, serviceotp.Config(cfg.OTP))
 		}
-		if m := cfg.resetMailer(); m != nil {
+		if m := config.ResetSender(cfg); m != nil {
 			resetSvc = servicereset.NewService(repositoryreset.NewRepository(cfg.Redis), m, servicereset.Config(cfg.Reset))
 		}
 	}

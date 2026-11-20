@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/zazhedho/gokit"
 
+	"github.com/zazhedho/authkit/internal/config"
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
 	domainauth "github.com/zazhedho/authkit/internal/domain/auth"
@@ -97,20 +98,13 @@ const (
 )
 
 // OTPMailer sends registration OTP emails.
-type OTPMailer interface {
-	mailer.Sender
-}
+type OTPMailer = config.OTPMailer
 
 // ResetMailer sends password reset emails.
-type ResetMailer interface {
-	mailer.PasswordResetSender
-}
+type ResetMailer = config.ResetMailer
 
 // Mailer sends both registration OTP and password reset emails.
-type Mailer interface {
-	OTPMailer
-	ResetMailer
-}
+type Mailer = config.Mailer
 
 // AuditTrailResponse is one audit trail entry as the audit routes and
 // AuditService return it.

@@ -113,7 +113,7 @@ type BrevoConfig alias struct
 	field OTPSubject string
 	field ResetSubject string
 	field AppName string
-type Config struct
+type Config alias struct
 	field DB *gorm.io/gorm.DB
 	field Redis github.com/redis/go-redis/v9.UniversalClient
 	field Mailer Mailer
@@ -161,7 +161,7 @@ type LoginLimit alias struct
 	field Limit int
 	field Window time.Duration
 	field BlockDuration time.Duration
-type Mailer interface
+type Mailer alias interface
 	method SendOTP(to string, code string, appName string, ttl time.Duration) error
 	method SendPasswordReset(to string, token string, appName string, resetURL string, ttl time.Duration) error
 const MigrationsTable untyped string = "authkit_schema_migrations"
@@ -176,7 +176,7 @@ type OTPConfig alias struct
 	field RateWindow time.Duration
 	field Cooldown time.Duration
 	field Secret string
-type OTPMailer interface
+type OTPMailer alias interface
 	method SendOTP(to string, code string, appName string, ttl time.Duration) error
 type PasswordResetConfig alias struct
 	field TTL time.Duration
@@ -189,7 +189,7 @@ type RateLimit alias struct
 	field Limit int
 	field Window time.Duration
 func RequestLogger() github.com/gin-gonic/gin.HandlerFunc
-type ResetMailer interface
+type ResetMailer alias interface
 	method SendPasswordReset(to string, token string, appName string, resetURL string, ttl time.Duration) error
 const RoleAdmin untyped string = "admin"
 const RoleStaff untyped string = "staff"

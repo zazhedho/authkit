@@ -1,11 +1,10 @@
-package authkit
+package config
 
 import (
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -15,7 +14,6 @@ import (
 	"github.com/zazhedho/gokit"
 	"gorm.io/gorm"
 
-	"github.com/zazhedho/authkit/internal/config"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
 )
 
@@ -40,10 +38,10 @@ func validConfig() Config {
 	}
 	cfg.OTP.Secret = "fake-otp-secret-0123456789-abcdef-0123456789"
 	cfg.Reset.Secret = "fake-reset-secret-0123456789-abcdef-0123456789"
-	return cfg.withDefaults()
+	return WithDefaults(cfg)
 }
 
-// legacyEnvNames lists every variable ConfigFromEnv reads.
+// legacyEnvNames lists every variable FromEnv reads.
 var legacyEnvNames = []string{
 	"APP_NAME",
 	"APP_ENV",
@@ -84,7 +82,7 @@ var legacyEnvNames = []string{
 	"CONFIG_PASSWORD_RESET_EMAIL",
 }
 
-// clearLegacyEnv blanks every variable ConfigFromEnv reads so a test does not
+// clearLegacyEnv blanks every variable FromEnv reads so a test does not
 // depend on the developer's shell. An empty value behaves like an unset one.
 func clearLegacyEnv(t *testing.T) {
 	t.Helper()
@@ -155,7 +153,7 @@ func TestValidateAllowsMissingOTPAndResetSecretsWithoutRedisOrMailer(t *testing.
 }
 
 func TestWithDefaultsMatchesLegacyEnvDefaults(t *testing.T) {
-	cfg := Config{AppName: "test-app"}.withDefaults()
+	cfg := WithDefaults(Config{AppName: "test-app"})
 
 	if cfg.AccessTokenTTL != 15*time.Minute || cfg.RefreshTokenTTL != 168*time.Hour {
 		t.Fatalf("unexpected token TTLs: %v %v", cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
@@ -166,21 +164,21 @@ func TestWithDefaultsMatchesLegacyEnvDefaults(t *testing.T) {
 	if cfg.PermissionCacheTTL != 300*time.Second {
 		t.Fatalf("unexpected permission cache TTL %v", cfg.PermissionCacheTTL)
 	}
-	if cfg.Login != (config.LoginLimit{Limit: 5, Window: 60 * time.Second, BlockDuration: 300 * time.Second}) {
+	if cfg.Login != (LoginLimit{Limit: 5, Window: 60 * time.Second, BlockDuration: 300 * time.Second}) {
 		t.Fatalf("unexpected login limit %+v", cfg.Login)
 	}
-	if cfg.Register != (config.RateLimit{Limit: 5, Window: 60 * time.Second}) {
+	if cfg.Register != (RateLimit{Limit: 5, Window: 60 * time.Second}) {
 		t.Fatalf("unexpected register limit %+v", cfg.Register)
 	}
-	wantOTP := config.OTPConfig{TTL: 300 * time.Second, Cooldown: 60 * time.Second, RateLimit: 5, RateWindow: 300 * time.Second, MaxAttempts: 5, Secret: ""}
+	wantOTP := OTPConfig{TTL: 300 * time.Second, Cooldown: 60 * time.Second, RateLimit: 5, RateWindow: 300 * time.Second, MaxAttempts: 5, Secret: ""}
 	if cfg.OTP != wantOTP {
 		t.Fatalf("unexpected OTP config %+v", cfg.OTP)
 	}
-	wantReset := config.PasswordResetConfig{TTL: 900 * time.Second, Cooldown: 60 * time.Second, RateLimit: 5, RateWindow: 900 * time.Second, Secret: ""}
+	wantReset := PasswordResetConfig{TTL: 900 * time.Second, Cooldown: 60 * time.Second, RateLimit: 5, RateWindow: 900 * time.Second, Secret: ""}
 	if cfg.Reset != wantReset {
 		t.Fatalf("unexpected reset config %+v", cfg.Reset)
 	}
-	wantFlags := config.FlagKeys{
+	wantFlags := FlagKeys{
 		PublicRegistration: "auth.public_registration_enabled",
 		RegisterOTP:        "auth.register_otp_enabled",
 		PasswordResetEmail: "auth.password_reset_email_enabled",
@@ -201,9 +199,9 @@ func TestWithDefaultsKeepsExplicitValues(t *testing.T) {
 		AccessTokenTTL:     time.Hour,
 		RefreshTokenTTL:    2 * time.Hour,
 		PermissionCacheTTL: time.Minute,
-		OTP:                config.OTPConfig{TTL: 10 * time.Minute},
+		OTP:                OTPConfig{TTL: 10 * time.Minute},
 	}
-	got := in.withDefaults()
+	got := WithDefaults(in)
 	if got.EmailAppName != "Mail App" || got.DefaultRole != "member" || got.AccessTokenTTL != time.Hour ||
 		got.RefreshTokenTTL != 2*time.Hour || got.PermissionCacheTTL != time.Minute {
 		t.Fatalf("explicit values were overwritten: %+v", got)
@@ -213,7 +211,7 @@ func TestWithDefaultsKeepsExplicitValues(t *testing.T) {
 	}
 }
 
-func TestConfigFromEnvReadsLegacyNames(t *testing.T) {
+func TestFromEnvReadsLegacyNames(t *testing.T) {
 	clearLegacyEnv(t)
 	env := map[string]string{ //nolint:gosec // fake values for a test
 		"APP_NAME":                     "test-app",
@@ -250,10 +248,10 @@ func TestConfigFromEnvReadsLegacyNames(t *testing.T) {
 		t.Setenv(k, v)
 	}
 
-	cfg := ConfigFromEnv()
+	cfg := FromEnv()
 
 	if cfg.DB != nil || cfg.Redis != nil || cfg.Mailer != nil {
-		t.Fatal("ConfigFromEnv must not fill DB, Redis or Mailer")
+		t.Fatal("FromEnv must not fill DB, Redis or Mailer")
 	}
 	if cfg.AppName != "test-app" || cfg.AppEnv != "development" || cfg.JWTKey != testJWTKey || cfg.EmailAppName != "Mail App" {
 		t.Fatalf("unexpected identity fields: %+v", cfg)
@@ -266,26 +264,26 @@ func TestConfigFromEnvReadsLegacyNames(t *testing.T) {
 	if !slices.Equal(got, []string{"a", "b", "c"}) {
 		t.Fatalf("unexpected google client ids %v", cfg.GoogleClientIDs)
 	}
-	if cfg.Login != (config.LoginLimit{Limit: 7, Window: 70 * time.Second, BlockDuration: 700 * time.Second}) {
+	if cfg.Login != (LoginLimit{Limit: 7, Window: 70 * time.Second, BlockDuration: 700 * time.Second}) {
 		t.Fatalf("unexpected login limit %+v", cfg.Login)
 	}
-	if cfg.Register != (config.RateLimit{Limit: 9, Window: 90 * time.Second}) {
+	if cfg.Register != (RateLimit{Limit: 9, Window: 90 * time.Second}) {
 		t.Fatalf("unexpected register limit %+v", cfg.Register)
 	}
-	wantOTP := config.OTPConfig{TTL: 200 * time.Second, Cooldown: 30 * time.Second, RateLimit: 4, RateWindow: 400 * time.Second, MaxAttempts: 3, Secret: "fake-otp-secret-0123456789-abcdef-0123456789"} //nolint:gosec // fake test secret
+	wantOTP := OTPConfig{TTL: 200 * time.Second, Cooldown: 30 * time.Second, RateLimit: 4, RateWindow: 400 * time.Second, MaxAttempts: 3, Secret: "fake-otp-secret-0123456789-abcdef-0123456789"} //nolint:gosec // fake test secret
 	if cfg.OTP != wantOTP {
 		t.Fatalf("unexpected OTP config %+v", cfg.OTP)
 	}
-	wantReset := config.PasswordResetConfig{TTL: 600 * time.Second, Cooldown: 45 * time.Second, RateLimit: 6, RateWindow: 1200 * time.Second, Secret: "fake-reset-secret-0123456789-abcdef-0123456789", URLTemplate: "https://example.com/reset?token={token}"} //nolint:gosec // fake test secret
+	wantReset := PasswordResetConfig{TTL: 600 * time.Second, Cooldown: 45 * time.Second, RateLimit: 6, RateWindow: 1200 * time.Second, Secret: "fake-reset-secret-0123456789-abcdef-0123456789", URLTemplate: "https://example.com/reset?token={token}"} //nolint:gosec // fake test secret
 	if cfg.Reset != wantReset {
 		t.Fatalf("unexpected reset config %+v", cfg.Reset)
 	}
-	if cfg.Flags != (config.FlagKeys{PublicRegistration: "custom.registration", RegisterOTP: "custom.otp", PasswordResetEmail: "custom.reset_email"}) {
+	if cfg.Flags != (FlagKeys{PublicRegistration: "custom.registration", RegisterOTP: "custom.otp", PasswordResetEmail: "custom.reset_email"}) {
 		t.Fatalf("unexpected flags %+v", cfg.Flags)
 	}
 }
 
-func TestConfigFromEnvPrefersDurationStrings(t *testing.T) {
+func TestFromEnvPrefersDurationStrings(t *testing.T) {
 	clearLegacyEnv(t)
 	t.Setenv("OTP_TTL_SECONDS", "300")
 	t.Setenv("OTP_TTL", "7m")
@@ -307,7 +305,7 @@ func TestConfigFromEnvPrefersDurationStrings(t *testing.T) {
 	t.Setenv("PERMISSION_CACHE_TTL_SECONDS", "120")
 	t.Setenv("PERMISSION_CACHE_TTL", "10m")
 
-	cfg := ConfigFromEnv()
+	cfg := FromEnv()
 
 	if cfg.OTP.TTL != 7*time.Minute || cfg.OTP.Cooldown != 90*time.Second || cfg.OTP.RateWindow != 10*time.Minute {
 		t.Fatalf("unexpected OTP durations: %+v", cfg.OTP)
@@ -326,12 +324,12 @@ func TestConfigFromEnvPrefersDurationStrings(t *testing.T) {
 	}
 }
 
-func TestConfigFromEnvRateWindowsDefaultToTTL(t *testing.T) {
+func TestFromEnvRateWindowsDefaultToTTL(t *testing.T) {
 	clearLegacyEnv(t)
 	t.Setenv("OTP_TTL", "7m")
 	t.Setenv("RESET_TTL_SECONDS", "1000")
 
-	cfg := ConfigFromEnv()
+	cfg := FromEnv()
 
 	if cfg.OTP.RateWindow != 7*time.Minute {
 		t.Fatalf("expected OTP rate window to follow TTL, got %v", cfg.OTP.RateWindow)
@@ -341,52 +339,52 @@ func TestConfigFromEnvRateWindowsDefaultToTTL(t *testing.T) {
 	}
 }
 
-func TestConfigFromEnvResetURLFallback(t *testing.T) {
+func TestFromEnvResetURLFallback(t *testing.T) {
 	clearLegacyEnv(t)
 	t.Setenv("RESET_URL_TEMPLATE", "")
 	t.Setenv("RESET_URL", "https://example.com/reset?token={token}")
-	if got := ConfigFromEnv().Reset.URLTemplate; got != "https://example.com/reset?token={token}" {
+	if got := FromEnv().Reset.URLTemplate; got != "https://example.com/reset?token={token}" {
 		t.Fatalf("expected RESET_URL fallback, got %q", got)
 	}
 
 	t.Setenv("RESET_URL_TEMPLATE", "https://example.com/primary")
-	if got := ConfigFromEnv().Reset.URLTemplate; got != "https://example.com/primary" {
+	if got := FromEnv().Reset.URLTemplate; got != "https://example.com/primary" {
 		t.Fatalf("expected RESET_URL_TEMPLATE to win, got %q", got)
 	}
 }
 
-func TestConfigFromEnvNonPositiveRegisterWindowDefaultsTo60s(t *testing.T) {
+func TestFromEnvNonPositiveRegisterWindowDefaultsTo60s(t *testing.T) {
 	clearLegacyEnv(t)
 	for _, v := range []string{"0", "-5"} {
 		t.Setenv("REGISTER_RATE_WINDOW_SECONDS", v)
-		if got := ConfigFromEnv().Register.Window; got != 60*time.Second {
+		if got := FromEnv().Register.Window; got != 60*time.Second {
 			t.Fatalf("REGISTER_RATE_WINDOW_SECONDS=%s: expected 60s, got %v", v, got)
 		}
 	}
 }
 
-func TestConfigFromEnvEmailAppNameFallsBackToAppName(t *testing.T) {
+func TestFromEnvEmailAppNameFallsBackToAppName(t *testing.T) {
 	clearLegacyEnv(t)
 	t.Setenv("APP_NAME", "test-app")
 	t.Setenv("AUTH_EMAIL_APP_NAME", "")
-	if got := ConfigFromEnv().EmailAppName; got != "test-app" {
+	if got := FromEnv().EmailAppName; got != "test-app" {
 		t.Fatalf("expected APP_NAME fallback, got %q", got)
 	}
 }
 
-func TestConfigFromEnvHasNoBuiltInSecrets(t *testing.T) {
+func TestFromEnvHasNoBuiltInSecrets(t *testing.T) {
 	clearLegacyEnv(t)
 	t.Setenv("OTP_SECRET", "")
 	t.Setenv("RESET_SECRET", "")
 	t.Setenv("JWT_KEY", "")
 
-	cfg := ConfigFromEnv()
+	cfg := FromEnv()
 	if cfg.OTP.Secret != "" || cfg.Reset.Secret != "" || cfg.JWTKey != "" {
 		t.Fatalf("expected no built-in secrets, got otp=%q reset=%q jwt=%q", cfg.OTP.Secret, cfg.Reset.Secret, cfg.JWTKey)
 	}
 }
 
-func TestConfigFromEnvPermissionCacheTTL(t *testing.T) {
+func TestFromEnvPermissionCacheTTL(t *testing.T) {
 	clearLegacyEnv(t)
 	cases := []struct {
 		name, duration, seconds string
@@ -400,7 +398,7 @@ func TestConfigFromEnvPermissionCacheTTL(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("PERMISSION_CACHE_TTL", tc.duration)
 			t.Setenv("PERMISSION_CACHE_TTL_SECONDS", tc.seconds)
-			if got := ConfigFromEnv().PermissionCacheTTL; got != tc.want {
+			if got := FromEnv().PermissionCacheTTL; got != tc.want {
 				t.Fatalf("PermissionCacheTTL = %s, want %s", got, tc.want)
 			}
 		})
@@ -426,19 +424,21 @@ func TestConfigPrintingRedactsSecrets(t *testing.T) {
 	}
 }
 
+const repoRoot = "../.."
+
 // goSources returns the non-test Go files under the repo root (slash paths).
 func goSources(t *testing.T) map[string]string {
 	t.Helper()
 	files := map[string]string{}
-	repoFS := os.DirFS(".")
-	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+	repoFS := os.DirFS(repoRoot)
+	err := fs.WalkDir(repoFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			switch d.Name() {
 			case ".git", ".superpowers":
-				return filepath.SkipDir
+				return fs.SkipDir
 			}
 			return nil
 		}
@@ -449,7 +449,7 @@ func goSources(t *testing.T) map[string]string {
 		if err != nil {
 			return err
 		}
-		files[filepath.ToSlash(path)] = string(raw)
+		files[path] = string(raw)
 		return nil
 	})
 	if err != nil {
@@ -464,7 +464,7 @@ func goSources(t *testing.T) map[string]string {
 func TestNoEnvReadsOutsideAllowedFiles(t *testing.T) {
 	forbidden := []string{"GetEnv(", "DurationFromEnv(", "os.Getenv(", "os.LookupEnv("}
 	allowed := func(path string) bool {
-		return path == "config.go" || strings.HasPrefix(path, "cmd/")
+		return path == "internal/config/env.go" || strings.HasPrefix(path, "cmd/")
 	}
 	for path, src := range goSources(t) {
 		if allowed(path) {
@@ -472,7 +472,7 @@ func TestNoEnvReadsOutsideAllowedFiles(t *testing.T) {
 		}
 		for _, needle := range forbidden {
 			if strings.Contains(src, needle) {
-				t.Errorf("%s reads the environment via %q; only config.go and cmd/ may", path, needle)
+				t.Errorf("%s reads the environment via %q; only internal/config/env.go and cmd/ may", path, needle)
 			}
 		}
 	}
@@ -520,16 +520,16 @@ func TestAuthRateDefaults(t *testing.T) {
 	}
 }
 
-func TestConfigFromEnvStrictReportsUnparsableVariables(t *testing.T) {
+func TestFromEnvStrictReportsUnparsableVariables(t *testing.T) {
 	clearLegacyEnv(t)
 	t.Cleanup(gokit.ResetEnvErrors)
 	gokit.ResetEnvErrors()
 	t.Setenv("APP_NAME", "app")
-	if _, err := ConfigFromEnvStrict(); err != nil {
+	if _, err := FromEnvStrict(); err != nil {
 		t.Fatalf("clean environment: %v", err)
 	}
 	t.Setenv("OTP_RATE_LIMIT", "five")
-	cfg, err := ConfigFromEnvStrict()
+	cfg, err := FromEnvStrict()
 	if err == nil || !strings.Contains(err.Error(), "OTP_RATE_LIMIT") {
 		t.Fatalf("err = %v, want it to name OTP_RATE_LIMIT", err)
 	}
@@ -558,11 +558,11 @@ func TestMailerCanBeSplitIntoOTPAndReset(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("only a ResetMailer: %v", err)
 	}
-	if cfg.otpMailer() != nil || cfg.resetMailer() == nil {
+	if OTPSender(cfg) != nil || ResetSender(cfg) == nil {
 		t.Fatal("the flows must use their own mailer only")
 	}
 	both := validConfig()
-	if both.otpMailer() == nil || both.resetMailer() == nil {
+	if OTPSender(both) == nil || ResetSender(both) == nil {
 		t.Fatal("Mailer feeds both flows")
 	}
 }
@@ -574,17 +574,7 @@ func TestTypedNilRedisCountsAsDisabled(t *testing.T) {
 	if cfg.Redis == nil {
 		t.Fatal("test setup: the interface should hold a typed nil")
 	}
-	if got := cfg.withDefaults(); got.Redis != nil {
-		t.Fatalf("withDefaults kept a typed nil Redis: %#v", got.Redis)
-	}
-	kit, err := New(cfg)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	engine := mountedEngine(t, kit)
-	for _, r := range registeredRoutes(engine) {
-		if strings.Contains(r, "/sessions") || strings.Contains(r, "/session/") {
-			t.Fatalf("session route %s mounted for a typed-nil Redis", r)
-		}
+	if got := WithDefaults(cfg); got.Redis != nil {
+		t.Fatalf("WithDefaults kept a typed nil Redis: %#v", got.Redis)
 	}
 }
