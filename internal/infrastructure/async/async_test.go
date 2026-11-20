@@ -3,6 +3,7 @@ package async
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -90,4 +91,45 @@ func TestGoAfterWaitStillWorks(t *testing.T) {
 	if !r.Go(t.Context(), func(context.Context) {}) {
 		t.Fatal("dropped")
 	}
+}
+
+func TestAPanickingJobIsRecoveredAndFreesItsSlot(t *testing.T) {
+	r := New(1, time.Second)
+	r.Go(t.Context(), func(context.Context) { panic("boom") })
+	if err := r.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if !r.Go(t.Context(), func(context.Context) {}) {
+		t.Fatal("the slot must come back after a panic")
+	}
+}
+
+func TestCloseStopsAcceptingWorkAndWaits(t *testing.T) {
+	r := New(2, time.Minute)
+	var done atomic.Bool
+	r.Go(t.Context(), func(context.Context) { time.Sleep(50 * time.Millisecond); done.Store(true) })
+	if err := r.Close(t.Context()); err != nil || !done.Load() {
+		t.Fatalf("Close err=%v done=%v", err, done.Load())
+	}
+	if r.Go(t.Context(), func(context.Context) { t.Error("must not run") }) {
+		t.Fatal("Go after Close must be dropped")
+	}
+}
+
+func TestWaitDoesNotLeakAGoroutineWhenItsContextExpires(t *testing.T) {
+	r := New(1, time.Minute)
+	release := make(chan struct{})
+	r.Go(t.Context(), func(context.Context) { <-release })
+	before := runtime.NumGoroutine()
+	for range 20 {
+		ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
+		_ = r.Wait(ctx)
+		cancel()
+	}
+	time.Sleep(20 * time.Millisecond)
+	if after := runtime.NumGoroutine(); after > before+2 {
+		t.Fatalf("goroutines grew from %d to %d", before, after)
+	}
+	close(release)
+	_ = r.Wait(t.Context())
 }

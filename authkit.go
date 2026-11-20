@@ -69,7 +69,7 @@ func (k *Kit) Mount(r gin.IRouter) error { return router.Mount(r, k.deps) }
 
 // Close waits, bounded by ctx, for background mail sends; call it after the
 // HTTP server has stopped.
-func (k *Kit) Close(ctx context.Context) error { return k.async.Wait(ctx) }
+func (k *Kit) Close(ctx context.Context) error { return k.async.Close(ctx) }
 
 // Migrate is safe on every start: instances serialize on an advisory lock. ctx
 // bounds the connection checkout only.
