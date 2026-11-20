@@ -26,7 +26,7 @@ type AdminCreateUser struct {
 type Login struct {
 	Identifier string `json:"identifier" binding:"omitempty,min=3,max=100"`
 	Email      string `json:"email" binding:"omitempty,min=3,max=100"`
-	Password   string `json:"password" binding:"required,min=8,max=64"`
+	Password   string `json:"password" binding:"required,max=72"`
 }
 
 type LoginMetadata struct {

@@ -146,10 +146,8 @@ func (s *Service) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, 
 	return user, true, nil
 }
 
-// finishGoogleLogin records the login with a column-scoped write; extra adds
-// the linking columns. With revoke the same statement voids older tokens and
-// the returned user carries the cut-off in TokensValidAfter, which the caller
-// issues its tokens after.
+// finishGoogleLogin writes the login columns. With revoke the same statement
+// voids older tokens and the user carries the cut-off in TokensValidAfter.
 func (s *Service) finishGoogleLogin(ctx context.Context, user domainuser.Users, identity googleTokenInfo, metadata dtouser.LoginMetadata, extra map[string]any, revoke bool) (domainuser.Users, bool, error) {
 	now := time.Now()
 	fields := map[string]any{

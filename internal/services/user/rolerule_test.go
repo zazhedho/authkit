@@ -72,7 +72,7 @@ func TestDeleteRefusesATargetWhoseRoleOutranksTheActor(t *testing.T) {
 
 func TestDeleteRefusesSuperadminForNonSuperadmin(t *testing.T) {
 	env := newRuleEnv(t, domainuser.Users{ID: "su", Role: "superadmin"})
-	if err := env.svc.Delete(context.Background(), staffActor(), "su"); !errors.Is(err, domainuser.ErrRoleAboveActor) {
+	if err := env.svc.Delete(context.Background(), staffActor(), "su"); !errors.Is(err, domainuser.ErrNotFound) {
 		t.Fatalf("got %v", err)
 	}
 }

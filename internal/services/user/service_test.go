@@ -980,7 +980,7 @@ func TestUserServiceLoginAndChangePasswordErrors(t *testing.T) {
 func TestUserServiceUpdateErrorBranches(t *testing.T) {
 	service := newTestUserService(t, &userRepoMock{user: domainuser.Users{ID: "root", Role: domainuser.RoleSuperAdmin}}, &authRepoMock{}, &roleRepoUserMock{}, &permissionRepoUserMock{})
 	_, err := service.Update(context.Background(), authActor("admin-1", "Admin", domainuser.RoleAdmin), "root", dtouser.Update{Name: "Root"})
-	if err == nil || !errors.Is(err, domainuser.ErrRoleAboveActor) {
+	if err == nil || !errors.Is(err, domainuser.ErrNotFound) {
 		t.Fatalf("expected superadmin modify guard, got %v", err)
 	}
 

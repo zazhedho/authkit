@@ -296,10 +296,8 @@ func (s *Service) LogoutUser(ctx context.Context, token string) error {
 	return nil
 }
 
-// ImpersonateUser issues a short-lived token for the target. The actor must
-// cover the target's role and give a reason, which the handler audits. Both
-// accounts must be live, and the token is issued after both accounts' latest
-// revocation.
+// ImpersonateUser needs both accounts live and a covered target role; the token
+// is issued after both accounts' latest revocation.
 func (s *Service) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason string) (string, error) {
 	if actor.IsImpersonated {
 		return "", domainuser.ErrNestedImpersonation
@@ -325,8 +323,8 @@ func (s *Service) ImpersonateUser(ctx context.Context, actor domainauth.Actor, t
 	if err != nil {
 		return "", err
 	}
-	if targetUser.Role == domainuser.RoleSuperAdmin && actor.Role != domainuser.RoleSuperAdmin {
-		return "", domainuser.ErrNotFound
+	if err := hideSuperAdmin(actor, targetUser); err != nil {
+		return "", err
 	}
 	if err := serviceshared.CheckRoleCoverage(ctx, s.PermissionRepo, actor, targetUser.Role); err != nil {
 		return "", err
@@ -336,11 +334,9 @@ func (s *Service) ImpersonateUser(ctx context.Context, actor domainauth.Actor, t
 	return s.Tokens.GenerateImpersonated(targetUser.ID, targetUser.Name, targetUser.Role, actor.UserID, actor.Username, actor.Role, after)
 }
 
-// StopImpersonation hands back a token for the original user. The original
-// account must still exist and must not have revoked tokens since the
-// impersonation token (issuedAtMS, its iat_ms) was issued. The restored token
-// carries no session (no_session): it lives for AccessTokenTTL and ends with
-// tokens_valid_after, not with a session being revoked.
+// StopImpersonation needs the original account live and unrevoked since the
+// impersonation token was issued. The restored token is no_session: it ends with
+// tokens_valid_after or its TTL, not with a session being revoked.
 func (s *Service) StopImpersonation(ctx context.Context, actor domainauth.Actor, issuedAtMS int64) (string, error) {
 	originalUserID := actor.OriginalUserID
 	if strings.TrimSpace(originalUserID) == "" {
@@ -418,13 +414,15 @@ func (s *Service) GetUserForActor(ctx context.Context, actor domainauth.Actor, i
 	return user, nil
 }
 
-// Update edits a user. The role rule applies to every target but the actor's
-// own account; the actor's own role never changes through it. A change of role,
-// email or (with PhoneLogin) phone voids the user's tokens in the same write and
-// ends their sessions.
+// Update applies the role rule to every target but the actor's own account. A
+// role, email or (with PhoneLogin) phone change voids tokens in the same write
+// and ends the sessions.
 func (s *Service) Update(ctx context.Context, actor domainauth.Actor, id string, req dtouser.Update) (domainuser.Users, error) {
 	data, err := s.UserRepo.GetByID(ctx, id)
 	if err != nil {
+		return domainuser.Users{}, err
+	}
+	if err := hideSuperAdmin(actor, data); err != nil {
 		return domainuser.Users{}, err
 	}
 	self := id == actor.UserID
@@ -581,10 +579,8 @@ func (s *Service) applyRoleUpdate(ctx context.Context, actor domainauth.Actor, r
 	return true, nil
 }
 
-// ChangePassword checks the current password, then writes the new hash and the
-// token cut-off in one statement. It returns the cut-off (the database clock)
-// so the caller issues its own new tokens after it; every older token and
-// every other session ends.
+// ChangePassword writes the hash and the token cut-off in one statement and
+// returns the cut-off, so the caller issues its new tokens after it.
 func (s *Service) ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword) (time.Time, error) {
 	if req.CurrentPassword == req.NewPassword {
 		return time.Time{}, domainuser.ErrSamePassword
@@ -648,6 +644,9 @@ func (s *Service) Delete(ctx context.Context, actor domainauth.Actor, id string)
 	if err != nil {
 		return err
 	}
+	if err := hideSuperAdmin(actor, target); err != nil {
+		return err
+	}
 	if id != actor.UserID {
 		if err := serviceshared.CheckRoleCoverage(ctx, s.PermissionRepo, actor, target.Role); err != nil {
 			return err
@@ -709,4 +708,13 @@ func laterOf(a, b time.Time) time.Time {
 		return b
 	}
 	return a
+}
+
+// hideSuperAdmin answers ErrNotFound (404) for a superadmin target to anyone
+// else, like the read routes, so the account is not revealed by a 403.
+func hideSuperAdmin(actor domainauth.Actor, target domainuser.Users) error {
+	if target.Role == domainuser.RoleSuperAdmin && actor.Role != domainuser.RoleSuperAdmin {
+		return domainuser.ErrNotFound
+	}
+	return nil
 }
