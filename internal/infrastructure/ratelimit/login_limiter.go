@@ -41,11 +41,9 @@ func NewRedisLoginLimiter(client redis.UniversalClient, limit int, window, block
 	}
 }
 
-// NewRedisBackoffLimiter returns a LoginLimiter that never blocks within limit
-// failures per window and then delays each further failure by twice the last
-// (1s, 2s, 4s, ...) up to maxDelay. A few requests cannot lock a key out, so it
-// suits a key an attacker can name, such as a victim's identifier. It returns
-// nil under the same conditions as NewRedisLoginLimiter.
+// NewRedisBackoffLimiter never blocks within limit failures per window, then
+// delays each failure twice as long as the last (1s, 2s, ...) up to maxDelay, so
+// a few requests cannot lock out a key an attacker can name.
 func NewRedisBackoffLimiter(client redis.UniversalClient, limit int, window, maxDelay time.Duration) LoginLimiter {
 	l, ok := NewRedisLoginLimiter(client, limit, window, maxDelay).(*redisLoginLimiter)
 	if !ok {

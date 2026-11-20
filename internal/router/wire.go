@@ -57,14 +57,9 @@ type Core struct {
 	AppConfig  AppConfigList
 }
 
-// Wire builds every repository, service and handler from cfg without touching
-// the database. cfg must have its defaults applied and be valid. Nil Redis or
-// Mailer is allowed; dependent features become inert (see README).
-//
-// It lives here, not in a wire.go per module like starter-kit, because the
-// modules share their services: the audit service feeds every handler, the
-// permission invalidator feeds users, roles and permissions, and the session
-// service feeds both the user and session modules.
+// Wire builds every repository, service and handler without touching the
+// database. It is one function, not a wire.go per module, because modules share
+// services (audit, permission invalidator, sessions).
 func Wire(cfg config.Config) (*Core, error) {
 	tokens, err := token.New(token.Config{
 		Key:        cfg.JWTKey,

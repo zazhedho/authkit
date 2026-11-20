@@ -33,10 +33,9 @@ func wrap(domain, cause error) error {
 	return &translated{domain: domain, cause: cause}
 }
 
-// Gorm maps gokit.ErrNotFound (which is gorm.ErrRecordNotFound: a read that
-// found no row, and since gokit v0.5 also an Update, Delete or SoftDelete that
-// matched no row) and gorm.ErrDuplicatedKey to the given domain errors; any other error, and nil, pass through. A nil domain error
-// leaves that case untranslated.
+// Gorm maps gorm.ErrRecordNotFound (a read, update or delete that matched no
+// row) and ErrDuplicatedKey to the domain errors; others pass through. A nil
+// domain error leaves that case untranslated.
 func Gorm(err, notFound, duplicate error) error {
 	switch {
 	case err == nil:

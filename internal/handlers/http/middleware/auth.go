@@ -127,11 +127,9 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// checkLiveUser applies the per-user checks: the user still exists, the token
-// was issued after tokens_valid_after, the role is the current one and, with
-// Redis sessions, the token's session is still alive. An impersonation token is
-// held to the same rules for the original user. It writes the 401 or 500
-// itself and returns false on failure.
+// checkLiveUser rejects a deleted user, a token issued before tokens_valid_after
+// (also for the original user of an impersonation) and a dead session. It
+// writes the 401 or 500 itself.
 func (m *Middleware) checkLiveUser(ctx *gin.Context, logID uuid.UUID, logPrefix, tokenString string, claims map[string]any) bool {
 	reject := func(message string) bool {
 		res := gokit.Unauthorized(logID, message)

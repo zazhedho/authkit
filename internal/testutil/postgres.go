@@ -13,10 +13,9 @@ import (
 	"github.com/zazhedho/authkit/internal/migrate"
 )
 
-// PostgresSchema returns a connection whose search_path is a fresh schema with
-// every authkit migration applied, and drops the schema when the test ends. dsn
-// names a disposable database (the tests pass AUTHKIT_TEST_DATABASE_URL); an
-// empty one skips the test.
+// PostgresSchema returns a connection on a fresh schema with every migration
+// applied, dropped when the test ends. An empty dsn (the tests pass
+// AUTHKIT_TEST_DATABASE_URL) skips the test.
 func PostgresSchema(t *testing.T, dsn string) *gorm.DB {
 	t.Helper()
 	if dsn == "" {

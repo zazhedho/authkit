@@ -128,10 +128,8 @@ func (h *Handler) handleLoginFailure(ctx *gin.Context, logID uuid.UUID, logPrefi
 		return
 	}
 
-	// Two counters advance: per client and identifier, which blocks at the
-	// limit and only ever blocks that client, and per identifier alone, which
-	// backs off instead of locking out so that a few requests from anywhere
-	// cannot lock a victim out.
+	// Per client and identifier blocks only that client; per identifier backs off
+	// instead of locking out, so a few requests cannot lock a victim out.
 	var (
 		blocked bool
 		ttl     time.Duration

@@ -26,11 +26,8 @@ func NormalizeKey(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
-// CleanText prepares user-supplied text for storage: it trims surrounding
-// whitespace and does nothing else. The text is deliberately not
-// HTML-processed. The previous StripHTML removed tags and then unescaped
-// entities, so "&lt;script&gt;" came out as a live "<script>". Escaping is the
-// job of whatever renders the stored value.
+// CleanText only trims. Text is not HTML-processed: stripping then unescaping
+// once turned "&lt;script&gt;" into a live tag. Escaping is the renderer's job.
 func CleanText(s string) string {
 	return strings.TrimSpace(s)
 }

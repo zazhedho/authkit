@@ -123,10 +123,9 @@ func (r *Repository) HasAccessTokenSession(ctx context.Context, token string) (b
 	return n > 0, nil
 }
 
-// GetByRefreshToken returns the session of a refresh token. A refresh token
-// that was already rotated away revokes its session and returns
-// domainsession.ErrRefreshReused: only an attacker or a broken client replays
-// one.
+// GetByRefreshToken revokes the session and returns ErrRefreshReused for a
+// token that was already rotated away: only an attacker or a broken client
+// replays one.
 func (r *Repository) GetByRefreshToken(ctx context.Context, refreshToken string) (*domainsession.Session, error) {
 	hash := HashToken(refreshToken)
 	session, err := r.getByTokenKey(ctx, refreshIndexKey(hash), "refresh token")
@@ -210,10 +209,9 @@ func (r *Repository) DeleteOthers(ctx context.Context, userID, keepSessionID str
 	return r.deleteSessions(ctx, doomed...)
 }
 
-// RotateTokens replaces the session's tokens. It first claims the old refresh
-// token with SET NX, so of two concurrent refreshes only one wins; the loser
-// gets domainsession.ErrRefreshReused and the session is revoked. The swap is
-// one MULTI/EXEC; if it fails the claim is released.
+// RotateTokens claims the old refresh token with SET NX (one winner; the loser
+// gets ErrRefreshReused and the session is revoked), then swaps in one
+// MULTI/EXEC, releasing the claim if that fails.
 func (r *Repository) RotateTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
 	ttl := time.Until(expiresAt)
 	if ttl <= 0 {

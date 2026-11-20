@@ -31,10 +31,9 @@ var (
 	ErrImpersonatorRevoked = errors.New("the impersonating user's session is no longer valid")
 )
 
-// CheckRoleCoverage is the one role rule: an actor may update, delete,
-// impersonate or assign a role only when every permission of that role is also
-// held by the actor. Superadmin is above everything and only a superadmin may
-// touch the superadmin role. Keys are "resource:action".
+// CheckRoleCoverage is the one role rule: every permission of the target role
+// must also be held by the actor. Only a superadmin may touch the superadmin
+// role. Keys are "resource:action".
 func CheckRoleCoverage(actorRole string, actorKeys map[string]struct{}, targetRole string, targetKeys []string) error {
 	if actorRole == RoleSuperAdmin {
 		return nil
