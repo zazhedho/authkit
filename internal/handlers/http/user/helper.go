@@ -82,11 +82,11 @@ func (h *Handler) registrationConflict(ctx context.Context, email, phone string)
 	return "", "", nil
 }
 
-func (h *Handler) rejectBlockedLogin(ctx *gin.Context, logID uuid.UUID, logPrefix, loginIdentifier, normalizedIdentifier string) bool {
-	if h.LoginLimiter == nil {
+func (h *Handler) rejectBlockedLogin(ctx *gin.Context, logID uuid.UUID, logPrefix string, limiter LoginLimiter, loginIdentifier, normalizedIdentifier string) bool {
+	if limiter == nil {
 		return false
 	}
-	blocked, ttl, err := h.LoginLimiter.IsBlocked(ctx.Request.Context(), loginIdentifier)
+	blocked, ttl, err := limiter.IsBlocked(ctx.Request.Context(), loginIdentifier)
 	if err != nil {
 		logus.LogContextf(ctx, logus.LevelError, "%s; LoginLimiter.IsBlocked error: %v", logPrefix, err)
 		if h.Settings.FailClosedLimiters {
@@ -128,36 +128,47 @@ func (h *Handler) handleLoginFailure(ctx *gin.Context, logID uuid.UUID, logPrefi
 		return
 	}
 
-	if h.LoginLimiter != nil {
-		// Both counters advance: per client and identifier, and per identifier
-		// alone so many clients cannot guess one account's password.
-		var (
-			blocked bool
-			ttl     time.Duration
-		)
-		for _, key := range []string{loginIdentifier, identifierKey(normalizedIdentifier)} {
-			b, t, limiterErr := h.LoginLimiter.RegisterFailure(ctx.Request.Context(), key)
-			if limiterErr != nil {
-				logus.LogContextf(ctx, logus.LevelError, "%s; LoginLimiter.RegisterFailure error: %v", logPrefix, limiterErr)
-			}
-			if b && !blocked {
-				blocked, ttl = true, t
+	// Two counters advance: per client and identifier, which blocks at the
+	// limit and only ever blocks that client, and per identifier alone, which
+	// backs off instead of locking out so that a few requests from anywhere
+	// cannot lock a victim out.
+	var (
+		blocked bool
+		ttl     time.Duration
+	)
+	for _, c := range []struct {
+		limiter LoginLimiter
+		key     string
+	}{{h.LoginLimiter, loginIdentifier}, {h.IdentifierLimiter, identifierKey(normalizedIdentifier)}} {
+		if c.limiter == nil {
+			continue
+		}
+		b, t, limiterErr := c.limiter.RegisterFailure(ctx.Request.Context(), c.key)
+		if limiterErr != nil {
+			logus.LogContextf(ctx, logus.LevelError, "%s; LoginLimiter.RegisterFailure error: %v", logPrefix, limiterErr)
+			if h.Settings.FailClosedLimiters {
+				res := gokit.ErrorResponse(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logID, "Login is temporarily unavailable.")
+				ctx.JSON(http.StatusServiceUnavailable, res)
+				return
 			}
 		}
-		if blocked {
-			h.WriteAudit(ctx, domainaudit.AuditEvent{
-				Action:   domainaudit.ActionLogin,
-				Resource: "auth",
-				Status:   domainaudit.StatusFailed,
-				Message:  "Login blocked after repeated failures",
-				AfterData: map[string]any{
-					"identifier": normalizedIdentifier,
-				},
-			})
-			logus.LogContextf(ctx, logus.LevelWarn, "%s; Account temporarily locked after repeated failures", logPrefix)
-			h.respondTooManyLoginAttempts(ctx, logID, ttl)
-			return
+		if b && (!blocked || t > ttl) {
+			blocked, ttl = true, t
 		}
+	}
+	if blocked {
+		h.WriteAudit(ctx, domainaudit.AuditEvent{
+			Action:   domainaudit.ActionLogin,
+			Resource: "auth",
+			Status:   domainaudit.StatusFailed,
+			Message:  "Login delayed after repeated failures",
+			AfterData: map[string]any{
+				"identifier": normalizedIdentifier,
+			},
+		})
+		logus.LogContextf(ctx, logus.LevelWarn, "%s; Login throttled after repeated failures", logPrefix)
+		h.respondTooManyLoginAttempts(ctx, logID, ttl)
+		return
 	}
 
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
@@ -177,11 +188,11 @@ func (h *Handler) handleLoginFailure(ctx *gin.Context, logID uuid.UUID, logPrefi
 // the client.
 func identifierKey(normalizedIdentifier string) string { return "identifier:" + normalizedIdentifier }
 
-func (h *Handler) resetLoginLimiter(ctx *gin.Context, logPrefix, loginIdentifier string) {
-	if h.LoginLimiter == nil {
+func (h *Handler) resetLoginLimiter(ctx *gin.Context, logPrefix string, limiter LoginLimiter, loginIdentifier string) {
+	if limiter == nil {
 		return
 	}
-	if err := h.LoginLimiter.Reset(ctx.Request.Context(), loginIdentifier); err != nil {
+	if err := limiter.Reset(ctx.Request.Context(), loginIdentifier); err != nil {
 		logus.LogContextf(ctx, logus.LevelError, "%s; LoginLimiter.Reset error: %v", logPrefix, err)
 	}
 }
@@ -211,9 +222,6 @@ const registrationOTPAcceptedMessage = "If the address can register, a verificat
 //nolint:gosec // a user-facing message, not a credential
 const forgotPasswordMessage = "If the email is registered, password reset instructions have been sent."
 
-// resetRequestTimeout bounds the background work of one forgot-password request.
-const resetRequestTimeout = 15 * time.Second
-
 func (h *Handler) forgotPasswordByEmail(ctx *gin.Context, req dtouser.ForgotPasswordRequest, logID uuid.UUID, logPrefix string) {
 	normalizedEmail := domainuser.SanitizeEmail(req.Email)
 
@@ -222,15 +230,13 @@ func (h *Handler) forgotPasswordByEmail(ctx *gin.Context, req dtouser.ForgotPass
 		// neither the status nor the latency depends on whether the email is
 		// registered. Failures are only logged.
 		appName := h.Settings.EmailAppName
-		h.runAsync(func() {
-			bg, cancel := context.WithTimeout(context.Background(), resetRequestTimeout)
-			defer cancel()
+		h.runAsync(ctx, logID, func(bg context.Context) {
 			data, err := h.Service.GetUserByEmail(bg, normalizedEmail)
 			if err != nil || data.ID == "" {
 				return
 			}
 			if err := h.ResetService.RequestReset(bg, normalizedEmail, appName); err != nil {
-				logus.Logf(logus.LevelError, "%s; ResetService.RequestReset; ERROR: %s;", logPrefix, err)
+				logus.LogContextf(bg, logus.LevelError, "%s; ResetService.RequestReset; ERROR: %s;", logPrefix, err)
 			}
 		})
 	} else if h.ResetService == nil {
@@ -246,13 +252,15 @@ func (h *Handler) forgotPasswordByEmail(ctx *gin.Context, req dtouser.ForgotPass
 	}))
 }
 
-// runAsync runs fn in the background; tests replace it to run inline.
-func (h *Handler) runAsync(fn func()) {
-	if h.Async != nil {
-		h.Async(fn)
+// runAsync runs fn after the response. The work keeps the request and user ids
+// for the logs; without a runner it runs inline.
+func (h *Handler) runAsync(ctx *gin.Context, logID uuid.UUID, fn func(context.Context)) {
+	reqCtx := logus.WithRequestID(ctx.Request.Context(), logID)
+	if h.Async == nil {
+		fn(reqCtx)
 		return
 	}
-	go fn()
+	h.Async.Go(reqCtx, fn)
 }
 
 func (h *Handler) resetPasswordByEmail(ctx *gin.Context, req dtouser.ResetPasswordRequest, logID uuid.UUID, logPrefix string) {
@@ -286,39 +294,21 @@ func (h *Handler) resetPasswordByEmail(ctx *gin.Context, req dtouser.ResetPasswo
 		return
 	}
 
-	userID := ""
-	if h.SessionSvc != nil {
-		user, err := h.Service.GetUserByEmail(reqCtx, email)
-		if err != nil {
-			h.WriteAudit(ctx, domainaudit.AuditEvent{
-				Action: domainaudit.ActionUpdate, Resource: "user_password_reset", Status: domainaudit.StatusFailed,
-				Message: "Failed to load user for password reset", ErrorMessage: err.Error(),
-				AfterData: map[string]any{"email": email},
-			})
-			statusCode, res := userMutationErrorResponse(logID, err)
-			ctx.JSON(statusCode, res)
-			return
-		}
-		userID = user.ID
-	}
 	if err := h.Service.ResetPasswordByEmail(reqCtx, email, req.NewPassword); err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action: domainaudit.ActionUpdate, Resource: "user_password_reset", Status: domainaudit.StatusFailed,
 			Message: "Failed to reset password", ErrorMessage: err.Error(),
 			AfterData: map[string]any{"email": email},
 		})
-		statusCode, res := userMutationErrorResponse(logID, err)
-		ctx.JSON(statusCode, res)
-		return
-	}
-	if err := h.revokePasswordResetSessions(reqCtx, userID); err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			Action: domainaudit.ActionUpdate, Resource: "user_password_reset", Status: domainaudit.StatusFailed,
-			Message: "Failed to revoke sessions after password reset", ErrorMessage: err.Error(),
-			AfterData: map[string]any{"email": email},
-		})
-		logus.LogContextf(ctx, logus.LevelError, "%s; SessionSvc.DestroyAllUserSessions; ERROR: %s;", logPrefix, err)
-		ctx.JSON(http.StatusInternalServerError, gokit.InternalServerError(logID))
+		logus.LogContextf(ctx, logus.LevelError, "%s; Service.ResetPasswordByEmail; ERROR: %s;", logPrefix, err)
+		// The password is unchanged unless only the session cleanup failed, so
+		// give the token back and the user can retry with the same link.
+		if !errors.Is(err, domainuser.ErrSessionRevocation) {
+			if restoreErr := h.ResetService.RestoreReset(reqCtx, req.Token, email); restoreErr != nil {
+				logus.LogContextf(ctx, logus.LevelError, "%s; ResetService.RestoreReset; ERROR: %s;", logPrefix, restoreErr)
+			}
+		}
+		respondUserMutationError(ctx, logID, err)
 		return
 	}
 
@@ -353,99 +343,48 @@ func (h *Handler) buildAuthTokenResponse(accessToken, refreshToken string) map[s
 }
 
 func userMutationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIResponse) {
-	if httpshared.IsNotFound(err) {
-		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logID, userNotFoundMessage)
-	}
-	if errors.Is(err, domainuser.ErrDuplicate) {
-		return http.StatusConflict, gokit.ErrorResponse(http.StatusConflict, gokit.MsgExists, logID, "email or phone already exists")
-	}
-
 	switch {
-	case errors.Is(err, domainuser.ErrRoleAboveActor), errors.Is(err, domainuser.ErrSelfRoleChange):
+	case httpshared.IsNotFound(err):
+		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logID, userNotFoundMessage)
+	case errors.Is(err, domainuser.ErrDuplicate):
+		return http.StatusConflict, gokit.ErrorResponse(http.StatusConflict, gokit.MsgExists, logID, "email or phone already exists")
+	case errors.Is(err, domainuser.ErrRoleAboveActor), errors.Is(err, domainuser.ErrSelfRoleChange), errors.Is(err, domainuser.ErrAccessDenied):
 		return http.StatusForbidden, gokit.Forbidden(logID, gokit.MsgAccessDenied)
 	case errors.Is(err, domainuser.ErrLastSuperAdmin):
-		return http.StatusConflict, gokit.ErrorResponse(http.StatusConflict, gokit.MsgSomethingWrong, logID, err.Error())
+		return http.StatusConflict, gokit.ErrorResponse(http.StatusConflict, gokit.MsgSomethingWrong, logID, domainuser.ErrLastSuperAdmin.Error())
 	case errors.Is(err, domainuser.ErrWeakPassword), errors.Is(err, domainuser.ErrPasswordTooLong),
 		errors.Is(err, domainuser.ErrEmailRequired), errors.Is(err, domainuser.ErrPasswordRequired),
-		errors.Is(err, domainuser.ErrPasswordIncorrect), errors.Is(err, domainuser.ErrReasonRequired):
+		errors.Is(err, domainuser.ErrPasswordIncorrect), errors.Is(err, domainuser.ErrReasonRequired),
+		errors.Is(err, domainuser.ErrInvalidRole), errors.Is(err, domainuser.ErrSamePassword):
 		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, err.Error())
-	}
-
-	errMsg := err.Error()
-	switch {
-	case errMsg == userNotFoundMessage:
-		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logID, userNotFoundMessage)
-	case errMsg == "invalid or expired token":
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, "invalid or expired reset token")
-	case strings.HasPrefix(errMsg, "access denied:"),
-		strings.Contains(errMsg, "superadmin"):
-		return http.StatusForbidden, gokit.Forbidden(logID, gokit.MsgAccessDenied)
-	case strings.Contains(errMsg, "already exists"):
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgExists, logID, errMsg)
-	case strings.HasPrefix(errMsg, "invalid role:"),
-		strings.HasPrefix(errMsg, "password must "),
-		strings.HasPrefix(errMsg, "new password must "):
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, errMsg)
 	default:
 		return http.StatusInternalServerError, gokit.InternalServerError(logID)
 	}
 }
 
 func impersonationErrorResponse(logID uuid.UUID, err error) (int, *gokit.APIResponse) {
-	if httpshared.IsNotFound(err) {
-		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logID, userNotFoundMessage)
-	}
-
-	if errors.Is(err, domainuser.ErrRoleAboveActor) {
-		return http.StatusForbidden, gokit.Forbidden(logID, gokit.MsgAccessDenied)
-	}
-	if errors.Is(err, domainuser.ErrReasonRequired) {
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, err.Error())
-	}
-
-	errMsg := err.Error()
 	switch {
-	case strings.HasPrefix(errMsg, "cannot impersonate"):
+	case httpshared.IsNotFound(err):
+		return http.StatusNotFound, gokit.ErrorResponse(http.StatusNotFound, gokit.MsgNotFound, logID, userNotFoundMessage)
+	case errors.Is(err, domainuser.ErrRoleAboveActor), errors.Is(err, domainuser.ErrSelfImpersonation):
 		return http.StatusForbidden, gokit.Forbidden(logID, gokit.MsgAccessDenied)
-	case strings.HasPrefix(errMsg, "cannot start"),
-		strings.HasPrefix(errMsg, "target user id"),
-		strings.HasPrefix(errMsg, "original user id"),
-		strings.HasPrefix(errMsg, "current session"):
-		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, errMsg)
+	case errors.Is(err, domainuser.ErrImpersonatorRevoked):
+		return http.StatusUnauthorized, gokit.Unauthorized(logID, "Your session is no longer valid. Please login again.")
+	case errors.Is(err, domainuser.ErrReasonRequired), errors.Is(err, domainuser.ErrNestedImpersonation),
+		errors.Is(err, domainuser.ErrTargetRequired), errors.Is(err, domainuser.ErrOriginalRequired),
+		errors.Is(err, domainuser.ErrNotImpersonated):
+		return http.StatusBadRequest, gokit.ErrorResponse(http.StatusBadRequest, gokit.MsgSomethingWrong, logID, err.Error())
 	default:
 		return http.StatusInternalServerError, gokit.InternalServerError(logID)
 	}
 }
 
-// impersonation is the original identity an impersonated token carries.
-type impersonation struct {
-	userID, username, role string
-}
-
-func impersonationFromClaims(claims map[string]any) *impersonation {
-	if claims == nil || !httpshared.InterfaceBool(claims["is_impersonated"]) {
-		return nil
+// issuedAfter is the cut-off new tokens for the user must be issued after.
+func issuedAfter(u domainuser.Users) time.Time {
+	if u.TokensValidAfter == nil {
+		return time.Time{}
 	}
-
-	return &impersonation{
-		userID:   gokit.InterfaceString(claims["original_user_id"]),
-		username: gokit.InterfaceString(claims["original_username"]),
-		role:     gokit.InterfaceString(claims["original_role"]),
-	}
-}
-
-func (h *Handler) issueAccessToken(user *domainuser.Users, logID string, imp *impersonation) (string, error) {
-	if imp == nil {
-		return h.Tokens.Generate(user.ID, user.Name, user.Role, logID)
-	}
-	return h.Tokens.GenerateImpersonated(user.ID, user.Name, user.Role, logID, imp.userID, imp.username, imp.role)
-}
-
-func (h *Handler) issueRefreshToken(user *domainuser.Users, logID string, imp *impersonation) (string, error) {
-	if imp == nil {
-		return h.Tokens.GenerateRefresh(user.ID, user.Name, user.Role, logID)
-	}
-	return h.Tokens.GenerateRefreshImpersonated(user.ID, user.Name, user.Role, logID, imp.userID, imp.username, imp.role)
+	return *u.TokensValidAfter
 }
 
 // configEnabled reads a runtime flag. When the lookup fails it logs, writes the
@@ -602,11 +541,6 @@ func (h *Handler) deleteUser(ctx *gin.Context, logID uuid.UUID, logPrefix, id, f
 		respondUserMutationError(ctx, logID, err)
 		return
 	}
-	if err := h.revokeAllSessions(reqCtx, id); err != nil {
-		// The account is already deleted and its tokens are invalid; the
-		// leftover sessions expire on their own.
-		logus.LogContextf(ctx, logus.LevelError, "%s; revoke sessions of deleted user; ERROR: %s;", logPrefix, err)
-	}
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
 		Action:     domainaudit.ActionDelete,
 		Resource:   "user",
@@ -688,42 +622,76 @@ func (h *Handler) denyWhileImpersonating(ctx *gin.Context, logID uuid.UUID, scop
 	return true
 }
 
-// tokenIssuedAt is the iat of the request's access token, or zero.
-func (h *Handler) tokenIssuedAt(ctx *gin.Context) time.Time {
-	iat, _ := httpshared.GetAuthData(ctx.Request.Context())["iat"].(float64)
-	if iat == 0 {
-		return time.Time{}
-	}
-	return time.Unix(int64(iat), 0)
-}
-
 // registerLimiterFailure records a failed attempt on key and reports whether
-// the key is now blocked.
-func (h *Handler) registerLimiterFailure(ctx *gin.Context, logPrefix, key string) bool {
+// the key is now blocked. With FailClosedLimiters a limiter error answers 503
+// itself and the second result is true.
+func (h *Handler) registerLimiterFailure(ctx *gin.Context, logID uuid.UUID, logPrefix, key string) (blocked, responded bool) {
 	if h.LoginLimiter == nil {
-		return false
+		return false, false
 	}
 	blocked, _, err := h.LoginLimiter.RegisterFailure(ctx.Request.Context(), key)
 	if err != nil {
 		logus.LogContextf(ctx, logus.LevelError, "%s; LoginLimiter.RegisterFailure error: %v", logPrefix, err)
+		if h.Settings.FailClosedLimiters {
+			res := gokit.ErrorResponse(http.StatusServiceUnavailable, gokit.MsgSomethingWrong, logID, "Service is temporarily unavailable.")
+			ctx.JSON(http.StatusServiceUnavailable, res)
+			return false, true
+		}
 	}
-	return blocked
+	return blocked, false
 }
 
-// revokeOtherSessions ends every session of the user but the one the request's
-// access token belongs to. A token without a session keeps nothing.
-func (h *Handler) revokeOtherSessions(reqCtx context.Context, ctx *gin.Context, userID string) error {
+// confirmOwnPassword reads current_password from the body and checks it. When
+// it cannot, the response is already written and ok is false.
+func (h *Handler) confirmOwnPassword(ctx *gin.Context, logID uuid.UUID, logPrefix, userID string) bool {
+	var req dtouser.DeleteOwn
+	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
+		return false
+	}
+	if err := h.Service.VerifyPassword(ctx.Request.Context(), userID, req.CurrentPassword); err != nil {
+		h.WriteAudit(ctx, domainaudit.AuditEvent{
+			Action:       domainaudit.ActionDelete,
+			Resource:     "user",
+			ResourceID:   userID,
+			Status:       domainaudit.StatusFailed,
+			Message:      "Failed to delete own user: current password check failed",
+			ErrorMessage: err.Error(),
+		})
+		respondUserMutationError(ctx, logID, err)
+		return false
+	}
+	return true
+}
+
+// reissueSession binds the new token pair to the caller's session after a
+// password change and ends every other session. A caller whose token has no
+// session (or whose session passed its lifetime cap) gets a fresh one.
+func (h *Handler) reissueSession(ctx *gin.Context, reqCtx context.Context, user *domainuser.Users, accessToken, refreshToken, logPrefix string) error {
 	if h.SessionSvc == nil {
 		return nil
 	}
-	token, _ := ctx.Get("token")
-	tokenString, _ := token.(string)
-	current, err := h.SessionSvc.GetSessionByToken(reqCtx, tokenString)
-	if err != nil {
-		if errors.Is(err, domainsession.ErrNotFound) {
-			return h.SessionSvc.DestroyAllUserSessions(reqCtx, userID)
+	current := h.currentSession(reqCtx, ctx)
+	if current != nil {
+		if expiry, withinCap := h.sessionExpiry(current.LoginAt); withinCap {
+			if err := h.SessionSvc.DestroyOtherSessions(reqCtx, user.ID, current.SessionID); err != nil {
+				return err
+			}
+			return h.SessionSvc.RotateSessionTokens(reqCtx, current.SessionID, accessToken, refreshToken, expiry)
 		}
+	}
+	if err := h.SessionSvc.DestroyAllUserSessions(reqCtx, user.ID); err != nil {
 		return err
 	}
-	return h.SessionSvc.DestroyOtherSessions(reqCtx, userID, current.SessionID)
+	return h.createLoginSession(ctx, reqCtx, user, accessToken, refreshToken, logPrefix)
+}
+
+// currentSession is the session of the request's access token, or nil.
+func (h *Handler) currentSession(reqCtx context.Context, ctx *gin.Context) *domainsession.Session {
+	token, _ := ctx.Get("token")
+	tokenString, _ := token.(string)
+	session, err := h.SessionSvc.GetSessionByToken(reqCtx, tokenString)
+	if err != nil {
+		return nil
+	}
+	return session
 }

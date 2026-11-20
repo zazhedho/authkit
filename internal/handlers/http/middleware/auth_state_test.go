@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -50,8 +51,10 @@ func (d sessionIndexDouble) HasAccessTokenSession(ctx context.Context, tokenStri
 
 func authWith(t *testing.T, users UserStates, cache StateCache, sessions SessionIndex) *Middleware {
 	t.Helper()
-	mdw := New(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute)
-	mdw.Users, mdw.StateCache, mdw.Sessions = users, cache, sessions
+	mdw, err := New(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, testTokens(t), 2*time.Minute, users, cache, sessions)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return mdw
 }
 
@@ -132,7 +135,7 @@ func TestAuthSessionCheckFailureIsAnError(t *testing.T) {
 func TestAuthSkipsTheSessionCheckForSessionlessTokens(t *testing.T) {
 	users := &stateDouble{state: domainuser.AuthState{Role: domainuser.RoleViewer}}
 	mdw := authWith(t, users, nil, sessionIndexDouble{live: false})
-	raw, err := testTokens(t).GenerateImpersonated("user-1", "Jane", domainuser.RoleViewer, "log", "admin-1", "Admin", domainuser.RoleAdmin)
+	raw, err := testTokens(t).GenerateImpersonated("user-1", "Jane", domainuser.RoleViewer, "admin-1", "Admin", domainuser.RoleAdmin, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,4 +144,108 @@ func TestAuthSkipsTheSessionCheckForSessionlessTokens(t *testing.T) {
 		t.Fatalf("impersonation token: status = %d, want 200", rec.Code)
 	}
 	_ = token.AppClaims{}
+}
+
+// claimUsers answers every user lookup with the role of the token it last saw,
+// so tests that only care about roles and permissions need no user table.
+type claimUsers struct {
+	TokenVerifier
+	role string
+}
+
+func (c *claimUsers) ClaimsFromRequest(r *http.Request) (string, map[string]any, error) {
+	raw, claims, err := c.TokenVerifier.ClaimsFromRequest(r)
+	if err == nil {
+		c.role, _ = claims["role"].(string)
+	}
+	return raw, claims, err
+}
+
+func (c *claimUsers) GetAuthState(context.Context, string) (domainuser.AuthState, error) {
+	return domainuser.AuthState{Role: c.role}, nil
+}
+
+func newForTest(t *testing.T, blacklist TokenRevocations, perms PermissionLookup, cache PermissionCache, tokens TokenVerifier, ttl time.Duration) *Middleware {
+	t.Helper()
+	users := &claimUsers{TokenVerifier: tokens}
+	mdw, err := New(blacklist, perms, cache, users, ttl, users, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mdw
+}
+
+func TestNewRefusesMissingDependencies(t *testing.T) {
+	users := &stateDouble{}
+	tokens := testTokens(t)
+	cases := map[string]func() (*Middleware, error){
+		"users": func() (*Middleware, error) {
+			return New(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, tokens, 0, nil, nil, nil)
+		},
+		"tokens": func() (*Middleware, error) {
+			return New(&authRepoTestDouble{}, &permissionRepoTestDouble{}, nil, nil, 0, users, nil, nil)
+		},
+		"blacklist": func() (*Middleware, error) {
+			return New(nil, &permissionRepoTestDouble{}, nil, tokens, 0, users, nil, nil)
+		},
+	}
+	for name, build := range cases {
+		if _, err := build(); !errors.Is(err, ErrMissingDependency) {
+			t.Errorf("nil %s: err = %v, want ErrMissingDependency", name, err)
+		}
+	}
+}
+
+func TestAuthRevokesWithMillisecondPrecision(t *testing.T) {
+	raw := testToken(t, "access", domainuser.RoleViewer)
+	claims, err := testTokens(t).Claims(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued := time.UnixMilli(int64(claims["iat_ms"].(float64)))
+	for name, tc := range map[string]struct {
+		cutoff time.Time
+		want   int
+	}{
+		"revoked at the issue instant": {issued, http.StatusUnauthorized},
+		"revoked just after issue":     {issued.Add(time.Millisecond), http.StatusUnauthorized},
+		"revoked just before issue":    {issued.Add(-time.Millisecond), http.StatusOK},
+	} {
+		mdw := authWith(t, &stateDouble{state: domainuser.AuthState{Role: domainuser.RoleViewer, TokensValidAfter: &tc.cutoff}}, nil, nil)
+		if rec := performMiddlewareRequest(raw, mdw.AuthMiddleware()); rec.Code != tc.want {
+			t.Errorf("%s: status = %d, want %d", name, rec.Code, tc.want)
+		}
+	}
+}
+
+type statesByID map[string]domainuser.AuthState
+
+func (s statesByID) GetAuthState(_ context.Context, id string) (domainuser.AuthState, error) {
+	state, ok := s[id]
+	if !ok {
+		return domainuser.AuthState{}, domainuser.ErrNotFound
+	}
+	return state, nil
+}
+
+func TestImpersonationTokenDiesWithTheOriginalUser(t *testing.T) {
+	raw, err := testTokens(t).GenerateImpersonated("target", "T", domainuser.RoleViewer, "admin", "A", domainuser.RoleAdmin, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(time.Minute)
+	for name, tc := range map[string]struct {
+		states statesByID
+		want   int
+	}{
+		"both live":                    {statesByID{"target": {Role: "viewer"}, "admin": {Role: "admin"}}, http.StatusOK},
+		"original deleted":             {statesByID{"target": {Role: "viewer"}}, http.StatusUnauthorized},
+		"original revoked after issue": {statesByID{"target": {Role: "viewer"}, "admin": {Role: "admin", TokensValidAfter: &future}}, http.StatusUnauthorized},
+		"target revoked after issue":   {statesByID{"target": {Role: "viewer", TokensValidAfter: &future}, "admin": {Role: "admin"}}, http.StatusUnauthorized},
+	} {
+		mdw := authWith(t, tc.states, nil, nil)
+		if rec := performMiddlewareRequest(raw, mdw.AuthMiddleware()); rec.Code != tc.want {
+			t.Errorf("%s: status = %d, want %d", name, rec.Code, tc.want)
+		}
+	}
 }

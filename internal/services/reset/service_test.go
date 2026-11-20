@@ -89,7 +89,7 @@ type resetSenderTestDouble struct {
 	err      error
 }
 
-func (m *resetSenderTestDouble) SendPasswordReset(to, token, appName, resetURL string, ttl time.Duration) error {
+func (m *resetSenderTestDouble) SendPasswordReset(ctx context.Context, to, token, appName, resetURL string, ttl time.Duration) error {
 	m.to = to
 	m.token = token
 	m.appName = appName

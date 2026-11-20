@@ -38,7 +38,7 @@ func loginService(t *testing.T, repo *userRepoMock, phoneLogin bool) *Service {
 
 func TestLoginMissingUserIsInvalidCredentialsAfterAHashComparison(t *testing.T) {
 	svc := loginService(t, &userRepoMock{emailErr: domainuser.ErrNotFound}, false)
-	_, err := svc.LoginUser(context.Background(), dtouser.Login{Identifier: "nobody@example.com", Password: "Passw0rd!x"}, "log", dtouser.LoginMetadata{})
+	_, err := svc.LoginUser(context.Background(), dtouser.Login{Identifier: "nobody@example.com", Password: "Passw0rd!x"}, dtouser.LoginMetadata{})
 	if !errors.Is(err, domainuser.ErrInvalidCredentials) {
 		t.Fatalf("err = %v, want ErrInvalidCredentials", err)
 	}
@@ -46,7 +46,7 @@ func TestLoginMissingUserIsInvalidCredentialsAfterAHashComparison(t *testing.T) 
 
 func TestLoginWrongPasswordIsInvalidCredentials(t *testing.T) {
 	svc := loginService(t, &userRepoMock{emailUser: domainuser.Users{ID: "u", Password: hashAt(t, "Passw0rd!x", weakCost)}}, false)
-	_, err := svc.LoginUser(context.Background(), dtouser.Login{Identifier: "a@example.com", Password: "wrong"}, "log", dtouser.LoginMetadata{})
+	_, err := svc.LoginUser(context.Background(), dtouser.Login{Identifier: "a@example.com", Password: "wrong"}, dtouser.LoginMetadata{})
 	if !errors.Is(err, domainuser.ErrInvalidCredentials) {
 		t.Fatalf("err = %v, want ErrInvalidCredentials", err)
 	}
@@ -54,7 +54,7 @@ func TestLoginWrongPasswordIsInvalidCredentials(t *testing.T) {
 
 func TestLoginMalformedHashCountsAsInvalidCredentials(t *testing.T) {
 	svc := loginService(t, &userRepoMock{emailUser: domainuser.Users{ID: "u", Password: strings.Repeat("x", 12)}}, false) //nolint:gosec // a malformed hash, not a credential
-	_, err := svc.LoginUser(context.Background(), dtouser.Login{Identifier: "a@example.com", Password: "Passw0rd!x"}, "log", dtouser.LoginMetadata{})
+	_, err := svc.LoginUser(context.Background(), dtouser.Login{Identifier: "a@example.com", Password: "Passw0rd!x"}, dtouser.LoginMetadata{})
 	if !errors.Is(err, domainuser.ErrInvalidCredentials) {
 		t.Fatalf("err = %v, want ErrInvalidCredentials", err)
 	}
@@ -62,11 +62,11 @@ func TestLoginMalformedHashCountsAsInvalidCredentials(t *testing.T) {
 
 func TestLoginByPhoneIsOffByDefault(t *testing.T) {
 	repo := &userRepoMock{phoneUser: domainuser.Users{ID: "u", Password: hashAt(t, "Passw0rd!x", weakCost)}}
-	_, err := loginService(t, repo, false).LoginUser(context.Background(), dtouser.Login{Identifier: "081234567890", Password: "Passw0rd!x"}, "log", dtouser.LoginMetadata{})
+	_, err := loginService(t, repo, false).LoginUser(context.Background(), dtouser.Login{Identifier: "081234567890", Password: "Passw0rd!x"}, dtouser.LoginMetadata{})
 	if !errors.Is(err, domainuser.ErrInvalidCredentials) {
 		t.Fatalf("phone login while off: err = %v, want ErrInvalidCredentials", err)
 	}
-	if _, err := loginService(t, repo, true).LoginUser(context.Background(), dtouser.Login{Identifier: "081234567890", Password: "Passw0rd!x"}, "log", dtouser.LoginMetadata{}); err != nil {
+	if _, err := loginService(t, repo, true).LoginUser(context.Background(), dtouser.Login{Identifier: "081234567890", Password: "Passw0rd!x"}, dtouser.LoginMetadata{}); err != nil {
 		t.Fatalf("phone login while on: %v", err)
 	}
 }
@@ -74,7 +74,7 @@ func TestLoginByPhoneIsOffByDefault(t *testing.T) {
 func TestLoginWritesOnlyTheLoginColumnsAndRehashesALowCostHash(t *testing.T) {
 	repo := &userRepoMock{emailUser: domainuser.Users{ID: "u", Name: "N", Role: "viewer", Password: hashAt(t, "Passw0rd!x", weakCost)}}
 	svc := loginService(t, repo, false)
-	if _, err := svc.LoginUser(context.Background(), dtouser.Login{Identifier: "a@example.com", Password: "Passw0rd!x"}, "log", dtouser.LoginMetadata{IP: "1.2.3.4"}); err != nil {
+	if _, err := svc.LoginUser(context.Background(), dtouser.Login{Identifier: "a@example.com", Password: "Passw0rd!x"}, dtouser.LoginMetadata{IP: "1.2.3.4"}); err != nil {
 		t.Fatal(err)
 	}
 	if repo.updated.ID != "" {
@@ -92,7 +92,7 @@ func TestLoginWritesOnlyTheLoginColumnsAndRehashesALowCostHash(t *testing.T) {
 
 	// A hash already at the current cost is left alone.
 	repo = &userRepoMock{emailUser: domainuser.Users{ID: "u", Password: hashAt(t, "Passw0rd!x", passwordCost)}}
-	if _, err := loginService(t, repo, false).LoginUser(context.Background(), dtouser.Login{Identifier: "a@example.com", Password: "Passw0rd!x"}, "log", dtouser.LoginMetadata{}); err != nil {
+	if _, err := loginService(t, repo, false).LoginUser(context.Background(), dtouser.Login{Identifier: "a@example.com", Password: "Passw0rd!x"}, dtouser.LoginMetadata{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := repo.fields["password"]; ok {

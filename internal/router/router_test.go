@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
@@ -105,7 +106,7 @@ func newCore(t *testing.T, mutate func(*config.Config)) (*Core, *testutil.Driver
 
 func tokenFor(t *testing.T, core *Core, id, role string) string {
 	t.Helper()
-	tok, err := core.Tokens.GenerateWithClaims(id, "User "+id, role, "authkit-issued", &token.AppClaims{NoSession: true})
+	tok, err := core.Tokens.GenerateWithClaims(id, "User "+id, role, &token.AppClaims{NoSession: true}, time.Time{})
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
@@ -133,7 +134,9 @@ func newMiniRedis(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
 func mountedEngine(t *testing.T, core *Core) *gin.Engine {
 	t.Helper()
 	engine := gin.New()
-	Mount(engine.Group("/api"), core.Deps)
+	if err := Mount(engine.Group("/api"), core.Deps); err != nil {
+		t.Fatal(err)
+	}
 	return engine
 }
 
@@ -161,8 +164,12 @@ func TestMountRegistersSessionRoutesWithRedisButNoMailer(t *testing.T) {
 func TestMountCanServeTwoGroups(t *testing.T) {
 	core, _ := newCore(t, nil)
 	engine := gin.New()
-	Mount(engine.Group("/api"), core.Deps)
-	Mount(engine.Group("/v2"), core.Deps)
+	if err := Mount(engine.Group("/api"), core.Deps); err != nil {
+		t.Fatal(err)
+	}
+	if err := Mount(engine.Group("/v2"), core.Deps); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, prefix := range []string{"/api", "/v2"} {
 		if code := do(engine, http.MethodGet, prefix+"/user/register/status", "").Code; code != http.StatusOK {
@@ -332,7 +339,9 @@ func routeTable(t *testing.T, core *Core) string {
 		chains[c.Request.Method+" "+c.FullPath()] = chain
 		c.Abort()
 	})
-	Mount(engine.Group("/api"), core.Deps)
+	if err := Mount(engine.Group("/api"), core.Deps); err != nil {
+		t.Fatal(err)
+	}
 	for _, r := range engine.Routes() {
 		path := strings.Split(r.Path, "/")
 		for i, seg := range path {

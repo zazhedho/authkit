@@ -29,7 +29,7 @@ type ruleEnv struct {
 // users:delete, "staff" holds users:update only, "viewer" holds nothing.
 func newRuleEnv(t *testing.T, target domainuser.Users) ruleEnv {
 	t.Helper()
-	users := &userRepoMock{usersByID: map[string]domainuser.Users{target.ID: target}, superAdmins: 2}
+	users := &userRepoMock{usersByID: map[string]domainuser.Users{target.ID: target, "staff-1": {ID: "staff-1", Role: "staff"}}, superAdmins: 2}
 	perms := &permissionRepoUserMock{rolePermissions: map[string][]domainpermission.Permission{
 		"admin":  {perm("users", "update"), perm("users", "delete"), perm("roles", "update")},
 		"staff":  {perm("users", "update")},
@@ -97,9 +97,6 @@ func TestDeleteAllowsACoveredTargetAndRevokesTokens(t *testing.T) {
 	if env.users.deletedID != "stf" {
 		t.Fatal("expected delete")
 	}
-	if _, ok := env.users.fields["tokens_valid_after"]; !ok {
-		t.Fatal("expected tokens_valid_after to be bumped")
-	}
 }
 
 func TestDeleteSelfIsAllowedForOrdinaryUsers(t *testing.T) {
@@ -147,9 +144,8 @@ func TestRoleChangeBumpsTokensValidAfter(t *testing.T) {
 	if _, err := env.svc.Update(context.Background(), staffActor(), "v", dtouser.Update{Role: "staff"}); err != nil {
 		t.Fatal(err)
 	}
-	got, ok := env.users.fields["tokens_valid_after"].(time.Time)
-	if !ok || time.Since(got) > time.Minute {
-		t.Fatalf("tokens_valid_after not bumped: %v", env.users.fields)
+	if !env.users.revoked || env.users.fields["role"] != "staff" {
+		t.Fatalf("the role must change together with the cut-off: revoked=%v fields=%v", env.users.revoked, env.users.fields)
 	}
 }
 
@@ -180,8 +176,8 @@ func TestSelfServiceEmailChangeNeedsTheCurrentPassword(t *testing.T) {
 	if got.EmailVerifiedAt != nil {
 		t.Fatal("email change must reset verification")
 	}
-	if _, ok := env.users.fields["tokens_valid_after"]; !ok {
-		t.Fatal("email change must bump tokens_valid_after")
+	if !env.users.revoked {
+		t.Fatal("email change must revoke tokens in the same write")
 	}
 }
 
@@ -214,7 +210,7 @@ func TestAdminCreateUserRefusesARoleTheActorDoesNotCover(t *testing.T) {
 
 func TestImpersonationFollowsTheRoleRule(t *testing.T) {
 	env := newRuleEnv(t, domainuser.Users{ID: "adm", Role: "admin", Name: "Adm"})
-	_, err := env.svc.ImpersonateUser(context.Background(), staffActor(), "adm", "ticket 42", "log")
+	_, err := env.svc.ImpersonateUser(context.Background(), staffActor(), "adm", "ticket 42")
 	if !errors.Is(err, domainuser.ErrRoleAboveActor) {
 		t.Fatalf("got %v", err)
 	}

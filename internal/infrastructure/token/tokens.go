@@ -11,6 +11,10 @@ import (
 	"github.com/google/uuid"
 )
 
+// ClockSkewLeeway is the tolerance for iat and exp between nodes whose clocks
+// differ slightly.
+const ClockSkewLeeway = 30 * time.Second
+
 // maxImpersonationTTL caps the life of an impersonation access token.
 const maxImpersonationTTL = 15 * time.Minute
 
@@ -55,45 +59,47 @@ func New(cfg Config) (*Tokens, error) {
 	return t, nil
 }
 
-// AccessTTL and RefreshTTL return zero on a nil receiver, matching the other
-// methods' fail-closed handling of a missing *Tokens.
-func (t *Tokens) AccessTTL() time.Duration {
-	if t == nil {
-		return 0
+// issuedAt is now, pushed to one millisecond past after (a revocation cut-off;
+// zero for none), so a token issued right after a revocation is never void
+// because of clock skew or rounding.
+func issuedAt(after time.Time) time.Time {
+	now := time.Now()
+	if floor := after.Add(time.Millisecond); !after.IsZero() && now.Before(floor) {
+		return floor
 	}
-	return t.accessTTL
-}
-
-func (t *Tokens) RefreshTTL() time.Duration {
-	if t == nil {
-		return 0
-	}
-	return t.refreshTTL
+	return now
 }
 
 // Generate issues an access token. The Generate methods take the user's id,
 // name and role as plain strings so this package needs no domain type.
-func (t *Tokens) Generate(userID, username, role, logID string) (string, error) {
-	return t.GenerateWithClaims(userID, username, role, logID, nil)
+func (t *Tokens) Generate(userID, username, role string, after time.Time) (string, error) {
+	return t.GenerateWithClaims(userID, username, role, nil, after)
 }
 
-func (t *Tokens) GenerateWithClaims(userID, username, role, logID string, claimsOverride *AppClaims) (string, error) {
+// GenerateNoSession issues an access token that is not bound to a Redis session.
+func (t *Tokens) GenerateNoSession(userID, username, role string, after time.Time) (string, error) {
+	return t.GenerateWithClaims(userID, username, role, &AppClaims{NoSession: true}, after)
+}
+
+func (t *Tokens) GenerateWithClaims(userID, username, role string, claimsOverride *AppClaims, after time.Time) (string, error) {
 	if t == nil {
 		return "", ErrJWTKeyNotConfigured
 	}
 
-	accessExp := time.Now().Add(t.accessTTL)
+	issued := issuedAt(after)
+	accessExp := issued.Add(t.accessTTL)
 	claims := AppClaims{
-		UserID:    userID,
-		Username:  username,
-		Role:      role,
-		TokenType: TokenTypeAccess,
+		UserID:     userID,
+		Username:   username,
+		Role:       role,
+		TokenType:  TokenTypeAccess,
+		IssuedAtMS: issued.UnixMilli(),
 		RegisteredClaims: &jwt.RegisteredClaims{
 			Issuer:    t.appName,
 			Audience:  jwt.ClaimStrings{t.appName},
 			ID:        uuid.NewString(),
 			ExpiresAt: jwt.NewNumericDate(accessExp),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			IssuedAt:  jwt.NewNumericDate(issued),
 		},
 	}
 	if claimsOverride != nil {
@@ -106,7 +112,7 @@ func (t *Tokens) GenerateWithClaims(userID, username, role, logID string, claims
 		claims.OriginalUsername = claimsOverride.OriginalUsername
 		claims.OriginalRole = claimsOverride.OriginalRole
 		if claims.IsImpersonated && t.accessTTL > maxImpersonationTTL {
-			claims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(maxImpersonationTTL))
+			claims.ExpiresAt = jwt.NewNumericDate(issued.Add(maxImpersonationTTL))
 		}
 		if claimsOverride.RegisteredClaims != nil && claimsOverride.ExpiresAt != nil {
 			claims.ExpiresAt = claimsOverride.ExpiresAt
@@ -117,45 +123,26 @@ func (t *Tokens) GenerateWithClaims(userID, username, role, logID string, claims
 	return token.SignedString(t.key)
 }
 
-func (t *Tokens) GenerateRefresh(userID, username, role, logID string) (string, error) {
-	return t.generateRefresh(userID, username, role, logID, nil)
-}
-
-// GenerateRefreshImpersonated issues a refresh token that keeps the original
-// identity an impersonation started from.
-func (t *Tokens) GenerateRefreshImpersonated(userID, username, role, logID, originalUserID, originalUsername, originalRole string) (string, error) {
-	return t.generateRefresh(userID, username, role, logID, &AppClaims{
-		IsImpersonated:   true,
-		OriginalUserID:   originalUserID,
-		OriginalUsername: originalUsername,
-		OriginalRole:     originalRole,
-	})
-}
-
-func (t *Tokens) generateRefresh(userID, username, role, logID string, claimsOverride *AppClaims) (string, error) {
+func (t *Tokens) GenerateRefresh(userID, username, role string, after time.Time) (string, error) {
 	if t == nil {
 		return "", ErrJWTKeyNotConfigured
 	}
 
-	refreshExp := time.Now().Add(t.refreshTTL)
+	issued := issuedAt(after)
+	refreshExp := issued.Add(t.refreshTTL)
 	claims := &AppClaims{
-		UserID:    userID,
-		Username:  username,
-		Role:      role,
-		TokenType: TokenTypeRefresh,
+		UserID:     userID,
+		Username:   username,
+		Role:       role,
+		TokenType:  TokenTypeRefresh,
+		IssuedAtMS: issued.UnixMilli(),
 		RegisteredClaims: &jwt.RegisteredClaims{
 			Issuer:    t.appName,
 			Audience:  jwt.ClaimStrings{t.appName},
 			ID:        uuid.NewString(),
 			ExpiresAt: jwt.NewNumericDate(refreshExp),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			IssuedAt:  jwt.NewNumericDate(issued),
 		},
-	}
-	if claimsOverride != nil {
-		claims.IsImpersonated = claimsOverride.IsImpersonated
-		claims.OriginalUserID = claimsOverride.OriginalUserID
-		claims.OriginalUsername = claimsOverride.OriginalUsername
-		claims.OriginalRole = claimsOverride.OriginalRole
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -184,7 +171,7 @@ func (t *Tokens) Claims(tokenString string) (map[string]any, error) {
 		}
 
 		return t.key, nil
-	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired(), jwt.WithIssuedAt(),
+	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired(), jwt.WithIssuedAt(), jwt.WithLeeway(ClockSkewLeeway),
 		jwt.WithIssuer(t.appName), jwt.WithAudience(t.appName))
 	if err != nil {
 		return nil, err
@@ -212,11 +199,11 @@ func (t *Tokens) ExpiresAt(tokenString string) (time.Time, error) {
 
 // GenerateImpersonated issues an access token that records the original identity
 // the impersonation started from.
-func (t *Tokens) GenerateImpersonated(userID, username, role, logID, originalUserID, originalUsername, originalRole string) (string, error) {
-	return t.GenerateWithClaims(userID, username, role, logID, &AppClaims{
+func (t *Tokens) GenerateImpersonated(userID, username, role, originalUserID, originalUsername, originalRole string, after time.Time) (string, error) {
+	return t.GenerateWithClaims(userID, username, role, &AppClaims{
 		IsImpersonated:   true,
 		OriginalUserID:   originalUserID,
 		OriginalUsername: originalUsername,
 		OriginalRole:     originalRole,
-	})
+	}, after)
 }

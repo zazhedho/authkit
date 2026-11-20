@@ -20,13 +20,15 @@ const (
 	scanCount      = int64(100)
 )
 
+// Key and StateKey carry the user id as a hash tag, so a user's keys share a
+// Redis Cluster slot and can be deleted in one command.
 func Key(userID string) string {
-	return keyPrefix + userID
+	return keyPrefix + "{" + userID + "}"
 }
 
 // StateKey is the cache key of a user's auth state.
 func StateKey(userID string) string {
-	return stateKeyPrefix + userID
+	return stateKeyPrefix + "{" + userID + "}"
 }
 
 func GetUserPermissionKeys(ctx context.Context, client redis.UniversalClient, userID string) ([]string, bool) {
@@ -83,28 +85,43 @@ func DeleteUserPermissionKeys(ctx context.Context, client redis.UniversalClient,
 }
 
 // DeleteAllUserPermissionKeys deletes every cached permission set; auth states
-// are per user and survive.
+// are per user and survive. On a Redis Cluster it scans every master.
 func DeleteAllUserPermissionKeys(ctx context.Context, client redis.UniversalClient) {
 	if client == nil {
 		return
 	}
+	if cluster, ok := client.(*redis.ClusterClient); ok {
+		err := cluster.ForEachMaster(ctx, func(ctx context.Context, node *redis.Client) error {
+			return deleteScanned(ctx, node)
+		})
+		if err != nil {
+			logus.LogContextf(ctx, logus.LevelError, "permission cache: scan cluster: %v", err)
+		}
+		return
+	}
+	if err := deleteScanned(ctx, client); err != nil {
+		logus.LogContextf(ctx, logus.LevelError, "permission cache: %v", err)
+	}
+}
 
+// deleteScanned deletes the permission keys of one node. The keys of a node
+// can sit in different slots, so they are deleted one by one.
+func deleteScanned(ctx context.Context, client redis.Cmdable) error {
 	var cursor uint64
 	for {
-		keys, nextCursor, err := client.Scan(ctx, cursor, keyPrefix+"*", scanCount).Result()
+		keys, next, err := client.Scan(ctx, cursor, keyPrefix+"*", scanCount).Result()
 		if err != nil {
-			logus.LogContextf(ctx, logus.LevelError, "permission cache: scan: %v", err)
-			return
+			return err
 		}
-		if len(keys) > 0 {
-			if err := client.Del(ctx, keys...).Err(); err != nil {
-				logus.LogContextf(ctx, logus.LevelError, "permission cache: delete: %v", err)
+		for _, key := range keys {
+			if err := client.Del(ctx, key).Err(); err != nil {
+				return err
 			}
 		}
-		if nextCursor == 0 {
-			return
+		if next == 0 {
+			return nil
 		}
-		cursor = nextCursor
+		cursor = next
 	}
 }
 

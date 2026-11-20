@@ -152,18 +152,19 @@ type Kit struct
 	method (*T) Audit() AuditService
 	method (*T) Auth() github.com/gin-gonic/gin.HandlerFunc
 	method (*T) Can(resource string, action string) github.com/gin-gonic/gin.HandlerFunc
+	method (*T) Close(ctx context.Context) error
 	method (*T) IssueAccessToken(userID string, name string, role string) (string, error)
 	method (*T) LoadPermissions() github.com/gin-gonic/gin.HandlerFunc
 	method (*T) Migrate(ctx context.Context) error
-	method (*T) Mount(r github.com/gin-gonic/gin.IRouter)
+	method (*T) Mount(r github.com/gin-gonic/gin.IRouter) error
 	method (*T) Role(allowed ...string) github.com/gin-gonic/gin.HandlerFunc
 type LoginLimit alias struct
 	field Limit int
 	field Window time.Duration
 	field BlockDuration time.Duration
 type Mailer alias interface
-	method SendOTP(to string, code string, appName string, ttl time.Duration) error
-	method SendPasswordReset(to string, token string, appName string, resetURL string, ttl time.Duration) error
+	method SendOTP(ctx context.Context, to string, code string, appName string, ttl time.Duration) error
+	method SendPasswordReset(ctx context.Context, to string, token string, appName string, resetURL string, ttl time.Duration) error
 const MigrationsTable untyped string = "authkit_schema_migrations"
 func New(cfg Config) (*Kit, error)
 func NewAuditWriter(service AuditService, scope string) AuditWriter
@@ -177,7 +178,7 @@ type OTPConfig alias struct
 	field Cooldown time.Duration
 	field Secret string
 type OTPMailer alias interface
-	method SendOTP(to string, code string, appName string, ttl time.Duration) error
+	method SendOTP(ctx context.Context, to string, code string, appName string, ttl time.Duration) error
 type PasswordResetConfig alias struct
 	field TTL time.Duration
 	field Cooldown time.Duration
@@ -190,7 +191,7 @@ type RateLimit alias struct
 	field Window time.Duration
 func RequestLogger() github.com/gin-gonic/gin.HandlerFunc
 type ResetMailer alias interface
-	method SendPasswordReset(to string, token string, appName string, resetURL string, ttl time.Duration) error
+	method SendPasswordReset(ctx context.Context, to string, token string, appName string, resetURL string, ttl time.Duration) error
 const RoleAdmin untyped string = "admin"
 const RoleStaff untyped string = "staff"
 const RoleSuperAdmin untyped string = "superadmin"

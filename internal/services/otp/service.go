@@ -85,7 +85,7 @@ func (s *Service) SendRegisterOTP(ctx context.Context, email, appName string) er
 		return fmt.Errorf("set cooldown: %w", err)
 	}
 
-	if err := s.Sender.SendOTP(normalizedEmail, code, appName, s.Config.TTL); err != nil {
+	if err := s.Sender.SendOTP(ctx, normalizedEmail, code, appName, s.Config.TTL); err != nil {
 		_ = s.Repo.DeleteOTP(ctx, normalizedEmail)
 		_ = s.Repo.ClearCooldown(ctx, normalizedEmail)
 		_ = s.Repo.ClearSendCount(ctx, normalizedEmail)

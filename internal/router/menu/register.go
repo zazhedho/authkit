@@ -2,13 +2,18 @@
 package menu
 
 import (
+	"errors"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/zazhedho/authkit/internal/router/module"
 )
 
 // Register mounts the menu routes under r.
-func Register(r gin.IRouter, d module.Deps) {
+func Register(r gin.IRouter, d module.Deps) error {
+	if d.Menu == nil {
+		return errors.New("router: the menu handler is missing")
+	}
 	h := d.Menu
 
 	// Available to any authenticated user.
@@ -22,4 +27,5 @@ func Register(r gin.IRouter, d module.Deps) {
 		menu.GET("/:id", d.Can("menus", "view"), h.GetByID)
 		menu.PUT("/:id", d.Can("menus", "update"), h.Update)
 	}
+	return nil
 }

@@ -2,6 +2,7 @@ package router
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/zazhedho/authkit/internal/config"
 	httpappconfig "github.com/zazhedho/authkit/internal/handlers/http/appconfig"
@@ -12,6 +13,7 @@ import (
 	httprole "github.com/zazhedho/authkit/internal/handlers/http/role"
 	httpsession "github.com/zazhedho/authkit/internal/handlers/http/session"
 	httpuser "github.com/zazhedho/authkit/internal/handlers/http/user"
+	"github.com/zazhedho/authkit/internal/infrastructure/async"
 	cachepermission "github.com/zazhedho/authkit/internal/infrastructure/cache/permission"
 	"github.com/zazhedho/authkit/internal/infrastructure/ratelimit"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
@@ -37,6 +39,12 @@ import (
 	serviceuser "github.com/zazhedho/authkit/internal/services/user"
 )
 
+const (
+	// asyncLimit caps the mail sends running after their responses.
+	asyncLimit   = 16
+	asyncTimeout = 30 * time.Second
+)
+
 // Core is the assembled kit: the Deps the modules mount from, plus the pieces
 // the root facade exposes directly.
 type Core struct {
@@ -44,6 +52,7 @@ type Core struct {
 	Tokens     *token.Tokens
 	Middleware *middleware.Middleware
 	Users      httpuser.Service
+	Async      *async.Runner
 	Audit      AuditList
 	AppConfig  AppConfigList
 }
@@ -81,31 +90,25 @@ func Wire(cfg config.Config) (*Core, error) {
 	appConfigCore.SetBoolKeys(cfg.Flags.PublicRegistration, cfg.Flags.RegisterOTP, cfg.Flags.PasswordResetEmail)
 	auditSvc := AuditList{auditCore}
 	appConfigSvc := AppConfigList{appConfigCore}
-	userSvc := serviceuser.NewService(userRepo, blacklistRepo, roleRepo, permissionRepo, serviceuser.Options{
-		Tokens:          tokens,
-		DefaultRole:     cfg.DefaultRole,
-		GoogleClientIDs: cfg.GoogleClientIDs,
-		PhoneLogin:      cfg.PhoneLogin,
-		GoogleVerifier:  verifyGoogle,
-		PermissionCache: invalidator,
-	})
 
-	// Without Redis: no login limiter or sessions, and OTP/reset get nil deps.
-	// With Redis but no Mailer only the limiter and sessions are active.
+	// Without Redis: no limiters or sessions, and OTP/reset get nil deps. With
+	// Redis but no Mailer only the limiters and sessions are active.
 	var (
-		loginLimiter ratelimit.LoginLimiter
-		sessionSvc   httpuser.SessionService // stays a nil interface without Redis
-		sessionHdlr  *httpsession.Handler
-		sessionRepo  *repositorysession.Repository
-		otpSvc       httpuser.OTPService   // nil interface until Redis and a Mailer exist
-		resetSvc     httpuser.ResetService // likewise
+		loginLimiter      ratelimit.LoginLimiter
+		identifierLimiter ratelimit.LoginLimiter
+		sessionSvc        httpuser.SessionService // stays a nil interface without Redis
+		sessionRevoker    serviceuser.SessionRevoker
+		sessionIndex      middleware.SessionIndex
+		sessionHdlr       *httpsession.Handler
+		otpSvc            httpuser.OTPService   // nil interface until Redis and a Mailer exist
+		resetSvc          httpuser.ResetService // likewise
 	)
 	if cfg.Redis != nil {
 		loginLimiter = ratelimit.NewRedisLoginLimiter(cfg.Redis, cfg.Login.Limit, cfg.Login.Window, cfg.Login.BlockDuration)
-		sessionRepo = repositorysession.NewRepository(cfg.Redis)
+		identifierLimiter = ratelimit.NewRedisBackoffLimiter(cfg.Redis, cfg.Login.Limit, cfg.Login.Window, cfg.Login.BlockDuration)
+		sessionRepo := repositorysession.NewRepository(cfg.Redis)
 		sessions := servicesession.NewService(sessionRepo, cfg.RefreshTokenTTL)
-		sessionSvc = sessions
-		userSvc.Sessions = sessions
+		sessionSvc, sessionRevoker, sessionIndex = sessions, sessions, sessionRepo
 		sessionHdlr = httpsession.New(sessions, auditSvc)
 		if m := config.OTPSender(cfg); m != nil {
 			otpSvc = serviceotp.NewService(repositoryotp.NewRepository(cfg.Redis), m, serviceotp.Config(cfg.OTP))
@@ -115,17 +118,29 @@ func Wire(cfg config.Config) (*Core, error) {
 		}
 	}
 
-	authMiddleware := middleware.New(blacklistRepo, permissionRepo, cachepermission.New(cfg.Redis), tokens, cfg.PermissionCacheTTL)
-	authMiddleware.Users = userRepo
-	authMiddleware.StateCache = cachepermission.New(cfg.Redis)
-	if sessionRepo != nil {
-		authMiddleware.Sessions = sessionRepo
+	userSvc := serviceuser.NewService(userRepo, blacklistRepo, roleRepo, permissionRepo, serviceuser.Options{
+		Tokens:          tokens,
+		DefaultRole:     cfg.DefaultRole,
+		GoogleClientIDs: cfg.GoogleClientIDs,
+		PhoneLogin:      cfg.PhoneLogin,
+		GoogleVerifier:  verifyGoogle,
+		PermissionCache: invalidator,
+		Sessions:        sessionRevoker,
+	})
+
+	// One cache serves permission sets and auth states.
+	cache := cachepermission.New(cfg.Redis)
+	authMiddleware, err := middleware.New(blacklistRepo, permissionRepo, cache, tokens, cfg.PermissionCacheTTL, userRepo, cache, sessionIndex)
+	if err != nil {
+		return nil, fmt.Errorf("authkit: middleware: %w", err)
 	}
+	runner := async.New(asyncLimit, asyncTimeout)
 
 	return &Core{
 		Tokens:     tokens,
 		Middleware: authMiddleware,
 		Users:      userSvc,
+		Async:      runner,
 		Audit:      auditSvc,
 		AppConfig:  appConfigSvc,
 		Deps: module.Deps{
@@ -134,10 +149,12 @@ func Wire(cfg config.Config) (*Core, error) {
 			RegisterLimit: registerRateLimit(cfg),
 			AuthLimit:     authRateLimit(cfg),
 			User: httpuser.New(userSvc, sessionSvc, loginLimiter, auditSvc, httpuser.Options{
-				AppConfigService: appConfigSvc,
-				OTPService:       otpSvc,
-				ResetService:     resetSvc,
-				Tokens:           tokens,
+				AppConfigService:  appConfigSvc,
+				OTPService:        otpSvc,
+				ResetService:      resetSvc,
+				Tokens:            tokens,
+				Async:             runner,
+				IdentifierLimiter: identifierLimiter,
 				Settings: httpuser.Settings{
 					AppEnv:             cfg.AppEnv,
 					EmailAppName:       cfg.EmailAppName,

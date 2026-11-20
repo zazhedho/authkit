@@ -12,6 +12,7 @@ import (
 	repositoryshared "github.com/zazhedho/authkit/internal/repositories/shared"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Repository struct {
@@ -38,52 +39,99 @@ func (r *Repository) GetByID(ctx context.Context, id string) (domainuser.Users, 
 	return ret, translateErr(err)
 }
 
-// editableColumns are the columns an edit may write; everything else (login
-// bookkeeping, tokens_valid_after, the password) has its own targeted update.
-var editableColumns = []string{"name", "email", "phone", "role", "role_id", "email_verified_at", "phone_verified_at", "password", "password_changed_at", "avatar_url", "updated_at"}
-
-// Update writes the editable columns of user and nothing else, so a concurrent
-// login or token revocation is not overwritten.
-func (r *Repository) Update(ctx context.Context, user domainuser.Users) error {
-	user.UpdatedAt = new(time.Now())
-	res := r.DB.WithContext(ctx).Model(&domainuser.Users{}).Where("id = ?", user.ID).Select(editableColumns).Updates(&user)
-	if res.Error != nil {
-		return translateErr(res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return domainuser.ErrNotFound
-	}
-	return nil
-}
-
-// updatableFields are the columns UpdateFields accepts.
+// updatableFields are the columns UpdateFields accepts. tokens_valid_after is
+// not among them: only UpdateFieldsRevoking writes it, with the database clock.
 var updatableFields = map[string]struct{}{
-	"tokens_valid_after":    {},
+	"name":                  {},
+	"email":                 {},
+	"phone":                 {},
+	"role":                  {},
+	"role_id":               {},
+	"email_verified_at":     {},
+	"phone_verified_at":     {},
+	"password":              {},
+	"password_changed_at":   {},
+	"avatar_url":            {},
 	"last_login_at":         {},
 	"last_login_ip":         {},
 	"last_login_user_agent": {},
 	"login_provider":        {},
 	"google_subject":        {},
-	"password":              {},
-	"password_changed_at":   {},
-	"email_verified_at":     {},
-	"avatar_url":            {},
 	"metadata":              {},
+	"updated_at":            {},
 }
 
 // UpdateFields writes only the named columns of a live user.
 func (r *Repository) UpdateFields(ctx context.Context, id string, fields map[string]any) error {
-	for column := range fields {
+	_, err := r.write(ctx, id, fields, false)
+	return err
+}
+
+// UpdateFieldsRevoking writes the named columns and, in the same statement,
+// sets tokens_valid_after to the database's now(); it returns that instant. A
+// write that demotes the last superadmin is refused.
+func (r *Repository) UpdateFieldsRevoking(ctx context.Context, id string, fields map[string]any) (time.Time, error) {
+	return r.write(ctx, id, fields, true)
+}
+
+func (r *Repository) write(ctx context.Context, id string, fields map[string]any, revoke bool) (time.Time, error) {
+	updates := make(map[string]any, len(fields)+2)
+	for column, value := range fields {
 		if _, ok := updatableFields[column]; !ok {
-			return fmt.Errorf("user: column %q cannot be updated", column)
+			return time.Time{}, fmt.Errorf("user: column %q cannot be updated", column)
 		}
+		updates[column] = value
 	}
-	res := r.DB.WithContext(ctx).Model(&domainuser.Users{}).Where("id = ?", id).Updates(fields)
-	if res.Error != nil {
-		return translateErr(res.Error)
+	if _, ok := updates["updated_at"]; !ok {
+		updates["updated_at"] = time.Now()
 	}
-	if res.RowsAffected == 0 {
-		return domainuser.ErrNotFound
+	if revoke {
+		updates["tokens_valid_after"] = gorm.Expr("now()")
+	}
+	demotes := false
+	if role, ok := fields["role"].(string); ok && role != domainuser.RoleSuperAdmin {
+		demotes = true
+	}
+
+	var cutoff time.Time
+	err := r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if demotes {
+			if err := guardLastSuperAdmin(tx, id); err != nil {
+				return err
+			}
+		}
+		var row domainuser.Users
+		query := tx.Model(&row).Where("id = ?", id)
+		if revoke {
+			query = query.Clauses(clause.Returning{Columns: []clause.Column{{Name: "tokens_valid_after"}}})
+		}
+		res := query.Updates(updates)
+		if res.Error != nil {
+			return translateErr(res.Error)
+		}
+		if res.RowsAffected == 0 {
+			return domainuser.ErrNotFound
+		}
+		if revoke && row.TokensValidAfter != nil {
+			cutoff = *row.TokensValidAfter
+		}
+		return nil
+	})
+	return cutoff, err
+}
+
+// guardLastSuperAdmin locks every live superadmin row and refuses when id is
+// the only one, so two concurrent removals serialize: the second sees the
+// first's committed result.
+func guardLastSuperAdmin(tx *gorm.DB, id string) error {
+	var ids []string
+	err := tx.Model(&domainuser.Users{}).Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("role = ?", domainuser.RoleSuperAdmin).Pluck("id", &ids).Error
+	if err != nil {
+		return translateErr(err)
+	}
+	if len(ids) == 1 && ids[0] == id {
+		return domainuser.ErrLastSuperAdmin
 	}
 	return nil
 }
@@ -95,15 +143,21 @@ func (r *Repository) GetByGoogleSubject(ctx context.Context, subject string) (do
 	return ret, translateErr(err)
 }
 
-// CountByRole counts the live users holding the role.
-func (r *Repository) CountByRole(ctx context.Context, role string) (int64, error) {
-	var n int64
-	err := r.DB.WithContext(ctx).Model(&domainuser.Users{}).Where("role = ?", role).Count(&n).Error
-	return n, translateErr(err)
-}
-
+// Delete soft-deletes a user. Deleting the last superadmin is refused.
 func (r *Repository) Delete(ctx context.Context, id string) error {
-	return translateErr(r.Repository.Delete(ctx, id))
+	return r.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := guardLastSuperAdmin(tx, id); err != nil {
+			return err
+		}
+		res := tx.Where("id = ?", id).Delete(&domainuser.Users{})
+		if res.Error != nil {
+			return translateErr(res.Error)
+		}
+		if res.RowsAffected == 0 {
+			return domainuser.ErrNotFound
+		}
+		return nil
+	})
 }
 
 func (r *Repository) GetByEmail(ctx context.Context, email string) (ret domainuser.Users, err error) {

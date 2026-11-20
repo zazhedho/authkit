@@ -1,6 +1,8 @@
 package mailer
 
 import (
+	"context"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -120,10 +122,10 @@ func TestBrevoSenderSendMethodsReturnSMTPError(t *testing.T) {
 		AppName:      "Starter",
 	}
 
-	if err := sender.SendOTP("to@example.com", "123456", "", 0); err == nil {
+	if err := sender.SendOTP(context.Background(), "to@example.com", "123456", "", 0); err == nil {
 		t.Fatal("expected otp smtp error")
 	}
-	if err := sender.SendPasswordReset("to@example.com", "token", "", "", 0); err == nil {
+	if err := sender.SendPasswordReset(context.Background(), "to@example.com", "token", "", "", 0); err == nil {
 		t.Fatal("expected reset smtp error")
 	}
 }
@@ -167,7 +169,7 @@ func TestSendGivesUpOnAStalledServer(t *testing.T) {
 	sender := &BrevoSender{Host: "127.0.0.1", Port: port, From: "noreply@example.com", Pass: "x", SendTimeout: 300 * time.Millisecond}
 
 	start := time.Now()
-	err = sender.SendOTP("to@example.com", "123456", "App", time.Minute)
+	err = sender.SendOTP(context.Background(), "to@example.com", "123456", "App", time.Minute)
 	if err == nil {
 		t.Fatal("a server that never answers must be an error")
 	}
@@ -178,7 +180,19 @@ func TestSendGivesUpOnAStalledServer(t *testing.T) {
 
 func TestSendRejectsLineBreaksInAddresses(t *testing.T) {
 	sender := &BrevoSender{Host: "127.0.0.1", Port: 1, From: "noreply@example.com", Pass: "x"}
-	if err := sender.SendOTP("a@example.com\r\nBcc: evil@example.com", "1", "App", time.Minute); err == nil || !strings.Contains(err.Error(), "line break") {
+	if err := sender.SendOTP(context.Background(), "a@example.com\r\nBcc: evil@example.com", "1", "App", time.Minute); err == nil || !strings.Contains(err.Error(), "line break") {
 		t.Fatalf("err = %v, want a line-break rejection", err)
+	}
+}
+
+func TestSendStopsWhenTheCallersContextIsCancelled(t *testing.T) {
+	sender := &BrevoSender{Host: "127.0.0.1", Port: 1, From: "from@example.com"}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := sender.SendOTP(ctx, "to@example.com", "123456", "App", time.Minute); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if err := sender.SendPasswordReset(ctx, "to@example.com", "t", "App", "", time.Minute); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 }

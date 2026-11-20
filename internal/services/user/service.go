@@ -13,6 +13,8 @@ import (
 	dtouser "github.com/zazhedho/authkit/internal/dto/user"
 	serviceshared "github.com/zazhedho/authkit/internal/services/shared"
 
+	"github.com/zazhedho/logus"
+
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -93,16 +95,16 @@ func (s *Service) RegisterUser(ctx context.Context, req dtouser.Register) (domai
 	if email == "" {
 		return domainuser.Users{}, domainuser.ErrEmailRequired
 	}
-	if err := s.ensureIdentifiersFree(ctx, email, phone); err != nil {
-		return domainuser.Users{}, err
-	}
-
 	if err := ValidatePasswordStrength(req.Password); err != nil {
 		return domainuser.Users{}, err
 	}
-
+	// Hashing comes before the duplicate check so a taken address costs the
+	// same time as a free one.
 	hashedPwd, err := hashPassword(req.Password)
 	if err != nil {
+		return domainuser.Users{}, err
+	}
+	if err := s.ensureIdentifiersFree(ctx, email, phone); err != nil {
 		return domainuser.Users{}, err
 	}
 
@@ -148,16 +150,14 @@ func (s *Service) AdminCreateUser(ctx context.Context, actor domainauth.Actor, r
 	if email == "" {
 		return domainuser.Users{}, domainuser.ErrEmailRequired
 	}
-	if err := s.ensureIdentifiersFree(ctx, email, phone); err != nil {
-		return domainuser.Users{}, err
-	}
-
 	if err := ValidatePasswordStrength(req.Password); err != nil {
 		return domainuser.Users{}, err
 	}
-
 	hashedPwd, err := hashPassword(req.Password)
 	if err != nil {
+		return domainuser.Users{}, err
+	}
+	if err := s.ensureIdentifiersFree(ctx, email, phone); err != nil {
 		return domainuser.Users{}, err
 	}
 
@@ -168,7 +168,7 @@ func (s *Service) AdminCreateUser(ctx context.Context, actor domainauth.Actor, r
 	}
 
 	if roleName != s.defaultRole() && !canAssignRole {
-		return domainuser.Users{}, errors.New("access denied: missing permission users:assign_role")
+		return domainuser.Users{}, fmt.Errorf("%w: missing permission users:assign_role", domainuser.ErrAccessDenied)
 	}
 
 	if err := serviceshared.CheckRoleCoverage(ctx, s.PermissionRepo, actor, roleName); err != nil {
@@ -177,7 +177,7 @@ func (s *Service) AdminCreateUser(ctx context.Context, actor domainauth.Actor, r
 
 	roleID, ok := findRoleIDByName(ctx, s.RoleRepo, roleName)
 	if !ok {
-		return domainuser.Users{}, errors.New("invalid role: " + roleName)
+		return domainuser.Users{}, fmt.Errorf("%w: %s", domainuser.ErrInvalidRole, roleName)
 	}
 
 	data := domainuser.Users{
@@ -201,7 +201,7 @@ func (s *Service) AdminCreateUser(ctx context.Context, actor domainauth.Actor, r
 	return data, nil
 }
 
-func (s *Service) LoginUser(ctx context.Context, req dtouser.Login, logID string, metadata dtouser.LoginMetadata) (string, error) {
+func (s *Service) LoginUser(ctx context.Context, req dtouser.Login, metadata dtouser.LoginMetadata) (string, error) {
 	identifier, err := domainuser.ResolveLoginIdentifier(req.Identifier, req.Email)
 	if err != nil {
 		return "", err
@@ -249,7 +249,7 @@ func (s *Service) LoginUser(ctx context.Context, req dtouser.Login, logID string
 		return "", err
 	}
 
-	return s.Tokens.Generate(data.ID, data.Name, data.Role, logID)
+	return s.Tokens.Generate(data.ID, data.Name, data.Role, derefTime(data.TokensValidAfter))
 }
 
 // ensureIdentifiersFree returns ErrDuplicate when the email or phone belongs
@@ -297,50 +297,71 @@ func (s *Service) LogoutUser(ctx context.Context, token string) error {
 }
 
 // ImpersonateUser issues a short-lived token for the target. The actor must
-// cover the target's role and give a reason, which the handler audits.
-func (s *Service) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason, logID string) (string, error) {
+// cover the target's role and give a reason, which the handler audits. Both
+// accounts must be live, and the token is issued after both accounts' latest
+// revocation.
+func (s *Service) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason string) (string, error) {
 	if actor.IsImpersonated {
-		return "", errors.New("cannot start nested impersonation")
+		return "", domainuser.ErrNestedImpersonation
 	}
 	if strings.TrimSpace(targetUserID) == "" {
-		return "", errors.New("target user id is required")
+		return "", domainuser.ErrTargetRequired
 	}
 	if targetUserID == actor.UserID {
-		return "", errors.New("cannot impersonate your own account")
+		return "", domainuser.ErrSelfImpersonation
 	}
 	if strings.TrimSpace(reason) == "" {
 		return "", domainuser.ErrReasonRequired
 	}
 
+	actorUser, err := s.UserRepo.GetByID(ctx, actor.UserID)
+	if errors.Is(err, domainuser.ErrNotFound) {
+		return "", domainuser.ErrImpersonatorRevoked
+	}
+	if err != nil {
+		return "", err
+	}
 	targetUser, err := s.UserRepo.GetByID(ctx, targetUserID)
 	if err != nil {
 		return "", err
+	}
+	if targetUser.Role == domainuser.RoleSuperAdmin && actor.Role != domainuser.RoleSuperAdmin {
+		return "", domainuser.ErrNotFound
 	}
 	if err := serviceshared.CheckRoleCoverage(ctx, s.PermissionRepo, actor, targetUser.Role); err != nil {
 		return "", err
 	}
 
-	return s.Tokens.GenerateImpersonated(targetUser.ID, targetUser.Name, targetUser.Role, logID, actor.UserID, actor.Username, actor.Role)
+	after := laterOf(derefTime(actorUser.TokensValidAfter), derefTime(targetUser.TokensValidAfter))
+	return s.Tokens.GenerateImpersonated(targetUser.ID, targetUser.Name, targetUser.Role, actor.UserID, actor.Username, actor.Role, after)
 }
 
-// StopImpersonation stops the impersonation.
-func (s *Service) StopImpersonation(ctx context.Context, actor domainauth.Actor, logID string) (string, error) {
+// StopImpersonation hands back a token for the original user. The original
+// account must still exist and must not have revoked tokens since the
+// impersonation token (issuedAtMS, its iat_ms) was issued. The restored token
+// carries no session (no_session): it lives for AccessTokenTTL and ends with
+// tokens_valid_after, not with a session being revoked.
+func (s *Service) StopImpersonation(ctx context.Context, actor domainauth.Actor, issuedAtMS int64) (string, error) {
 	originalUserID := actor.OriginalUserID
-	currentUserID := actor.UserID
-
 	if strings.TrimSpace(originalUserID) == "" {
-		return "", errors.New("original user id is required")
+		return "", domainuser.ErrOriginalRequired
 	}
-	if originalUserID == currentUserID {
-		return "", errors.New("current session is not impersonated")
+	if originalUserID == actor.UserID {
+		return "", domainuser.ErrNotImpersonated
 	}
 
 	originalUser, err := s.UserRepo.GetByID(ctx, originalUserID)
+	if errors.Is(err, domainuser.ErrNotFound) {
+		return "", domainuser.ErrImpersonatorRevoked
+	}
 	if err != nil {
 		return "", err
 	}
+	if cutoff := originalUser.TokensValidAfter; cutoff != nil && issuedAtMS <= cutoff.UnixMilli() {
+		return "", domainuser.ErrImpersonatorRevoked
+	}
 
-	return s.Tokens.Generate(originalUser.ID, originalUser.Name, originalUser.Role, logID)
+	return s.Tokens.GenerateNoSession(originalUser.ID, originalUser.Name, originalUser.Role, derefTime(originalUser.TokensValidAfter))
 }
 
 func (s *Service) GetUserByID(ctx context.Context, id string) (domainuser.Users, error) {
@@ -398,7 +419,9 @@ func (s *Service) GetUserForActor(ctx context.Context, actor domainauth.Actor, i
 }
 
 // Update edits a user. The role rule applies to every target but the actor's
-// own account; the actor's own role never changes through it.
+// own account; the actor's own role never changes through it. A change of role,
+// email or (with PhoneLogin) phone voids the user's tokens in the same write and
+// ends their sessions.
 func (s *Service) Update(ctx context.Context, actor domainauth.Actor, id string, req dtouser.Update) (domainuser.Users, error) {
 	data, err := s.UserRepo.GetByID(ctx, id)
 	if err != nil {
@@ -411,9 +434,11 @@ func (s *Service) Update(ctx context.Context, actor domainauth.Actor, id string,
 		}
 	}
 
-	var credentialsChanged bool
+	fields := map[string]any{}
+	revoke := false
 	if req.Name != "" {
 		data.Name = serviceshared.TitleCase(serviceshared.CleanText(req.Name))
+		fields["name"] = data.Name
 	}
 
 	if req.Phone != "" {
@@ -424,8 +449,9 @@ func (s *Service) Update(ctx context.Context, actor domainauth.Actor, id string,
 			if err := s.ensurePhoneFree(ctx, id, phone); err != nil {
 				return domainuser.Users{}, err
 			}
-			data.Phone = phone
-			data.PhoneVerifiedAt = nil
+			data.Phone, data.PhoneVerifiedAt = phone, nil
+			fields["phone"], fields["phone_verified_at"] = phone, nil
+			revoke = revoke || s.PhoneLogin
 		}
 	}
 
@@ -441,9 +467,9 @@ func (s *Service) Update(ctx context.Context, actor domainauth.Actor, id string,
 			if err := s.ensureEmailFree(ctx, id, email); err != nil {
 				return domainuser.Users{}, err
 			}
-			data.Email = email
-			data.EmailVerifiedAt = nil
-			credentialsChanged = true
+			data.Email, data.EmailVerifiedAt = email, nil
+			fields["email"], fields["email_verified_at"] = email, nil
+			revoke = true
 		}
 	}
 
@@ -451,16 +477,29 @@ func (s *Service) Update(ctx context.Context, actor domainauth.Actor, id string,
 	if err != nil {
 		return domainuser.Users{}, err
 	}
-
-	if err = s.UserRepo.Update(ctx, data); err != nil {
-		return domainuser.Users{}, err
+	if roleChanged {
+		fields["role"], fields["role_id"] = data.Role, *data.RoleID
+		revoke = true
 	}
-	if roleChanged || credentialsChanged {
-		if err := s.revokeTokens(ctx, id); err != nil {
+
+	if len(fields) == 0 {
+		return data, nil
+	}
+	data.UpdatedAt = new(time.Now())
+	if revoke {
+		cutoff, err := s.UserRepo.UpdateFieldsRevoking(ctx, id, fields)
+		if err != nil {
 			return domainuser.Users{}, err
 		}
+		data.TokensValidAfter = &cutoff
+		if err := s.afterRevocation(ctx, id); err != nil {
+			return domainuser.Users{}, err
+		}
+		return data, nil
 	}
-
+	if err := s.UserRepo.UpdateFields(ctx, id, fields); err != nil {
+		return domainuser.Users{}, err
+	}
 	return data, nil
 }
 
@@ -501,21 +540,17 @@ func (s *Service) ensurePhoneFree(ctx context.Context, id, phone string) error {
 	return nil
 }
 
-// revokeTokens invalidates every token issued before now for the user and
-// drops the cached auth state so Auth sees it on the next request.
-func (s *Service) revokeTokens(ctx context.Context, id string) error {
-	return s.revokeTokensAt(ctx, id, time.Time{})
-}
-
-// revokeTokensAt revokes every token issued before at; a zero at means now.
-func (s *Service) revokeTokensAt(ctx context.Context, id string, at time.Time) error {
-	if at.IsZero() {
-		at = time.Now()
-	}
-	if err := s.UserRepo.UpdateFields(ctx, id, map[string]any{"tokens_valid_after": at}); err != nil {
-		return fmt.Errorf("revoke tokens: %w", err)
-	}
+// afterRevocation runs once tokens_valid_after is written: it drops the cached
+// auth state, so Auth sees the cut-off on the next request, and ends the
+// user's sessions.
+func (s *Service) afterRevocation(ctx context.Context, id string) error {
 	s.invalidateUserPermissionCache(ctx, id)
+	if s.Sessions == nil {
+		return nil
+	}
+	if err := s.Sessions.DestroyAllUserSessions(ctx, id); err != nil {
+		return fmt.Errorf("%w: %w", domainuser.ErrSessionRevocation, err)
+	}
 	return nil
 }
 
@@ -532,104 +567,82 @@ func (s *Service) applyRoleUpdate(ctx context.Context, actor domainauth.Actor, r
 		return false, err
 	}
 	if !canAssignRole {
-		return false, errors.New("access denied: missing permission users:assign_role")
+		return false, fmt.Errorf("%w: missing permission users:assign_role", domainuser.ErrAccessDenied)
 	}
 	if err := serviceshared.CheckRoleCoverage(ctx, s.PermissionRepo, actor, newRoleName); err != nil {
 		return false, err
 	}
-	if user.Role == domainuser.RoleSuperAdmin {
-		if err := s.ensureNotLastSuperAdmin(ctx); err != nil {
-			return false, err
-		}
-	}
 	roleID, ok := findRoleIDByName(ctx, s.RoleRepo, newRoleName)
 	if !ok {
-		return false, errors.New("invalid role: " + newRoleName)
+		return false, fmt.Errorf("%w: %s", domainuser.ErrInvalidRole, newRoleName)
 	}
 	user.Role = newRoleName
 	user.RoleID = roleID
 	return true, nil
 }
 
-func (s *Service) ensureNotLastSuperAdmin(ctx context.Context) error {
-	n, err := s.UserRepo.CountByRole(ctx, domainuser.RoleSuperAdmin)
-	if err != nil {
-		return err
-	}
-	if n <= 1 {
-		return domainuser.ErrLastSuperAdmin
-	}
-	return nil
-}
-
-// ChangePassword changes the password and revokes the user's tokens issued
-// before keepFrom, so the caller's own session (issued at keepFrom) survives
-// while older ones do not. A zero keepFrom revokes everything issued so far.
-func (s *Service) ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword, keepFrom time.Time) (domainuser.Users, error) {
+// ChangePassword checks the current password, then writes the new hash and the
+// token cut-off in one statement. It returns the cut-off (the database clock)
+// so the caller issues its own new tokens after it; every older token and
+// every other session ends.
+func (s *Service) ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword) (time.Time, error) {
 	if req.CurrentPassword == req.NewPassword {
-		return domainuser.Users{}, errors.New("new password must be different from current password")
+		return time.Time{}, domainuser.ErrSamePassword
 	}
-
 	if err := ValidatePasswordStrength(req.NewPassword); err != nil {
-		return domainuser.Users{}, err
+		return time.Time{}, err
 	}
 
 	data, err := s.UserRepo.GetByID(ctx, id)
 	if err != nil {
-		return domainuser.Users{}, err
+		return time.Time{}, err
 	}
-
 	if err = bcrypt.CompareHashAndPassword([]byte(data.Password), []byte(req.CurrentPassword)); err != nil {
 		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
-			return domainuser.Users{}, domainuser.ErrPasswordIncorrect
+			return time.Time{}, domainuser.ErrPasswordIncorrect
 		}
-		return domainuser.Users{}, err
+		return time.Time{}, err
 	}
 
-	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	hashedPwd, err := hashPassword(req.NewPassword)
 	if err != nil {
-		return domainuser.Users{}, err
+		return time.Time{}, err
 	}
-
-	data.Password = string(hashedPwd)
-	data.PasswordChangedAt = new(time.Now())
-
-	if err = s.UserRepo.Update(ctx, data); err != nil {
-		return domainuser.Users{}, err
+	cutoff, err := s.UserRepo.UpdateFieldsRevoking(ctx, id, map[string]any{
+		"password": hashedPwd, "password_changed_at": time.Now(),
+	})
+	if err != nil {
+		return time.Time{}, err
 	}
-	if err = s.revokeTokensAt(ctx, id, keepFrom); err != nil {
-		return domainuser.Users{}, err
-	}
-
-	return data, nil
+	s.invalidateUserPermissionCache(ctx, id)
+	return cutoff, nil
 }
 
+// ResetPasswordByEmail sets a new password for the account with that e-mail,
+// voids its tokens in the same write and ends its sessions.
 func (s *Service) ResetPasswordByEmail(ctx context.Context, email, newPassword string) error {
 	if err := ValidatePasswordStrength(newPassword); err != nil {
 		return err
 	}
-
 	data, err := s.UserRepo.GetByEmail(ctx, domainuser.SanitizeEmail(email))
 	if err != nil {
-		return errors.New("user not found")
+		return err
 	}
-
-	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	hashedPwd, err := hashPassword(newPassword)
 	if err != nil {
 		return err
 	}
-
-	data.Password = string(hashedPwd)
-	data.PasswordChangedAt = new(time.Now())
-
-	if err = s.UserRepo.Update(ctx, data); err != nil {
+	if _, err = s.UserRepo.UpdateFieldsRevoking(ctx, data.ID, map[string]any{
+		"password": hashedPwd, "password_changed_at": time.Now(),
+	}); err != nil {
 		return err
 	}
-	return s.revokeTokens(ctx, data.ID)
+	return s.afterRevocation(ctx, data.ID)
 }
 
-// Delete removes a user and revokes their tokens. The role rule applies to
-// every target but the actor's own account, and the last superadmin stays.
+// Delete removes a user. The role rule applies to every target but the actor's
+// own account, and the last superadmin stays (the repository enforces it under
+// a row lock). A deleted user fails Auth at once; sessions are ended too.
 func (s *Service) Delete(ctx context.Context, actor domainauth.Actor, id string) error {
 	target, err := s.UserRepo.GetByID(ctx, id)
 	if err != nil {
@@ -640,19 +653,13 @@ func (s *Service) Delete(ctx context.Context, actor domainauth.Actor, id string)
 			return err
 		}
 	}
-	if target.Role == domainuser.RoleSuperAdmin {
-		if err := s.ensureNotLastSuperAdmin(ctx); err != nil {
-			return err
-		}
-	}
-	// Bump first: a soft-deleted row no longer accepts updates.
-	if err := s.revokeTokens(ctx, id); err != nil {
-		return err
-	}
 	if err := s.UserRepo.Delete(ctx, id); err != nil {
 		return err
 	}
-	s.invalidateUserPermissionCache(ctx, id)
+	if err := s.afterRevocation(ctx, id); err != nil {
+		// The account is gone and Auth rejects it; leftover sessions expire.
+		logus.Logf(logus.LevelError, "user service: delete %s: %v", id, err)
+	}
 	return nil
 }
 
@@ -689,3 +696,17 @@ func (s *Service) VerifyPassword(ctx context.Context, id, password string) error
 // ValidatePassword checks a new password against the strength rules and
 // bcrypt's length limit without storing anything.
 func (s *Service) ValidatePassword(password string) error { return ValidatePasswordStrength(password) }
+
+func derefTime(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
+}
+
+func laterOf(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
+}

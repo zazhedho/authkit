@@ -34,6 +34,8 @@ type AppClaims struct {
 	OriginalUserID   string `json:"original_user_id,omitempty"`
 	OriginalUsername string `json:"original_username,omitempty"`
 	OriginalRole     string `json:"original_role,omitempty"`
+	// IssuedAtMS is iat in milliseconds; the registered iat only has seconds.
+	IssuedAtMS int64 `json:"iat_ms,omitempty"`
 	*jwt.RegisteredClaims
 }
 

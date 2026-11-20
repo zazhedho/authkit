@@ -83,7 +83,7 @@ func (s *Service) RequestReset(ctx context.Context, email, appName string) error
 	}
 
 	resetURL := buildResetURL(s.Config.URLTemplate, token)
-	if err := s.Sender.SendPasswordReset(normalizedEmail, token, appName, resetURL, s.Config.TTL); err != nil {
+	if err := s.Sender.SendPasswordReset(ctx, normalizedEmail, token, appName, resetURL, s.Config.TTL); err != nil {
 		_ = s.Repo.DeleteToken(ctx, hash)
 		_ = s.Repo.ClearCooldown(ctx, normalizedEmail)
 		_ = s.Repo.ClearSendCount(ctx, normalizedEmail)
@@ -115,4 +115,14 @@ func (s *Service) VerifyReset(ctx context.Context, token string) (string, error)
 	_ = s.Repo.ClearCooldown(ctx, email)
 	_ = s.Repo.ClearSendCount(ctx, email)
 	return email, nil
+}
+
+// RestoreReset puts a token that VerifyReset consumed back for its e-mail, for
+// a reset that failed after the token was used, so the user can retry.
+func (s *Service) RestoreReset(ctx context.Context, token, email string) error {
+	if s == nil || s.Repo == nil || s.missingSecret() {
+		return domainreset.ErrNotConfigured
+	}
+	hash := hashToken(strings.TrimSpace(token), s.Config.Secret)
+	return s.Repo.SetToken(ctx, hash, domainuser.SanitizeEmail(email), s.Config.TTL)
 }

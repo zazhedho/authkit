@@ -101,7 +101,7 @@ type otpSenderTestDouble struct {
 	err     error
 }
 
-func (m *otpSenderTestDouble) SendOTP(to, code, appName string, ttl time.Duration) error {
+func (m *otpSenderTestDouble) SendOTP(ctx context.Context, to, code, appName string, ttl time.Duration) error {
 	m.ttl = ttl
 	m.to = to
 	m.code = code

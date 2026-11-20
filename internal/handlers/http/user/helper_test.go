@@ -87,9 +87,11 @@ func TestUserMutationErrorResponseMapping(t *testing.T) {
 		{domainuser.ErrDuplicate, http.StatusConflict},
 		{domainuser.ErrWeakPassword, http.StatusBadRequest},
 		{domainuser.ErrPasswordTooLong, http.StatusBadRequest},
-		{errors.New("email already exists"), http.StatusBadRequest},
-		{errors.New("access denied: missing permission"), http.StatusForbidden},
-		{errors.New("invalid role: admin"), http.StatusBadRequest},
+		{errors.New("email already exists"), http.StatusInternalServerError},
+		{fmt.Errorf("%w: missing permission", domainuser.ErrAccessDenied), http.StatusForbidden},
+		{fmt.Errorf("%w: admin", domainuser.ErrInvalidRole), http.StatusBadRequest},
+		{domainuser.ErrSamePassword, http.StatusBadRequest},
+		{domainuser.ErrLastSuperAdmin, http.StatusConflict},
 		{errors.New("database down"), http.StatusInternalServerError},
 	}
 
@@ -109,8 +111,13 @@ func TestImpersonationErrorResponseMapping(t *testing.T) {
 	}{
 		{domainuser.ErrNotFound, http.StatusNotFound},
 		{fmt.Errorf("load session: %w", domainsession.ErrNotFound), http.StatusNotFound},
-		{errors.New("cannot impersonate superadmin users"), http.StatusForbidden},
-		{errors.New("target user id is required"), http.StatusBadRequest},
+		{domainuser.ErrRoleAboveActor, http.StatusForbidden},
+		{domainuser.ErrSelfImpersonation, http.StatusForbidden},
+		{domainuser.ErrTargetRequired, http.StatusBadRequest},
+		{domainuser.ErrNestedImpersonation, http.StatusBadRequest},
+		{domainuser.ErrNotImpersonated, http.StatusBadRequest},
+		{fmt.Errorf("wrapped: %w", domainuser.ErrImpersonatorRevoked), http.StatusUnauthorized},
+		{errors.New("cannot impersonate by message alone"), http.StatusInternalServerError},
 		{errors.New("database down"), http.StatusInternalServerError},
 	}
 
@@ -119,22 +126,6 @@ func TestImpersonationErrorResponseMapping(t *testing.T) {
 		if code != tt.code {
 			t.Fatalf("error %v: expected %d, got %d", tt.err, tt.code, code)
 		}
-	}
-}
-
-func TestImpersonationFromClaims(t *testing.T) {
-	if got := impersonationFromClaims(nil); got != nil {
-		t.Fatalf("expected nil impersonation, got %+v", got)
-	}
-
-	got := impersonationFromClaims(map[string]any{
-		"is_impersonated":   true,
-		"original_user_id":  "admin-1",
-		"original_username": "Admin",
-		"original_role":     "admin",
-	})
-	if got == nil || got.userID != "admin-1" || got.username != "Admin" || got.role != "admin" {
-		t.Fatalf("unexpected impersonation: %+v", got)
 	}
 }
 

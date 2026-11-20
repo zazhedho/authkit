@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -56,7 +57,7 @@ func (s *userServiceTestDouble) AdminCreateUser(ctx context.Context, actor domai
 	s.user.Role = req.Role
 	return s.user, nil
 }
-func (s *userServiceTestDouble) LoginUser(ctx context.Context, req dtouser.Login, logID string, metadata dtouser.LoginMetadata) (string, error) {
+func (s *userServiceTestDouble) LoginUser(ctx context.Context, req dtouser.Login, metadata dtouser.LoginMetadata) (string, error) {
 	if s.loginErr != nil {
 		return "", s.loginErr
 	}
@@ -89,13 +90,13 @@ func (s *userServiceTestDouble) LogoutUser(ctx context.Context, token string) er
 	}
 	return s.err
 }
-func (s *userServiceTestDouble) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason, logID string) (string, error) {
+func (s *userServiceTestDouble) ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason string) (string, error) {
 	if s.err != nil {
 		return "", s.err
 	}
 	return "impersonation-token", nil
 }
-func (s *userServiceTestDouble) StopImpersonation(ctx context.Context, actor domainauth.Actor, logID string) (string, error) {
+func (s *userServiceTestDouble) StopImpersonation(ctx context.Context, actor domainauth.Actor, issuedAtMS int64) (string, error) {
 	if s.err != nil {
 		return "", s.err
 	}
@@ -157,12 +158,11 @@ func (s *userServiceTestDouble) Update(ctx context.Context, actor domainauth.Act
 	}
 	return s.user, nil
 }
-func (s *userServiceTestDouble) ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword, keepFrom time.Time) (domainuser.Users, error) {
+func (s *userServiceTestDouble) ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword) (time.Time, error) {
 	if s.err != nil {
-		return domainuser.Users{}, s.err
+		return time.Time{}, s.err
 	}
-	s.user.ID = id
-	return s.user, nil
+	return time.Now(), nil
 }
 func (s *userServiceTestDouble) ForgotPassword(ctx context.Context, req dtouser.ForgotPasswordRequest) (string, error) {
 	if s.err != nil {
@@ -310,10 +310,16 @@ type resetServiceUserHandlerTestDouble struct {
 	email    string
 	err      error
 	verified int
+	restored []string
 }
 
 func (m *resetServiceUserHandlerTestDouble) RequestReset(ctx context.Context, email, appName string) error {
 	return m.err
+}
+
+func (m *resetServiceUserHandlerTestDouble) RestoreReset(ctx context.Context, token, email string) error {
+	m.restored = append(m.restored, token)
+	return nil
 }
 
 func (m *resetServiceUserHandlerTestDouble) VerifyReset(ctx context.Context, token string) (string, error) {
@@ -448,15 +454,15 @@ func TestUserHandlerAuthTokenFlows(t *testing.T) {
 	assertUserHandlerStatus(t, rec, http.StatusOK)
 
 	user := domainuser.Users{ID: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
-	refreshToken, err := testHandlerTokens().GenerateRefresh(user.ID, user.Name, user.Role, "log-1")
+	refreshToken, err := testHandlerTokens().GenerateRefresh(user.ID, user.Name, user.Role, time.Time{})
 	if err != nil {
 		t.Fatalf("generate refresh token: %v", err)
 	}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/refresh-token", `{"refresh_token":"`+refreshToken+`"}`, nil)
 	handler.RefreshToken(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusOK)
-	if userSvc.logoutToken != refreshToken {
-		t.Fatalf("expected old refresh token to be blacklisted, got %q", userSvc.logoutToken)
+	if userSvc.logoutToken != "" {
+		t.Fatalf("with sessions the session index is the one mechanism; nothing may be blacklisted, got %q", userSvc.logoutToken)
 	}
 	if sessionSvc.rotatedAccess == "" || sessionSvc.rotatedRefresh == "" || sessionSvc.rotatedExpiry.IsZero() {
 		t.Fatalf("expected session tokens to be rotated, got access=%q refresh=%q expiry=%v", sessionSvc.rotatedAccess, sessionSvc.rotatedRefresh, sessionSvc.rotatedExpiry)
@@ -535,7 +541,7 @@ func TestUserHandlerPasswordAndSessionFlows(t *testing.T) {
 	handler := newUserHandlerForTest()
 	handler.AppConfigService = &appConfigServiceUserTestDouble{enabled: true}
 	handler.ResetService = &resetServiceUserHandlerTestDouble{}
-	handler.Async = func(fn func()) { fn() }
+	handler.Async = inlineRunner{}
 	userID := uuid.NewString()
 
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/forgot-password", `{"email":"jane@example.com"}`, nil)
@@ -756,7 +762,7 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 	handler = newUserHandlerForTest()
 	handler.Service.(*userServiceTestDouble).revoked = true
 	user := domainuser.Users{ID: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
-	refreshToken, err := testHandlerTokens().GenerateRefresh(user.ID, user.Name, user.Role, "log-1")
+	refreshToken, err := testHandlerTokens().GenerateRefresh(user.ID, user.Name, user.Role, time.Time{})
 	if err != nil {
 		t.Fatalf("generate refresh token: %v", err)
 	}
@@ -764,7 +770,7 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 	handler.RefreshToken(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusUnauthorized)
 
-	accessToken, err := testHandlerTokens().Generate(user.ID, user.Name, user.Role, "log-1")
+	accessToken, err := testHandlerTokens().Generate(user.ID, user.Name, user.Role, time.Time{})
 	if err != nil {
 		t.Fatalf("generate access token: %v", err)
 	}
@@ -782,12 +788,23 @@ func TestUserHandlerAuthErrorBranches(t *testing.T) {
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/refresh-token", `{"refresh_token":"`+refreshToken+`"}`, nil)
 	handler.RefreshToken(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusNotFound)
+	for name, refreshErr := range map[string]error{"no session": domainsession.ErrNotFound, "replayed token": domainsession.ErrRefreshReused} {
+		handler = newUserHandlerForTest()
+		handler.SessionSvc = &sessionServiceUserHandlerTestDouble{refreshErr: refreshErr}
+		ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/refresh-token", `{"refresh_token":"`+refreshToken+`"}`, nil)
+		handler.RefreshToken(ctx)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("%s: status = %d, want 401", name, rec.Code)
+		}
+	}
 
 	handler = newUserHandlerForTest()
-	handler.SessionSvc = &sessionServiceUserHandlerTestDouble{refreshErr: errors.New("session missing")}
+	handler.SessionSvc = &sessionServiceUserHandlerTestDouble{refreshErr: errors.New("redis down")}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/refresh-token", `{"refresh_token":"`+refreshToken+`"}`, nil)
 	handler.RefreshToken(ctx)
-	assertUserHandlerStatus(t, rec, http.StatusUnauthorized)
+	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
+
+	handler = newUserHandlerForTest()
 
 	handler.SessionSvc = &sessionServiceUserHandlerTestDouble{rotateErr: errors.New("rotate failed")}
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/refresh-token", `{"refresh_token":"`+refreshToken+`"}`, nil)
@@ -895,7 +912,7 @@ func TestUserHandlerNotFoundAndValidationErrorBranches(t *testing.T) {
 	handler.ChangePassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
 
-	handler = New(&userServiceTestDouble{err: errors.New("cannot impersonate superadmin users")}, nil, nil, nil, testHandlerOptions())
+	handler = New(&userServiceTestDouble{err: domainuser.ErrRoleAboveActor}, nil, nil, nil, testHandlerOptions())
 	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/users/"+userID+"/impersonate", `{"reason":"support case"}`, nil)
 	ctx.Params = gin.Params{{Key: "id", Value: userID}}
 	handler.ImpersonateUser(ctx)
@@ -918,7 +935,7 @@ func TestUserHandlerEmailPasswordResetBranches(t *testing.T) {
 	handler := newUserHandlerForTest()
 	handler.Settings.ResetCooldown = 2 * time.Minute
 	handler.AppConfigService = &appConfigServiceUserTestDouble{enabled: true}
-	handler.Async = func(fn func()) { fn() }
+	handler.Async = inlineRunner{}
 
 	// Every outcome answers the same 200 so the route reveals nothing.
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/forgot-password", `{"email":"jane@example.com"}`, nil)
@@ -964,24 +981,32 @@ func TestUserHandlerEmailPasswordResetBranches(t *testing.T) {
 	assertUserHandlerStatus(t, rec, http.StatusConflict)
 }
 
-func TestUserHandlerResetPasswordRevokesSessions(t *testing.T) {
+// inlineRunner runs background work at once, so a test sees its effects.
+type inlineRunner struct{}
 
-	user := domainuser.Users{ID: "user-1", Email: "jane@example.com", Role: domainuser.RoleViewer}
-	service := &userServiceTestDouble{user: user}
-	sessionSvc := &sessionServiceUserHandlerTestDouble{}
-	handler := New(service, sessionSvc, nil, nil, Options{Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: &resetServiceUserHandlerTestDouble{email: user.Email}})
+func (inlineRunner) Go(ctx context.Context, fn func(context.Context)) bool { fn(ctx); return true }
 
+func TestUserHandlerResetPasswordGivesTheTokenBackWhenTheUpdateFails(t *testing.T) {
+	resets := &resetServiceUserHandlerTestDouble{email: "jane@example.com"}
+	handler := New(&userServiceTestDouble{err: errors.New("db down")}, nil, nil, nil, Options{Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: resets})
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"reset-token","new_password":"secret456"}`, nil)
 	handler.ResetPassword(ctx)
-	assertUserHandlerStatus(t, rec, http.StatusOK)
-	if sessionSvc.destroyedUserID != user.ID {
-		t.Fatalf("expected email reset to revoke sessions for %q, got %q", user.ID, sessionSvc.destroyedUserID)
+	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
+	if len(resets.restored) != 1 || resets.restored[0] != "reset-token" {
+		t.Fatalf("the consumed token must be restored for a retry, got %v", resets.restored)
 	}
+}
 
-	handler = New(service, &sessionServiceUserHandlerTestDouble{destroyAllErr: errors.New("session revoke failed")}, nil, nil, Options{Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: &resetServiceUserHandlerTestDouble{email: user.Email}})
-	ctx, rec = newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"reset-token","new_password":"secret456"}`, nil)
+func TestUserHandlerResetPasswordKeepsTheTokenConsumedOnceThePasswordChanged(t *testing.T) {
+	resets := &resetServiceUserHandlerTestDouble{email: "jane@example.com"}
+	err := fmt.Errorf("%w: redis down", domainuser.ErrSessionRevocation)
+	handler := New(&userServiceTestDouble{err: err}, nil, nil, nil, Options{Tokens: testHandlerTokens(), Settings: testUserSettings(), AppConfigService: &appConfigServiceUserTestDouble{enabled: true}, ResetService: resets})
+	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/reset-password", `{"token":"reset-token","new_password":"secret456"}`, nil)
 	handler.ResetPassword(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
+	if len(resets.restored) != 0 {
+		t.Fatalf("a token whose reset succeeded must stay consumed, restored %v", resets.restored)
+	}
 }
 
 func testHandlerTokens() *token.Tokens {
@@ -1002,7 +1027,7 @@ func testUserSettings() Settings {
 }
 
 func testHandlerOptions() Options {
-	return Options{Tokens: testHandlerTokens(), Settings: testUserSettings(), Async: func(fn func()) { fn() }}
+	return Options{Tokens: testHandlerTokens(), Settings: testUserSettings(), Async: inlineRunner{}}
 }
 
 func otherAppTokens() *token.Tokens {
@@ -1032,7 +1057,7 @@ func errorBodyWithoutLogID(t *testing.T, rec *httptest.ResponseRecorder) map[str
 
 func TestRefreshTokenRejectsTokenFromOtherApp(t *testing.T) {
 	user := domainuser.Users{ID: "user-1", Name: "Jane Doe", Email: "jane@example.com", Role: "user"}
-	foreign, err := otherAppTokens().GenerateRefresh(user.ID, user.Name, user.Role, "log-1")
+	foreign, err := otherAppTokens().GenerateRefresh(user.ID, user.Name, user.Role, time.Time{})
 	if err != nil {
 		t.Fatalf("generate refresh token: %v", err)
 	}

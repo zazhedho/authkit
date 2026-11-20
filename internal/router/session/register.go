@@ -9,10 +9,10 @@ import (
 
 // Register mounts session management (authenticated users only). It mounts
 // nothing without Redis, when Deps.Session is nil.
-func Register(r gin.IRouter, d module.Deps) {
+func Register(r gin.IRouter, d module.Deps) error {
 	h := d.Session
 	if h == nil {
-		return
+		return nil
 	}
 
 	sessionGroup := r.Group("/user").Use(d.Auth)
@@ -21,4 +21,5 @@ func Register(r gin.IRouter, d module.Deps) {
 		sessionGroup.DELETE("/session/:session_id", h.RevokeSession)
 		sessionGroup.POST("/sessions/revoke-others", h.RevokeAllOtherSessions)
 	}
+	return nil
 }

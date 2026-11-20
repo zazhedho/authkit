@@ -20,5 +20,5 @@ type Repository interface {
 
 // Mailer delivers the registration code. ttl is how long the code stays valid.
 type Mailer interface {
-	SendOTP(to, code, appName string, ttl time.Duration) error
+	SendOTP(ctx context.Context, to, code, appName string, ttl time.Duration) error
 }

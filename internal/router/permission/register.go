@@ -2,13 +2,18 @@
 package permission
 
 import (
+	"errors"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/zazhedho/authkit/internal/router/module"
 )
 
 // Register mounts the permission routes under r.
-func Register(r gin.IRouter, d module.Deps) {
+func Register(r gin.IRouter, d module.Deps) error {
+	if d.Permission == nil {
+		return errors.New("router: the permission handler is missing")
+	}
 	h := d.Permission
 
 	r.GET("/permissions", d.Auth, d.Can("permissions", "list"), h.GetAll)
@@ -23,4 +28,5 @@ func Register(r gin.IRouter, d module.Deps) {
 		permission.PUT("/:id", d.Can("permissions", "update"), h.Update)
 		permission.DELETE("/:id", d.Can("permissions", "delete"), h.Delete)
 	}
+	return nil
 }

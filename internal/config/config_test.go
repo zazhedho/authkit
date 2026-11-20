@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -21,8 +22,10 @@ const testJWTKey = "test-secret-must-be-at-least-32-bytes"
 
 type mailerTestDouble struct{}
 
-func (mailerTestDouble) SendOTP(string, string, string, time.Duration) error { return nil }
-func (mailerTestDouble) SendPasswordReset(string, string, string, string, time.Duration) error {
+func (mailerTestDouble) SendOTP(context.Context, string, string, string, time.Duration) error {
+	return nil
+}
+func (mailerTestDouble) SendPasswordReset(context.Context, string, string, string, string, time.Duration) error {
 	return nil
 }
 

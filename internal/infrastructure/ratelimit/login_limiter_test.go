@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,10 +29,10 @@ func TestNewRedisLoginLimiterReturnsNilForInvalidConfig(t *testing.T) {
 
 func TestRedisLoginLimiterKeyBuilders(t *testing.T) {
 	limiter := &redisLoginLimiter{}
-	if got := limiter.attemptKey("jane@example.com"); got != "login_attempts:jane@example.com" {
+	if got := limiter.attemptKey("jane@example.com"); got != "login_attempts:{jane@example.com}" {
 		t.Fatalf("unexpected attempt key: %q", got)
 	}
-	if got := limiter.blockKey("jane@example.com"); got != "login_block:jane@example.com" {
+	if got := limiter.blockKey("jane@example.com"); got != "login_block:{jane@example.com}" {
 		t.Fatalf("unexpected block key: %q", got)
 	}
 }
@@ -48,14 +49,14 @@ func TestRedisLoginLimiterBlocksAtTheLimitAndResets(t *testing.T) {
 		}
 	}
 	// The window was started together with the first count.
-	if got := mr.TTL("login_attempts:client-1"); got <= 0 || got > time.Minute {
+	if got := mr.TTL("login_attempts:{client-1}"); got <= 0 || got > time.Minute {
 		t.Fatalf("attempt TTL = %v", got)
 	}
 	blocked, ttl, err := limiter.RegisterFailure(ctx, "client-1")
 	if err != nil || !blocked || ttl != 5*time.Minute {
 		t.Fatalf("limit failure: blocked=%v ttl=%v err=%v", blocked, ttl, err)
 	}
-	if mr.Exists("login_attempts:client-1") {
+	if mr.Exists("login_attempts:{client-1}") {
 		t.Fatal("the attempt counter must be cleared once blocked")
 	}
 	if isBlocked, ttl, err := limiter.IsBlocked(ctx, "client-1"); err != nil || !isBlocked || ttl <= 0 {
@@ -105,5 +106,69 @@ func TestRedisLoginLimiterNilReceiverAndRedisErrors(t *testing.T) {
 	}
 	if err := limiter.Reset(ctx, "c"); err == nil {
 		t.Error("Reset: expected an error with Redis down")
+	}
+}
+
+// hashTag is the part of a key Redis Cluster hashes: the first non-empty {...}.
+func hashTag(key string) string {
+	open := strings.IndexByte(key, '{')
+	if open < 0 {
+		return key
+	}
+	end := strings.IndexByte(key[open+1:], '}')
+	if end <= 0 {
+		return key
+	}
+	return key[open+1 : open+1+end]
+}
+
+func TestLimiterKeysShareAClusterSlot(t *testing.T) {
+	for _, l := range []*redisLoginLimiter{{}, {backoff: true}} {
+		for _, key := range []string{"1.2.3.4:jane@example.com", "identifier:jane@example.com", "change_password:u1"} {
+			if hashTag(l.attemptKey(key)) != hashTag(l.blockKey(key)) || hashTag(l.attemptKey(key)) == l.attemptKey(key) {
+				t.Fatalf("keys for %q would land in different slots: %q %q", key, l.attemptKey(key), l.blockKey(key))
+			}
+		}
+	}
+}
+
+func TestBackoffLimiterDoesNotLockOutAfterTheLimit(t *testing.T) {
+	_, client := newLimiterRedis(t)
+	limiter := NewRedisBackoffLimiter(client, 5, time.Minute, 5*time.Minute)
+	ctx := context.Background()
+	for i := 1; i <= 5; i++ {
+		blocked, _, err := limiter.RegisterFailure(ctx, "victim")
+		if err != nil || blocked {
+			t.Fatalf("failure %d within the limit must not block: blocked=%v err=%v", i, blocked, err)
+		}
+	}
+	if isBlocked, _, _ := limiter.IsBlocked(ctx, "victim"); isBlocked {
+		t.Fatal("five failures must not lock an identifier out")
+	}
+}
+
+func TestBackoffLimiterDelaysGrowExponentiallyUpToTheCap(t *testing.T) {
+	mr, client := newLimiterRedis(t)
+	limiter := NewRedisBackoffLimiter(client, 2, time.Hour, 10*time.Second)
+	ctx := context.Background()
+	var delays []time.Duration
+	for range 8 {
+		_, _, _ = limiter.RegisterFailure(ctx, "k")
+		if i := len(delays); i < 2 {
+			delays = append(delays, 0)
+			continue
+		}
+		blocked, ttl, err := limiter.IsBlocked(ctx, "k")
+		if err != nil || !blocked {
+			t.Fatalf("failure past the limit must delay: blocked=%v err=%v", blocked, err)
+		}
+		delays = append(delays, ttl.Round(time.Second))
+		mr.FastForward(ttl + time.Millisecond) // wait the delay out, keep the counter
+	}
+	want := []time.Duration{0, 0, 1 * time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 10 * time.Second, 10 * time.Second}
+	for i := range want {
+		if delays[i] != want[i] {
+			t.Fatalf("delays = %v, want %v", delays, want)
+		}
 	}
 }

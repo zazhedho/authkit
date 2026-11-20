@@ -27,7 +27,7 @@ POST /api/user -> auth > can > user.(*Handler).AdminCreateUser-fm
 POST /api/user/:id/impersonate -> auth > can > user.(*Handler).ImpersonateUser-fm
 POST /api/user/forgot-password -> limit > user.(*Handler).ForgotPassword-fm
 POST /api/user/google/login -> limit > user.(*Handler).GoogleLogin-fm
-POST /api/user/login -> user.(*Handler).Login-fm
+POST /api/user/login -> limit > user.(*Handler).Login-fm
 POST /api/user/logout -> auth > user.(*Handler).Logout-fm
 POST /api/user/refresh-token -> limit > user.(*Handler).RefreshToken-fm
 POST /api/user/register -> limit > user.(*Handler).Register-fm
@@ -73,7 +73,7 @@ POST /api/user -> auth > can > user.(*Handler).AdminCreateUser-fm
 POST /api/user/:id/impersonate -> auth > can > user.(*Handler).ImpersonateUser-fm
 POST /api/user/forgot-password -> limit > user.(*Handler).ForgotPassword-fm
 POST /api/user/google/login -> limit > user.(*Handler).GoogleLogin-fm
-POST /api/user/login -> user.(*Handler).Login-fm
+POST /api/user/login -> limit > user.(*Handler).Login-fm
 POST /api/user/logout -> auth > user.(*Handler).Logout-fm
 POST /api/user/refresh-token -> limit > user.(*Handler).RefreshToken-fm
 POST /api/user/register -> limit > user.(*Handler).Register-fm

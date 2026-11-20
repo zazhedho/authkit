@@ -86,8 +86,8 @@ func TestGoogleLinkingAnUnverifiedLocalAccountResetsItsCredentials(t *testing.T)
 	if pw == "" || pw == "squatter-known-hash" {
 		t.Errorf("password hash was not replaced: %q", pw)
 	}
-	if _, ok := repo.fields["tokens_valid_after"]; !ok {
-		t.Error("tokens_valid_after was not bumped")
+	if !repo.revoked {
+		t.Error("the link must revoke tokens in the same write")
 	}
 	if repo.fields["email_verified_at"] == nil {
 		t.Error("email_verified_at was not set")

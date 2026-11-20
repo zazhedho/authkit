@@ -31,6 +31,5 @@ func TestNewBlacklistRepoAndNilDBMethodPanics(t *testing.T) {
 	expectPanic(t, func() {
 		_ = repo.Store(ctx, domainauth.Blacklist{Token: "token", ExpiresAt: time.Now().Add(time.Hour)})
 	})
-	expectPanic(t, func() { _, _ = repo.GetByToken(ctx, "token") })
 	expectPanic(t, func() { _, _ = repo.ExistsByToken(ctx, "token") })
 }

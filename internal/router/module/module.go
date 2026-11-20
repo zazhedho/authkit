@@ -41,5 +41,5 @@ type Deps struct {
 // on and uses paths relative to it.
 type Entry struct {
 	Name     string
-	Register func(r gin.IRouter, d Deps)
+	Register func(r gin.IRouter, d Deps) error
 }

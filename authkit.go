@@ -24,6 +24,7 @@ import (
 	"github.com/zazhedho/authkit/internal/handlers/http/middleware"
 	httpshared "github.com/zazhedho/authkit/internal/handlers/http/shared"
 	httpuser "github.com/zazhedho/authkit/internal/handlers/http/user"
+	"github.com/zazhedho/authkit/internal/infrastructure/async"
 	"github.com/zazhedho/authkit/internal/infrastructure/mailer"
 	"github.com/zazhedho/authkit/internal/infrastructure/token"
 	"github.com/zazhedho/authkit/internal/migrate"
@@ -42,6 +43,7 @@ type Kit struct {
 	middleware *middleware.Middleware
 	deps       module.Deps
 
+	async     *async.Runner
 	users     httpuser.Service // kept for white-box wiring tests
 	audit     AuditService
 	appConfig AppConfigService
@@ -63,13 +65,17 @@ func New(cfg Config) (*Kit, error) {
 	}
 	return &Kit{
 		cfg: cfg, tokens: core.Tokens, middleware: core.Middleware, deps: core.Deps,
-		users: core.Users, audit: core.Audit, appConfig: core.AppConfig,
+		async: core.Async, users: core.Users, audit: core.Audit, appConfig: core.AppConfig,
 	}, nil
 }
 
 // Mount registers all users, auth and RBAC routes on r (e.g. engine.Group("/api")).
 // Session routes need Redis. Call once per Kit and group: gin panics on duplicates.
-func (k *Kit) Mount(r gin.IRouter) { router.Mount(r, k.deps) }
+func (k *Kit) Mount(r gin.IRouter) error { return router.Mount(r, k.deps) }
+
+// Close waits, bounded by ctx, for the background mail sends to finish. Call
+// it on shutdown after the HTTP server has stopped.
+func (k *Kit) Close(ctx context.Context) error { return k.async.Wait(ctx) }
 
 // Migrate applies pending migrations; safe on every start (instances serialize
 // on an advisory lock). ctx bounds the connection checkout only; see README, Migrations.
@@ -111,7 +117,7 @@ func (k *Kit) AppConfig() AppConfigService { return k.appConfig }
 // tokens_valid_after, but the token has no session, so Redis session checks
 // skip it.
 func (k *Kit) IssueAccessToken(userID, name, role string) (string, error) {
-	return k.tokens.GenerateWithClaims(userID, name, role, "authkit-issued", &token.AppClaims{NoSession: true})
+	return k.tokens.GenerateNoSession(userID, name, role, time.Time{})
 }
 
 // ---- Request scope ----

@@ -2,13 +2,18 @@
 package user
 
 import (
+	"errors"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/zazhedho/authkit/internal/router/module"
 )
 
 // Register mounts the user routes under r.
-func Register(r gin.IRouter, d module.Deps) {
+func Register(r gin.IRouter, d module.Deps) error {
+	if d.User == nil {
+		return errors.New("router: the user handler is missing")
+	}
 	h := d.User
 
 	user := r.Group("/user")
@@ -16,7 +21,7 @@ func Register(r gin.IRouter, d module.Deps) {
 		user.GET("/register/status", h.GetRegisterStatus)
 		user.POST("/register", d.RegisterLimit, h.Register)
 		user.POST("/register/otp/send", d.RegisterLimit, h.SendRegisterOTP)
-		user.POST("/login", h.Login)
+		user.POST("/login", d.AuthLimit, h.Login)
 		user.POST("/google/login", d.AuthLimit, h.GoogleLogin)
 		user.POST("/refresh-token", d.AuthLimit, h.RefreshToken)
 		user.POST("/forgot-password", d.AuthLimit, h.ForgotPassword)
@@ -41,4 +46,5 @@ func Register(r gin.IRouter, d module.Deps) {
 	}
 
 	r.GET("/users", d.Auth, d.Can("users", "list"), h.GetAllUsers)
+	return nil
 }

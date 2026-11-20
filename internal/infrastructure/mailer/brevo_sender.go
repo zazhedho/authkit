@@ -87,8 +87,8 @@ func NewBrevoSender(cfg BrevoConfig) (*BrevoSender, error) {
 
 // SendOTP sends the code, stating ttl as its validity. When ttl is not
 // positive the sender's own TTL field is used.
-func (s *BrevoSender) SendOTP(to, code, appName string, ttl time.Duration) error {
-	return s.send(to, s.otpMessage(to, code, appName, ttl))
+func (s *BrevoSender) SendOTP(ctx context.Context, to, code, appName string, ttl time.Duration) error {
+	return s.send(ctx, to, s.otpMessage(to, code, appName, ttl))
 }
 
 func (s *BrevoSender) otpMessage(to, code, appName string, ttl time.Duration) []byte {
@@ -101,7 +101,7 @@ func (s *BrevoSender) otpMessage(to, code, appName string, ttl time.Duration) []
 	return buildOTPMessage(s.From, to, s.Subject, appName, code, ttl)
 }
 
-func (s *BrevoSender) SendPasswordReset(to, token, appName, resetURL string, ttl time.Duration) error {
+func (s *BrevoSender) SendPasswordReset(ctx context.Context, to, token, appName, resetURL string, ttl time.Duration) error {
 	if strings.TrimSpace(appName) == "" {
 		appName = s.AppName
 	}
@@ -110,7 +110,7 @@ func (s *BrevoSender) SendPasswordReset(to, token, appName, resetURL string, ttl
 		subject = "Reset Your Password"
 	}
 	msg := buildPasswordResetMessage(s.From, to, subject, appName, token, resetURL, ttl)
-	return s.send(to, msg)
+	return s.send(ctx, to, msg)
 }
 
 const (
@@ -121,12 +121,12 @@ const (
 	defaultSendTimeout = 30 * time.Second
 )
 
-func (s *BrevoSender) send(to string, msg []byte) error {
+func (s *BrevoSender) send(ctx context.Context, to string, msg []byte) error {
 	timeout := s.SendTimeout
 	if timeout <= 0 {
 		timeout = defaultSendTimeout
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return s.sendContext(ctx, to, msg)
 }

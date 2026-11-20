@@ -1,13 +1,19 @@
 package user
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/zazhedho/logus"
 
 	domainappconfig "github.com/zazhedho/authkit/internal/domain/appconfig"
 	domainaudit "github.com/zazhedho/authkit/internal/domain/audit"
@@ -91,7 +97,7 @@ func TestLogoutTreatsAMissingSessionAsAlreadyGone(t *testing.T) {
 
 func TestLogoutAlsoRevokesTheOwnedRefreshToken(t *testing.T) {
 	handler := newUserHandlerForTest()
-	refresh, err := testHandlerTokens().GenerateRefresh("user-1", "Jane", "user", "log")
+	refresh, err := testHandlerTokens().GenerateRefresh("user-1", "Jane", "user", time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +114,7 @@ func TestLogoutAlsoRevokesTheOwnedRefreshToken(t *testing.T) {
 func TestRefreshRejectsAnAlreadyUsedRefreshToken(t *testing.T) {
 	handler := newUserHandlerForTest()
 	handler.Service.(*userServiceTestDouble).logoutErr = domainauth.ErrDuplicate
-	refresh, err := testHandlerTokens().GenerateRefresh("user-1", "Jane", "user", "log")
+	refresh, err := testHandlerTokens().GenerateRefresh("user-1", "Jane", "user", time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,13 +124,16 @@ func TestRefreshRejectsAnAlreadyUsedRefreshToken(t *testing.T) {
 }
 
 func TestFailedLoginCountsPerClientAndPerIdentifier(t *testing.T) {
-	limiter := &loginLimiterUserHandlerTestDouble{}
-	handler := New(&userServiceTestDouble{loginErr: domainuser.ErrInvalidCredentials}, nil, limiter, nil, testHandlerOptions())
+	limiter, byIdentifier := &loginLimiterUserHandlerTestDouble{}, &loginLimiterUserHandlerTestDouble{}
+	opts := testHandlerOptions()
+	opts.IdentifierLimiter = byIdentifier
+	handler := New(&userServiceTestDouble{loginErr: domainuser.ErrInvalidCredentials}, nil, limiter, nil, opts)
 	ctx, rec := newUserHandlerTestContext(t, http.MethodPost, "/login", `{"identifier":"jane@example.com","password":"secret123"}`, nil)
 	handler.Login(ctx)
 	assertUserHandlerStatus(t, rec, http.StatusBadRequest)
-	if len(limiter.registeredKeys) != 2 || limiter.registeredKeys[1] != "identifier:jane@example.com" {
-		t.Fatalf("registered keys = %v, want the per-client key and identifier:jane@example.com", limiter.registeredKeys)
+	if len(limiter.registeredKeys) != 1 || !strings.HasSuffix(limiter.registeredKeys[0], ":jane@example.com") ||
+		len(byIdentifier.registeredKeys) != 1 || byIdentifier.registeredKeys[0] != "identifier:jane@example.com" {
+		t.Fatalf("per-client keys = %v, per-identifier keys = %v", limiter.registeredKeys, byIdentifier.registeredKeys)
 	}
 }
 
@@ -270,5 +279,26 @@ func TestGoogleLoginFailsWhenTheSessionCannotBeStored(t *testing.T) {
 	assertUserHandlerStatus(t, rec, http.StatusInternalServerError)
 	if strings.Contains(rec.Body.String(), "access_token") {
 		t.Fatalf("tokens must not be returned: %s", rec.Body.String())
+	}
+}
+
+// The debug request line for an admin update must not carry the password the
+// caller supplied.
+func TestUpdateUserByIDDebugLogRedactsTheCurrentPassword(t *testing.T) {
+	var buf bytes.Buffer
+	logus.SetOutput(&buf)
+	logus.SetLevel(logus.LevelDebug)
+	t.Cleanup(func() { logus.SetOutput(os.Stderr); logus.SetLevel(logus.LevelInfo) })
+
+	handler := newUserHandlerForTest()
+	ctx, _ := newUserHandlerTestContext(t, http.MethodPut, "/user/"+uuid.NewString(), `{"name":"Jane Doe","current_password":"Sup3r-Secret!"}`, nil)
+	ctx.Params = gin.Params{{Key: "id", Value: uuid.NewString()}}
+	handler.UpdateUserByID(ctx)
+
+	if !strings.Contains(buf.String(), "Request:") {
+		t.Fatalf("the debug line was not logged:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), "Sup3r-Secret!") {
+		t.Fatalf("the plaintext password reached the log:\n%s", buf.String())
 	}
 }

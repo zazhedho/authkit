@@ -60,7 +60,7 @@ func (s *Service) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, 
 		return domainuser.Users{}, false, err
 	}
 	if err == nil && linked.ID != "" {
-		return s.finishGoogleLogin(ctx, linked, identity, metadata, nil)
+		return s.finishGoogleLogin(ctx, linked, identity, metadata, nil, false)
 	}
 
 	email := domainuser.SanitizeEmail(identity.Email)
@@ -87,18 +87,14 @@ func (s *Service) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, 
 			}
 			extra["password"] = randomHash
 			extra["password_changed_at"] = time.Now()
-			extra["tokens_valid_after"] = time.Now()
 		}
-		user, created, err := s.finishGoogleLogin(ctx, existing, identity, metadata, extra)
+		user, created, err := s.finishGoogleLogin(ctx, existing, identity, metadata, extra, existing.EmailVerifiedAt == nil)
 		if err != nil {
 			return domainuser.Users{}, false, err
 		}
 		if existing.EmailVerifiedAt == nil {
-			s.invalidateUserPermissionCache(ctx, user.ID)
-			if s.Sessions != nil {
-				if err := s.Sessions.DestroyAllUserSessions(ctx, user.ID); err != nil {
-					return domainuser.Users{}, false, fmt.Errorf("revoke sessions after google link: %w", err)
-				}
+			if err := s.afterRevocation(ctx, user.ID); err != nil {
+				return domainuser.Users{}, false, fmt.Errorf("revoke sessions after google link: %w", err)
 			}
 		}
 		return user, created, nil
@@ -151,8 +147,10 @@ func (s *Service) LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, 
 }
 
 // finishGoogleLogin records the login with a column-scoped write; extra adds
-// the linking columns.
-func (s *Service) finishGoogleLogin(ctx context.Context, user domainuser.Users, identity googleTokenInfo, metadata dtouser.LoginMetadata, extra map[string]any) (domainuser.Users, bool, error) {
+// the linking columns. With revoke the same statement voids older tokens and
+// the returned user carries the cut-off in TokensValidAfter, which the caller
+// issues its tokens after.
+func (s *Service) finishGoogleLogin(ctx context.Context, user domainuser.Users, identity googleTokenInfo, metadata dtouser.LoginMetadata, extra map[string]any, revoke bool) (domainuser.Users, bool, error) {
 	now := time.Now()
 	fields := map[string]any{
 		"last_login_at":         now,
@@ -171,7 +169,13 @@ func (s *Service) finishGoogleLogin(ctx context.Context, user domainuser.Users, 
 	for k, v := range extra {
 		fields[k] = v
 	}
-	if err := s.UserRepo.UpdateFields(ctx, user.ID, fields); err != nil {
+	if revoke {
+		cutoff, err := s.UserRepo.UpdateFieldsRevoking(ctx, user.ID, fields)
+		if err != nil {
+			return domainuser.Users{}, false, err
+		}
+		user.TokensValidAfter = &cutoff
+	} else if err := s.UserRepo.UpdateFields(ctx, user.ID, fields); err != nil {
 		return domainuser.Users{}, false, err
 	}
 	user.LastLoginAt, user.LastLoginIP, user.LastLoginUserAgent, user.LoginProvider = &now, metadata.IP, metadata.UserAgent, "google"

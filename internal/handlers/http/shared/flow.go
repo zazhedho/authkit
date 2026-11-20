@@ -61,7 +61,7 @@ func (f Flow) LogRequest(req any) {
 	if f.quiet {
 		return
 	}
-	logus.LogContextf(f.Ctx, logus.LevelDebug, "%s; Request: %+v;", f.Prefix, gokit.JSONEncode(req))
+	logus.LogContextf(f.Ctx, logus.LevelDebug, "%s; Request: %+v;", f.Prefix, gokit.JSONEncode(gokit.RedactSensitivePayload(req)))
 }
 
 // LogResponse writes the debug line for a successful response body.
@@ -69,7 +69,7 @@ func (f Flow) LogResponse(data any) {
 	if f.quiet {
 		return
 	}
-	logus.LogContextf(f.Ctx, logus.LevelDebug, "%s; Response: %+v;", f.Prefix, gokit.JSONEncode(data))
+	logus.LogContextf(f.Ctx, logus.LevelDebug, "%s; Response: %+v;", f.Prefix, gokit.JSONEncode(gokit.RedactSensitivePayload(data)))
 }
 
 // LogResponseText writes the debug line for a response that has no body.

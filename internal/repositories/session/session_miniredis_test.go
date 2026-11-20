@@ -154,3 +154,83 @@ func TestSessionRepositoryGetBySessionIDPropagatesRedisError(t *testing.T) {
 		t.Fatal("expected redis error")
 	}
 }
+
+func TestDeleteOthersKeepsTheNamedSessionAndRemovesTheRestInOneBatch(t *testing.T) {
+	repo, mr := newMiniRepo(t)
+	ctx := context.Background()
+	for _, s := range []*domainsession.Session{newSession("s1", "a1", "r1"), newSession("s2", "a2", "r2"), newSession("s3", "a3", "r3")} {
+		if err := repo.Create(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.DeleteOthers(ctx, "user-1", "s2"); err != nil {
+		t.Fatal(err)
+	}
+	left, err := repo.GetByUserID(ctx, "user-1")
+	if err != nil || len(left) != 1 || left[0].SessionID != "s2" {
+		t.Fatalf("left = %v, err = %v", left, err)
+	}
+	if ok, _ := repo.HasAccessTokenSession(ctx, "a2"); !ok {
+		t.Fatal("the kept session's access token must still resolve")
+	}
+	for _, token := range []string{"a1", "a3"} {
+		if ok, _ := repo.HasAccessTokenSession(ctx, token); ok {
+			t.Fatalf("access token %s survived", token)
+		}
+	}
+	if mr.Exists(refreshIndexKey(HashToken("r1"))) || mr.Exists(sessionKey("s3")) {
+		t.Fatal("the removed sessions left keys behind")
+	}
+	if err := repo.DeleteOthers(ctx, "user-1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := repo.GetByUserID(ctx, "user-1"); len(left) != 0 {
+		t.Fatalf("an empty keep id removes every session, left %v", left)
+	}
+}
+
+// failTx fails every MULTI/EXEC pipeline, standing in for a connection that
+// breaks after the refresh claim was written.
+type failTx struct{ fail *bool }
+
+func (failTx) DialHook(next redis.DialHook) redis.DialHook          { return next }
+func (failTx) ProcessHook(next redis.ProcessHook) redis.ProcessHook { return next }
+func (h failTx) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return func(ctx context.Context, cmds []redis.Cmder) error {
+		if *h.fail && len(cmds) > 0 && cmds[0].Name() == "multi" {
+			return errors.New("connection lost")
+		}
+		return next(ctx, cmds)
+	}
+}
+
+// A failure after the claim must not burn the refresh token: the claim is
+// given back so the client can retry.
+func TestRotateTokensReleasesTheClaimWhenTheSwapFails(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	fail := true
+	client.AddHook(failTx{&fail})
+	repo := NewRepository(client)
+	ctx := context.Background()
+	if err := repo.Create(ctx, newSession("s1", "a1", "r1")); err != nil {
+		t.Fatal(err)
+	}
+	expires := time.Now().Add(time.Hour)
+
+	if err := repo.RotateTokens(ctx, "s1", "a2", "r2", expires); err == nil {
+		t.Fatal("the failed swap must be reported")
+	}
+	if mr.Exists(refreshUsedKey + HashToken("r1")) {
+		t.Fatal("the claim on the refresh token was not released")
+	}
+	if _, err := repo.GetByRefreshToken(ctx, "r1"); err != nil {
+		t.Fatalf("the old refresh token must still work: %v", err)
+	}
+
+	fail = false
+	if err := repo.RotateTokens(ctx, "s1", "a2", "r2", expires); err != nil {
+		t.Fatalf("the retry must succeed: %v", err)
+	}
+}

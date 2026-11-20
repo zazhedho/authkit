@@ -44,11 +44,6 @@ func translateErr(err error) error {
 	return repositoryshared.Gorm(err, domainauth.ErrNotFound, domainauth.ErrDuplicate)
 }
 
-func (r *Repository) GetByToken(ctx context.Context, token string) (domainauth.Blacklist, error) {
-	ret, err := r.GetOneByField(ctx, "token", hashToken(token))
-	return ret, translateErr(err)
-}
-
 func (r *Repository) ExistsByToken(ctx context.Context, token string) (bool, error) {
 	return r.ExistsByField(ctx, "token", hashToken(token))
 }

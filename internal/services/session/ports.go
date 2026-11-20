@@ -16,4 +16,6 @@ type Repository interface {
 	RotateTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error
 	Delete(ctx context.Context, sessionID string) error
 	DeleteByUserID(ctx context.Context, userID string) error
+	// DeleteOthers deletes the user's sessions but one, in one batch.
+	DeleteOthers(ctx context.Context, userID, keepSessionID string) error
 }

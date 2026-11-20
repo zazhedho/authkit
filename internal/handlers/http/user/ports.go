@@ -15,11 +15,12 @@ import (
 type Service interface {
 	RegisterUser(ctx context.Context, req dtouser.Register) (domainuser.Users, error)
 	AdminCreateUser(ctx context.Context, actor domainauth.Actor, req dtouser.AdminCreateUser) (domainuser.Users, error)
-	LoginUser(ctx context.Context, req dtouser.Login, logID string, metadata dtouser.LoginMetadata) (string, error)
+	LoginUser(ctx context.Context, req dtouser.Login, metadata dtouser.LoginMetadata) (string, error)
 	LoginWithGoogle(ctx context.Context, req dtouser.GoogleLogin, metadata dtouser.LoginMetadata, allowRegistration bool) (domainuser.Users, bool, error)
 	LogoutUser(ctx context.Context, token string) error
-	ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason, logID string) (string, error)
-	StopImpersonation(ctx context.Context, actor domainauth.Actor, logID string) (string, error)
+	ImpersonateUser(ctx context.Context, actor domainauth.Actor, targetUserID, reason string) (string, error)
+	// StopImpersonation takes the iat_ms of the impersonation token being ended.
+	StopImpersonation(ctx context.Context, actor domainauth.Actor, issuedAtMS int64) (string, error)
 	GetUserByID(ctx context.Context, id string) (domainuser.Users, error)
 	GetUserForActor(ctx context.Context, actor domainauth.Actor, id string) (domainuser.Users, error)
 	GetUserByEmail(ctx context.Context, email string) (domainuser.Users, error)
@@ -27,7 +28,8 @@ type Service interface {
 	GetUserByAuth(ctx context.Context, id string) (map[string]any, error)
 	GetAllUsers(ctx context.Context, actor domainauth.Actor, req dtoshared.ListRequest) ([]domainuser.Users, int64, error)
 	Update(ctx context.Context, actor domainauth.Actor, id string, req dtouser.Update) (domainuser.Users, error)
-	ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword, keepFrom time.Time) (domainuser.Users, error)
+	// ChangePassword returns the token cut-off the caller issues new tokens after.
+	ChangePassword(ctx context.Context, id string, req dtouser.ChangePassword) (time.Time, error)
 	ResetPasswordByEmail(ctx context.Context, email, newPassword string) error
 	Delete(ctx context.Context, actor domainauth.Actor, id string) error
 	VerifyPassword(ctx context.Context, id, password string) error
@@ -72,14 +74,21 @@ type OTPService interface {
 // ResetService starts and verifies password resets.
 type ResetService interface {
 	RequestReset(ctx context.Context, email, appName string) error
+	// VerifyReset consumes the token and returns its e-mail.
 	VerifyReset(ctx context.Context, token string) (string, error)
+	// RestoreReset puts a consumed token back, for a reset that failed after it.
+	RestoreReset(ctx context.Context, token, email string) error
+}
+
+// AsyncRunner runs background work with the request's context values but not
+// its cancellation. Go returns false when the work was dropped.
+type AsyncRunner interface {
+	Go(ctx context.Context, fn func(ctx context.Context)) bool
 }
 
 // TokenIssuer issues and reads the JWTs the login and refresh flows need.
 type TokenIssuer interface {
-	Generate(userID, username, role, logID string) (string, error)
-	GenerateRefresh(userID, username, role, logID string) (string, error)
-	GenerateImpersonated(userID, username, role, logID, originalUserID, originalUsername, originalRole string) (string, error)
-	GenerateRefreshImpersonated(userID, username, role, logID, originalUserID, originalUsername, originalRole string) (string, error)
+	Generate(userID, username, role string, after time.Time) (string, error)
+	GenerateRefresh(userID, username, role string, after time.Time) (string, error)
 	Claims(tokenString string) (map[string]any, error)
 }

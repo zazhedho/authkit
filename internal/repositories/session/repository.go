@@ -164,37 +164,56 @@ func (r *Repository) Delete(ctx context.Context, sessionID string) error {
 	if err != nil {
 		return err
 	}
-
-	pipe := r.Redis.Pipeline()
-	pipe.Del(ctx, sessionKey(sessionID))
-	pipe.SRem(ctx, userSessionKey(session.UserID), sessionID)
-	pipe.Del(ctx, accessIndexKey(session.AccessTokenHash))
-	pipe.Del(ctx, refreshIndexKey(session.RefreshTokenHash))
-	if _, err = pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("failed to delete session: %w", err)
+	if err := r.deleteSessions(ctx, session); err != nil {
+		return err
 	}
 	logus.Logf(logus.LevelDebug, "Session deleted: %s", sessionID)
 	return nil
 }
 
-// DeleteByUserID deletes every session of the user and reports every failure.
+// deleteSessions removes the sessions and their indexes in one round trip.
+func (r *Repository) deleteSessions(ctx context.Context, sessions ...*domainsession.Session) error {
+	if len(sessions) == 0 {
+		return nil
+	}
+	pipe := r.Redis.Pipeline()
+	for _, s := range sessions {
+		pipe.Del(ctx, sessionKey(s.SessionID))
+		pipe.SRem(ctx, userSessionKey(s.UserID), s.SessionID)
+		pipe.Del(ctx, accessIndexKey(s.AccessTokenHash))
+		pipe.Del(ctx, refreshIndexKey(s.RefreshTokenHash))
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("failed to delete session: %w", err)
+	}
+	return nil
+}
+
+// DeleteByUserID deletes every session of the user.
 func (r *Repository) DeleteByUserID(ctx context.Context, userID string) error {
+	return r.DeleteOthers(ctx, userID, "")
+}
+
+// DeleteOthers deletes every session of the user but keepSessionID (empty keeps
+// none), in one batch.
+func (r *Repository) DeleteOthers(ctx context.Context, userID, keepSessionID string) error {
 	sessions, err := r.GetByUserID(ctx, userID)
 	if err != nil {
 		return err
 	}
-	var errs []error
-	for _, session := range sessions {
-		if err := r.Delete(ctx, session.SessionID); err != nil {
-			errs = append(errs, fmt.Errorf("session %s: %w", session.SessionID, err))
+	doomed := make([]*domainsession.Session, 0, len(sessions))
+	for _, s := range sessions {
+		if s.SessionID != keepSessionID {
+			doomed = append(doomed, s)
 		}
 	}
-	return errors.Join(errs...)
+	return r.deleteSessions(ctx, doomed...)
 }
 
 // RotateTokens replaces the session's tokens. It first claims the old refresh
 // token with SET NX, so of two concurrent refreshes only one wins; the loser
-// gets domainsession.ErrRefreshReused and the session is revoked.
+// gets domainsession.ErrRefreshReused and the session is revoked. The swap is
+// one MULTI/EXEC; if it fails the claim is released.
 func (r *Repository) RotateTokens(ctx context.Context, sessionID string, accessToken string, refreshToken string, expiresAt time.Time) error {
 	ttl := time.Until(expiresAt)
 	if ttl <= 0 {
@@ -227,7 +246,7 @@ func (r *Repository) RotateTokens(ctx context.Context, sessionID string, accessT
 		return fmt.Errorf("failed to marshal session: %w", err)
 	}
 
-	pipe := r.Redis.Pipeline()
+	pipe := r.Redis.TxPipeline()
 	pipe.Del(ctx, accessIndexKey(oldAccess))
 	pipe.Del(ctx, refreshIndexKey(oldRefresh))
 	pipe.Set(ctx, sessionKey(sessionID), sessionData, ttl)
@@ -235,6 +254,10 @@ func (r *Repository) RotateTokens(ctx context.Context, sessionID string, accessT
 	pipe.Set(ctx, refreshIndexKey(session.RefreshTokenHash), sessionID, ttl)
 	pipe.Expire(ctx, userSessionKey(session.UserID), ttl)
 	if _, err = pipe.Exec(ctx); err != nil {
+		// Give the claim back, or the client could never retry this token.
+		if delErr := r.Redis.Del(ctx, refreshUsedKey+oldRefresh).Err(); delErr != nil {
+			err = errors.Join(err, delErr)
+		}
 		return fmt.Errorf("failed to rotate session tokens: %w", err)
 	}
 	return nil

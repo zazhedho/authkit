@@ -114,18 +114,5 @@ func (s *Service) DestroyAllUserSessions(ctx context.Context, userID string) err
 }
 
 func (s *Service) DestroyOtherSessions(ctx context.Context, userID string, currentSessionID string) error {
-	sessions, err := s.SessionRepo.GetByUserID(ctx, userID)
-	if err != nil {
-		return err
-	}
-
-	for _, session := range sessions {
-		if session.SessionID != currentSessionID {
-			if err := s.SessionRepo.Delete(ctx, session.SessionID); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	return s.SessionRepo.DeleteOthers(ctx, userID, currentSessionID)
 }

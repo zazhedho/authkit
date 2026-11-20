@@ -2,13 +2,18 @@
 package role
 
 import (
+	"errors"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/zazhedho/authkit/internal/router/module"
 )
 
 // Register mounts the role routes under r.
-func Register(r gin.IRouter, d module.Deps) {
+func Register(r gin.IRouter, d module.Deps) error {
+	if d.Role == nil {
+		return errors.New("router: the role handler is missing")
+	}
 	h := d.Role
 
 	r.GET("/roles", d.Auth, d.Can("roles", "list"), h.GetAll)
@@ -22,4 +27,5 @@ func Register(r gin.IRouter, d module.Deps) {
 
 		role.POST("/:id/permissions", d.Can("roles", "assign_permissions"), h.AssignPermissions)
 	}
+	return nil
 }

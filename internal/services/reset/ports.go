@@ -18,5 +18,5 @@ type Repository interface {
 
 // Mailer delivers the password reset link. ttl is how long the token stays valid.
 type Mailer interface {
-	SendPasswordReset(to, token, appName, resetURL string, ttl time.Duration) error
+	SendPasswordReset(ctx context.Context, to, token, appName, resetURL string, ttl time.Duration) error
 }

@@ -16,6 +16,7 @@ type sessionRepoTestDouble struct {
 	deletedIDs     []string
 	rotatedID      string
 	deleteByUserID string
+	keptSessionID  string
 }
 
 func (m *sessionRepoTestDouble) Create(ctx context.Context, session *domainsession.Session) error {
@@ -49,6 +50,10 @@ func (m *sessionRepoTestDouble) RotateTokens(ctx context.Context, sessionID stri
 }
 func (m *sessionRepoTestDouble) Delete(ctx context.Context, sessionID string) error {
 	m.deletedIDs = append(m.deletedIDs, sessionID)
+	return nil
+}
+func (m *sessionRepoTestDouble) DeleteOthers(ctx context.Context, userID, keepSessionID string) error {
+	m.keptSessionID = keepSessionID
 	return nil
 }
 func (m *sessionRepoTestDouble) DeleteByUserID(ctx context.Context, userID string) error {
@@ -116,8 +121,8 @@ func TestDestroyOtherSessionsKeepsCurrentSession(t *testing.T) {
 	if err := svc.DestroyOtherSessions(context.Background(), "user-1", "current"); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
-	if len(repo.deletedIDs) != 2 || repo.deletedIDs[0] != "old-1" || repo.deletedIDs[1] != "old-2" {
-		t.Fatalf("expected only old sessions deleted, got %+v", repo.deletedIDs)
+	if repo.keptSessionID != "current" {
+		t.Fatalf("expected the current session to be kept, got %q", repo.keptSessionID)
 	}
 }
 

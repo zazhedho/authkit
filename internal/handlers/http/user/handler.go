@@ -58,19 +58,24 @@ type Handler struct {
 	ResetService     ResetService
 	Tokens           TokenIssuer
 	Settings         Settings
-	// Async runs background work; nil starts a goroutine. Tests run it inline.
-	Async func(func())
+	// IdentifierLimiter backs off failures per identifier across all clients.
+	IdentifierLimiter LoginLimiter
+	// Async runs the mail sends after the response; nil runs them inline.
+	Async AsyncRunner
 }
 
 // Options are the optional dependencies and settings of the user handler.
 type Options struct {
-	// Async runs background work; nil starts a goroutine.
-	Async            func(func())
-	AppConfigService AppConfigService
-	OTPService       OTPService
-	ResetService     ResetService
-	Tokens           TokenIssuer
-	Settings         Settings
+	// Async runs the mail sends after the response; nil runs them inline.
+	Async AsyncRunner
+	// IdentifierLimiter counts failures per identifier across all clients,
+	// with a backoff instead of a lockout; nil is off.
+	IdentifierLimiter LoginLimiter
+	AppConfigService  AppConfigService
+	OTPService        OTPService
+	ResetService      ResetService
+	Tokens            TokenIssuer
+	Settings          Settings
 }
 
 func New(
@@ -81,16 +86,17 @@ func New(
 	options Options,
 ) *Handler {
 	return &Handler{
-		Service:          s,
-		SessionSvc:       sessionSvc,
-		LoginLimiter:     limiter,
-		AuditWriter:      httpshared.NewAuditWriter(auditService, "UserHandler"),
-		AppConfigService: options.AppConfigService,
-		OTPService:       options.OTPService,
-		ResetService:     options.ResetService,
-		Tokens:           options.Tokens,
-		Settings:         options.Settings,
-		Async:            options.Async,
+		Service:           s,
+		SessionSvc:        sessionSvc,
+		LoginLimiter:      limiter,
+		AuditWriter:       httpshared.NewAuditWriter(auditService, "UserHandler"),
+		AppConfigService:  options.AppConfigService,
+		OTPService:        options.OTPService,
+		ResetService:      options.ResetService,
+		Tokens:            options.Tokens,
+		Settings:          options.Settings,
+		Async:             options.Async,
+		IdentifierLimiter: options.IdentifierLimiter,
 	}
 }
 
@@ -181,7 +187,7 @@ func (h *Handler) Register(ctx *gin.Context) {
 	})
 
 	res := gokit.Response(http.StatusCreated, "User registered successfully", logID, dtouser.NewResponse(data, false))
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(data))
+	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(data)))
 	ctx.JSON(http.StatusCreated, res)
 }
 
@@ -247,11 +253,9 @@ func (h *Handler) SendRegisterOTP(ctx *gin.Context) {
 	// The send itself happens after the response and only logs failures.
 	if conflict == "" && normalizedEmail != "" {
 		appName := h.Settings.EmailAppName
-		h.runAsync(func() {
-			bg, cancel := context.WithTimeout(context.Background(), resetRequestTimeout)
-			defer cancel()
+		h.runAsync(ctx, logID, func(bg context.Context) {
 			if err := h.OTPService.SendRegisterOTP(bg, normalizedEmail, appName); err != nil {
-				logus.Logf(logus.LevelError, "%s; OTPService.SendRegisterOTP; ERROR: %s;", logPrefix, err)
+				logus.LogContextf(bg, logus.LevelError, "%s; OTPService.SendRegisterOTP; ERROR: %s;", logPrefix, err)
 			}
 		})
 	}
@@ -309,7 +313,7 @@ func (h *Handler) AdminCreateUser(ctx *gin.Context) {
 	})
 
 	res := gokit.Response(http.StatusCreated, "User created successfully", logID, dtouser.NewResponse(data, false))
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(data))
+	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(data)))
 	ctx.JSON(http.StatusCreated, res)
 }
 
@@ -331,12 +335,12 @@ func (h *Handler) Login(ctx *gin.Context) {
 	}
 
 	loginIdentifier := fmt.Sprintf("%s:%s", ctx.ClientIP(), normalizedIdentifier)
-	if h.rejectBlockedLogin(ctx, logID, logPrefix, loginIdentifier, normalizedIdentifier) ||
-		h.rejectBlockedLogin(ctx, logID, logPrefix, identifierKey(normalizedIdentifier), normalizedIdentifier) {
+	if h.rejectBlockedLogin(ctx, logID, logPrefix, h.LoginLimiter, loginIdentifier, normalizedIdentifier) ||
+		h.rejectBlockedLogin(ctx, logID, logPrefix, h.IdentifierLimiter, identifierKey(normalizedIdentifier), normalizedIdentifier) {
 		return
 	}
 
-	token, err := h.Service.LoginUser(reqCtx, req, logID.String(), dtouser.LoginMetadata{
+	token, err := h.Service.LoginUser(reqCtx, req, dtouser.LoginMetadata{
 		IP:        ctx.ClientIP(),
 		UserAgent: ctx.Request.UserAgent(),
 	})
@@ -360,14 +364,14 @@ func (h *Handler) Login(ctx *gin.Context) {
 	}
 	loginUserID := loggedInUser.ID
 
-	refreshToken, err := h.Tokens.GenerateRefresh(loggedInUser.ID, loggedInUser.Name, loggedInUser.Role, logID.String())
+	refreshToken, err := h.Tokens.GenerateRefresh(loggedInUser.ID, loggedInUser.Name, loggedInUser.Role, issuedAfter(loggedInUser))
 	if err != nil {
 		respondStepFailed(ctx, logID, logPrefix, "GenerateRefreshJwt", err)
 		return
 	}
 
-	h.resetLoginLimiter(ctx, logPrefix, loginIdentifier)
-	h.resetLoginLimiter(ctx, logPrefix, identifierKey(normalizedIdentifier))
+	h.resetLoginLimiter(ctx, logPrefix, h.LoginLimiter, loginIdentifier)
+	h.resetLoginLimiter(ctx, logPrefix, h.IdentifierLimiter, identifierKey(normalizedIdentifier))
 	if err := h.createLoginSession(ctx, reqCtx, &loggedInUser, token, refreshToken, logPrefix); err != nil {
 		respondStepFailed(ctx, logID, logPrefix, "SessionSvc.CreateSession", err)
 		return
@@ -447,13 +451,13 @@ func (h *Handler) GoogleLogin(ctx *gin.Context) {
 		return
 	}
 
-	accessToken, err := h.Tokens.Generate(user.ID, user.Name, user.Role, logID.String())
+	accessToken, err := h.Tokens.Generate(user.ID, user.Name, user.Role, issuedAfter(user))
 	if err != nil {
 		respondStepFailed(ctx, logID, logPrefix, "GenerateJwt", err)
 		return
 	}
 
-	refreshToken, err := h.Tokens.GenerateRefresh(user.ID, user.Name, user.Role, logID.String())
+	refreshToken, err := h.Tokens.GenerateRefresh(user.ID, user.Name, user.Role, issuedAfter(user))
 	if err != nil {
 		respondStepFailed(ctx, logID, logPrefix, "GenerateRefreshJwt", err)
 		return
@@ -523,26 +527,51 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 		return
 	}
 
-	isBlacklisted, err := h.Service.IsTokenRevoked(ctx.Request.Context(), req.RefreshToken)
-	if err != nil {
-		h.failRefresh(ctx, logID, logPrefix, "BlacklistRepo.ExistsByToken", err, domainaudit.AuditEvent{
-			ActorUserID: claimUserID,
-			ActorRole:   claimRole,
-			Message:     "Failed to validate login session renewal",
-		})
-		return
-	}
-	if isBlacklisted {
-		h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
-			ActorUserID:  claimUserID,
-			ActorRole:    claimRole,
-			Message:      failedRenewLoginSessionMessage,
-			ErrorMessage: "The refresh token has already been revoked",
-		})
-		return
+	userID := claimUserID
+	// With sessions the session index is the one replay mechanism: a rotated
+	// token that comes back revokes the whole session. Without sessions the
+	// blacklist claims each refresh token once.
+	var session *domainsession.Session
+	if h.SessionSvc != nil {
+		var sessionErr error
+		session, sessionErr = h.SessionSvc.GetSessionByRefreshToken(reqCtx, req.RefreshToken)
+		if sessionErr != nil {
+			message := "No active session was found for the refresh token"
+			if errors.Is(sessionErr, domainsession.ErrRefreshReused) {
+				message = "A rotated refresh token was presented again; the session was revoked"
+			} else if !errors.Is(sessionErr, domainsession.ErrNotFound) {
+				h.failRefresh(ctx, logID, logPrefix, "SessionSvc.GetSessionByRefreshToken", sessionErr, domainaudit.AuditEvent{
+					ActorUserID: userID, ActorRole: claimRole, Message: "Failed to look up the login session",
+				})
+				return
+			}
+			h.rejectRefresh(ctx, logID, "session not found for refresh token", domainaudit.AuditEvent{
+				ActorUserID: userID, ActorRole: claimRole, ResourceID: userID,
+				Message: failedRenewLoginSessionMessage, ErrorMessage: message,
+			})
+			return
+		}
+	} else {
+		isBlacklisted, err := h.Service.IsTokenRevoked(reqCtx, req.RefreshToken)
+		if err != nil {
+			h.failRefresh(ctx, logID, logPrefix, "BlacklistRepo.ExistsByToken", err, domainaudit.AuditEvent{
+				ActorUserID: claimUserID,
+				ActorRole:   claimRole,
+				Message:     "Failed to validate login session renewal",
+			})
+			return
+		}
+		if isBlacklisted {
+			h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
+				ActorUserID:  claimUserID,
+				ActorRole:    claimRole,
+				Message:      failedRenewLoginSessionMessage,
+				ErrorMessage: "The refresh token has already been revoked",
+			})
+			return
+		}
 	}
 
-	userID := claimUserID
 	user, err := h.Service.GetUserByID(reqCtx, userID)
 	if err != nil {
 		h.auditRefreshFailure(ctx, domainaudit.AuditEvent{
@@ -561,42 +590,40 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 		return
 	}
 
-	if user.TokensValidAfter != nil {
-		iat, _ := tokenClaims["iat"].(float64)
-		if int64(iat) < user.TokensValidAfter.Unix() {
-			h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
-				ActorUserID:  userID,
-				ActorRole:    user.Role,
-				Message:      failedRenewLoginSessionMessage,
-				ErrorMessage: "The refresh token was issued before the account's tokens were revoked",
-			})
-			return
-		}
-	}
-
-	// Claim the old refresh token first: the blacklist has a unique key, so of
-	// two concurrent refreshes only one gets past this point.
-	if err = h.Service.LogoutUser(reqCtx, req.RefreshToken); err != nil {
-		if errors.Is(err, domainauth.ErrDuplicate) {
-			h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
-				ActorUserID:  userID,
-				ActorRole:    user.Role,
-				Message:      failedRenewLoginSessionMessage,
-				ErrorMessage: "The refresh token was already used",
-			})
-			return
-		}
-		h.failRefresh(ctx, logID, logPrefix, "Service.LogoutUser(refresh)", err, domainaudit.AuditEvent{
-			ActorUserID: userID,
-			ActorRole:   user.Role,
-			ResourceID:  userID,
-			Message:     "Failed to revoke previous login session token",
+	if user.TokensValidAfter != nil && domainauth.RevokedBy(tokenClaims, *user.TokensValidAfter) {
+		h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
+			ActorUserID:  userID,
+			ActorRole:    user.Role,
+			Message:      failedRenewLoginSessionMessage,
+			ErrorMessage: "The refresh token was issued before the account's tokens were revoked",
 		})
 		return
 	}
 
-	imp := impersonationFromClaims(tokenClaims)
-	accessToken, err := h.issueAccessToken(&user, logID.String(), imp)
+	if h.SessionSvc == nil {
+		// Claim the old refresh token: the blacklist has a unique key, so of two
+		// concurrent refreshes only one gets past this point.
+		if err = h.Service.LogoutUser(reqCtx, req.RefreshToken); err != nil {
+			if errors.Is(err, domainauth.ErrDuplicate) {
+				h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
+					ActorUserID:  userID,
+					ActorRole:    user.Role,
+					Message:      failedRenewLoginSessionMessage,
+					ErrorMessage: "The refresh token was already used",
+				})
+				return
+			}
+			h.failRefresh(ctx, logID, logPrefix, "Service.LogoutUser(refresh)", err, domainaudit.AuditEvent{
+				ActorUserID: userID,
+				ActorRole:   user.Role,
+				ResourceID:  userID,
+				Message:     "Failed to revoke previous login session token",
+			})
+			return
+		}
+	}
+
+	accessToken, err := h.Tokens.Generate(user.ID, user.Name, user.Role, issuedAfter(user))
 	if err != nil {
 		h.failRefresh(ctx, logID, logPrefix, "GenerateJwtWithClaims", err, domainaudit.AuditEvent{
 			ActorUserID: userID,
@@ -607,7 +634,7 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 		return
 	}
 
-	refreshToken, err := h.issueRefreshToken(&user, logID.String(), imp)
+	refreshToken, err := h.Tokens.GenerateRefresh(user.ID, user.Name, user.Role, issuedAfter(user))
 	if err != nil {
 		h.failRefresh(ctx, logID, logPrefix, "GenerateRefreshJwt", err, domainaudit.AuditEvent{
 			ActorUserID: userID,
@@ -618,25 +645,7 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 		return
 	}
 
-	if h.SessionSvc != nil {
-		session, sessionErr := h.SessionSvc.GetSessionByRefreshToken(reqCtx, req.RefreshToken)
-		if sessionErr != nil {
-			message := "No active session was found for the refresh token"
-			if errors.Is(sessionErr, domainsession.ErrRefreshReused) {
-				message = "A rotated refresh token was presented again; the session was revoked"
-			}
-			h.auditRefreshFailure(ctx, domainaudit.AuditEvent{
-				ActorUserID:  userID,
-				ActorRole:    user.Role,
-				ResourceID:   userID,
-				Message:      failedRenewLoginSessionMessage,
-				ErrorMessage: message,
-			})
-			logus.LogContextf(ctx, logus.LevelError, "%s; SessionSvc.GetSessionByRefreshToken; ERROR: %s;", logPrefix, sessionErr)
-			respondRefreshUnauthorized(ctx, logID, "session not found for refresh token")
-			return
-		}
-
+	if session != nil {
 		refreshExpAt, withinCap := h.sessionExpiry(session.LoginAt)
 		if !withinCap {
 			if destroyErr := h.SessionSvc.DestroySession(reqCtx, session.SessionID); destroyErr != nil {
@@ -650,7 +659,7 @@ func (h *Handler) RefreshToken(ctx *gin.Context) {
 			})
 			return
 		}
-		if sessionErr = h.SessionSvc.RotateSessionTokens(reqCtx, session.SessionID, accessToken, refreshToken, refreshExpAt); sessionErr != nil {
+		if sessionErr := h.SessionSvc.RotateSessionTokens(reqCtx, session.SessionID, accessToken, refreshToken, refreshExpAt); sessionErr != nil {
 			if errors.Is(sessionErr, domainsession.ErrRefreshReused) {
 				h.rejectRefresh(ctx, logID, "refresh token has been revoked", domainaudit.AuditEvent{
 					ActorUserID:  userID,
@@ -820,7 +829,7 @@ func (h *Handler) GetUserByAuth(ctx *gin.Context) {
 	}
 
 	res := gokit.Response(http.StatusOK, "success", logID, data)
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(data))
+	logus.LogContextf(ctx, logus.LevelDebug, "%s; Response: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(data)))
 	ctx.JSON(http.StatusOK, res)
 }
 
@@ -840,7 +849,7 @@ func (h *Handler) ImpersonateUser(ctx *gin.Context) {
 	}
 	reason := strings.TrimSpace(body.Reason)
 
-	token, err := h.Service.ImpersonateUser(reqCtx, httpshared.ActorFrom(reqCtx), id, reason, logID.String())
+	token, err := h.Service.ImpersonateUser(reqCtx, httpshared.ActorFrom(reqCtx), id, reason)
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionLogin,
@@ -898,7 +907,7 @@ func (h *Handler) StopImpersonation(ctx *gin.Context) {
 		return
 	}
 
-	token, err := h.Service.StopImpersonation(reqCtx, httpshared.ActorFrom(reqCtx), logID.String())
+	token, err := h.Service.StopImpersonation(reqCtx, httpshared.ActorFrom(reqCtx), domainauth.IssuedAtMillis(httpshared.GetAuthData(reqCtx)))
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionLogout,
@@ -1010,7 +1019,7 @@ func (h *Handler) UpdateUserByID(ctx *gin.Context) {
 	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
 		return
 	}
-	logus.LogContextf(ctx, logus.LevelDebug, "%s; Request: %+v;", logPrefix, gokit.JSONEncode(req))
+	logus.LogContextf(ctx, logus.LevelDebug, "%s; Request: %+v;", logPrefix, gokit.JSONEncode(gokit.RedactSensitivePayload(req)))
 
 	h.updateUser(ctx, logID, logPrefix, id, req, "Failed to update user by ID", "Updated user by ID")
 }
@@ -1034,12 +1043,12 @@ func (h *Handler) ChangePassword(ctx *gin.Context) {
 	}
 
 	limiterKey := "change_password:" + scope.UserID
-	if h.rejectBlockedLogin(ctx, logID, logPrefix, limiterKey, scope.UserID) {
+	if h.rejectBlockedLogin(ctx, logID, logPrefix, h.LoginLimiter, limiterKey, scope.UserID) {
 		return
 	}
 
 	before, _ := h.Service.GetUserByID(reqCtx, scope.UserID)
-	data, err := h.Service.ChangePassword(reqCtx, scope.UserID, req, h.tokenIssuedAt(ctx))
+	cutoff, err := h.Service.ChangePassword(reqCtx, scope.UserID, req)
 	if err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionUpdate,
@@ -1052,7 +1061,11 @@ func (h *Handler) ChangePassword(ctx *gin.Context) {
 		})
 		logus.LogContextf(ctx, logus.LevelError, "%s; Service.ChangePassword; ERROR: %s;", logPrefix, err)
 		if errors.Is(err, domainuser.ErrPasswordIncorrect) {
-			if h.registerLimiterFailure(ctx, logPrefix, limiterKey) {
+			blocked, responded := h.registerLimiterFailure(ctx, logID, logPrefix, limiterKey)
+			if responded {
+				return
+			}
+			if blocked {
 				h.respondTooManyLoginAttempts(ctx, logID, 0)
 				return
 			}
@@ -1060,31 +1073,50 @@ func (h *Handler) ChangePassword(ctx *gin.Context) {
 		respondUserMutationError(ctx, logID, err)
 		return
 	}
-	h.resetLoginLimiter(ctx, logPrefix, limiterKey)
+	h.resetLoginLimiter(ctx, logPrefix, h.LoginLimiter, limiterKey)
 
-	if err := h.revokeOtherSessions(reqCtx, ctx, scope.UserID); err != nil {
+	// Every older token is void; the caller gets a fresh pair issued after the
+	// cut-off and, with sessions, keeps only that one session.
+	user, err := h.Service.GetUserByID(reqCtx, scope.UserID)
+	if err != nil {
+		respondStepFailed(ctx, logID, logPrefix, "Service.GetUserByID", err)
+		return
+	}
+	accessToken, err := h.Tokens.Generate(user.ID, user.Name, user.Role, cutoff)
+	if err != nil {
+		respondStepFailed(ctx, logID, logPrefix, "GenerateJwt", err)
+		return
+	}
+	refreshToken, err := h.Tokens.GenerateRefresh(user.ID, user.Name, user.Role, cutoff)
+	if err != nil {
+		respondStepFailed(ctx, logID, logPrefix, "GenerateRefreshJwt", err)
+		return
+	}
+	if err := h.reissueSession(ctx, reqCtx, &user, accessToken, refreshToken, logPrefix); err != nil {
 		h.WriteAudit(ctx, domainaudit.AuditEvent{
 			Action:       domainaudit.ActionUpdate,
 			Resource:     "user_password",
 			ResourceID:   scope.UserID,
 			Status:       domainaudit.StatusFailed,
-			Message:      "Password changed but other sessions could not be revoked",
+			Message:      "Password changed but the session could not be re-issued",
 			ErrorMessage: err.Error(),
 		})
-		respondStepFailed(ctx, logID, logPrefix, "revokeOtherSessions", err)
+		respondStepFailed(ctx, logID, logPrefix, "reissueSession", err)
 		return
 	}
 	h.WriteAudit(ctx, domainaudit.AuditEvent{
 		Action:     domainaudit.ActionUpdate,
 		Resource:   "user_password",
-		ResourceID: data.ID,
+		ResourceID: user.ID,
 		Status:     domainaudit.StatusSuccess,
 		Message:    "Changed user password",
 		AfterData: map[string]any{
-			"user_id": data.ID,
+			"user_id": user.ID,
 		},
 	})
 
+	data := h.buildAuthTokenResponse(accessToken, refreshToken)
+	data["user"] = dtouser.NewResponse(user, false)
 	res := gokit.Response(http.StatusOK, "User password changed successfully", logID, data)
 	ctx.JSON(http.StatusOK, res)
 }
@@ -1133,23 +1165,10 @@ func (h *Handler) ResetPassword(ctx *gin.Context) {
 	h.resetPasswordByEmail(ctx, req, logID, logPrefix)
 }
 
-func (h *Handler) revokePasswordResetSessions(ctx context.Context, userID string) error {
-	return h.revokeAllSessions(ctx, userID)
-}
-
-func (h *Handler) revokeAllSessions(ctx context.Context, userID string) error {
-	if h.SessionSvc == nil || strings.TrimSpace(userID) == "" {
-		return nil
-	}
-
-	return h.SessionSvc.DestroyAllUserSessions(ctx, userID)
-}
-
 func (h *Handler) Delete(ctx *gin.Context) {
 	logID := gokit.RequestID(ctx)
 	logPrefix := "[UserHandler][Delete]"
-	reqCtx := ctx.Request.Context()
-	scope := domainauth.FromContext(reqCtx)
+	scope := domainauth.FromContext(ctx.Request.Context())
 
 	if scope.UserID == "" {
 		httpshared.RespondUnauthorized(ctx, logID)
@@ -1159,20 +1178,7 @@ func (h *Handler) Delete(ctx *gin.Context) {
 	if h.denyWhileImpersonating(ctx, logID, scope, "user", "delete the account") {
 		return
 	}
-	var req dtouser.DeleteOwn
-	if !gokit.BindJSON(ctx, logID, logPrefix, &req) {
-		return
-	}
-	if err := h.Service.VerifyPassword(reqCtx, scope.UserID, req.CurrentPassword); err != nil {
-		h.WriteAudit(ctx, domainaudit.AuditEvent{
-			Action:       domainaudit.ActionDelete,
-			Resource:     "user",
-			ResourceID:   scope.UserID,
-			Status:       domainaudit.StatusFailed,
-			Message:      "Failed to delete own user: current password check failed",
-			ErrorMessage: err.Error(),
-		})
-		respondUserMutationError(ctx, logID, err)
+	if !h.confirmOwnPassword(ctx, logID, logPrefix, scope.UserID) {
 		return
 	}
 
@@ -1186,6 +1192,17 @@ func (h *Handler) DeleteUserByID(ctx *gin.Context) {
 	id, err := gokit.ValidateUUIDParam(ctx, logID)
 	if err != nil {
 		return
+	}
+	scope := domainauth.FromContext(ctx.Request.Context())
+	if id == scope.UserID {
+		// Deleting yourself is the self-service route with its password check;
+		// an impersonator can never delete the account it is acting as.
+		if h.denyWhileImpersonating(ctx, logID, scope, "user", "delete the account") {
+			return
+		}
+		if !h.confirmOwnPassword(ctx, logID, logPrefix, scope.UserID) {
+			return
+		}
 	}
 	h.deleteUser(ctx, logID, logPrefix, id, "Failed to delete user by ID", "Deleted user by ID")
 }

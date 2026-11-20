@@ -22,6 +22,8 @@ type redisLoginLimiter struct {
 	limit         int
 	window        time.Duration
 	blockDuration time.Duration
+	// backoff delays past the limit exponentially instead of blocking at it.
+	backoff bool
 }
 
 // NewRedisLoginLimiter returns a Redis-backed LoginLimiter, or nil when client
@@ -39,12 +41,27 @@ func NewRedisLoginLimiter(client redis.UniversalClient, limit int, window, block
 	}
 }
 
+// NewRedisBackoffLimiter returns a LoginLimiter that never blocks within limit
+// failures per window and then delays each further failure by twice the last
+// (1s, 2s, 4s, ...) up to maxDelay. A few requests cannot lock a key out, so it
+// suits a key an attacker can name, such as a victim's identifier. It returns
+// nil under the same conditions as NewRedisLoginLimiter.
+func NewRedisBackoffLimiter(client redis.UniversalClient, limit int, window, maxDelay time.Duration) LoginLimiter {
+	l, ok := NewRedisLoginLimiter(client, limit, window, maxDelay).(*redisLoginLimiter)
+	if !ok {
+		return nil
+	}
+	l.backoff = true
+	return l
+}
+
+// The {key} hash tag keeps both keys of the Lua script in one Redis Cluster slot.
 func (l *redisLoginLimiter) attemptKey(key string) string {
-	return fmt.Sprintf("login_attempts:%s", key)
+	return fmt.Sprintf("login_attempts:{%s}", key)
 }
 
 func (l *redisLoginLimiter) blockKey(key string) string {
-	return fmt.Sprintf("login_block:%s", key)
+	return fmt.Sprintf("login_block:{%s}", key)
 }
 
 func (l *redisLoginLimiter) IsBlocked(ctx context.Context, key string) (bool, time.Duration, error) {
@@ -79,11 +96,34 @@ end
 return {0, redis.call('PTTL', KEYS[1])}
 `)
 
+// backoffScript counts a failure and, past the limit, blocks the key for
+// 1s << (count-limit-1), capped at ARGV[2]; the counter is kept so the delay
+// keeps growing until the window ends.
+var backoffScript = redis.NewScript(`
+local count = redis.call('INCR', KEYS[1])
+if redis.call('PTTL', KEYS[1]) < 0 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+local over = count - tonumber(ARGV[3])
+if over > 0 then
+  if over > 20 then over = 20 end
+  local delay = 1000 * (2 ^ (over - 1))
+  if delay > tonumber(ARGV[2]) then delay = tonumber(ARGV[2]) end
+  redis.call('SET', KEYS[2], '1', 'PX', math.floor(delay))
+  return {1, math.floor(delay)}
+end
+return {0, redis.call('PTTL', KEYS[1])}
+`)
+
 func (l *redisLoginLimiter) RegisterFailure(ctx context.Context, key string) (bool, time.Duration, error) {
 	if l == nil || l.client == nil {
 		return false, 0, nil
 	}
-	res, err := failureScript.Run(ctx, l.client, []string{l.attemptKey(key), l.blockKey(key)},
+	script := failureScript
+	if l.backoff {
+		script = backoffScript
+	}
+	res, err := script.Run(ctx, l.client, []string{l.attemptKey(key), l.blockKey(key)},
 		l.window.Milliseconds(), l.blockDuration.Milliseconds(), l.limit).Int64Slice()
 	if err != nil {
 		return false, 0, err
