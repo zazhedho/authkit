@@ -26,7 +26,7 @@ Requires Go 1.27 (the `go` line of `go.mod`).
 | Dependency | Needed for |
 |---|---|
 | PostgreSQL 13 or newer (required) | all data; migrations use `gen_random_uuid()` |
-| Redis (`*redis.Client`, optional) | login limiter, register limiter, sessions, permission cache, OTP, e-mail password reset |
+| Redis (`redis.UniversalClient`, optional; a plain `*redis.Client` works) | login limiter, register limiter, sessions, permission cache, OTP, e-mail password reset |
 | SMTP (optional) | OTP and password reset e-mail; with Redis only, those two stay inactive |
 
 Without Redis the module still works, but there is no login or register rate limiting, no session routes, and no OTP or e-mail password reset. `New` logs a warning in that case.
@@ -520,26 +520,30 @@ make lint   # golangci-lint v2.14.0; run `make lint-install` first
 
 ### Internal layout
 
+The root package is two files: `authkit.go` (aliases, constants and one-line wrappers) and `config.go`. All logic lives under `internal/`.
+
 ```text
 internal/
   architecture/                 guard tests
-  config/                       plain settings values
+  config/                       Config, defaults, validation, env parsing, redaction
+  migrate/  migrations/         migration runner (advisory lock, dirty state); embedded SQL
+  router/                       Wire builds repository -> service -> handler; Mount mounts the modules
+    module/                     Deps (handlers, auth middleware, limiters) and Entry
+    <module>/register.go        routes, middleware chains and permissions of one module
   domain/<module>/              entities, domain errors
   dto/<module>/                 request and response shapes
   services/<module>/            business logic, ports.go
-  services/shared/              helpers shared by services
   repositories/<module>/        database access
   handlers/http/<module>/       gin handlers, ports.go
   handlers/http/middleware/     Auth, Can, LoadPermissions, Role, RequestLogger
-  handlers/http/shared/         audit writer and request helpers
-  infrastructure/               cache/permission, mailer, ratelimit, token
-  migrations/  moduleseed/      embedded SQL, `cmd/module-seed` logic
+  infrastructure/               cache/permission, googleid, mailer, ratelimit, token
+  moduleseed/                   `cmd/module-seed` logic
   testutil/                     test helpers
 ```
 
-Everything depends inward on `domain` and `dto`; the middle layers never import each other. A consumer declares the interface it needs in `ports.go` and the root package wires the concrete types. Modules do not import each other apart from the shared `domain` and `dto` model.
+Everything depends inward on `domain` and `dto`; the middle layers never import each other. A consumer declares the interface it needs in `ports.go`, and `internal/router` is the one place that wires concrete types and mounts routes. Modules do not import each other apart from the shared `domain` and `dto` model.
 
-`internal/architecture` guard tests enforce the import rule per layer, the list of known layers, the reserved `shared` directories, no module-to-module imports, the import alias convention (`domainuser`, `servicerole`, `repositoryshared`, `httpshared`, ...), package name equal to directory name, constructors returning concrete types, interfaces declared by their consumer without an `Interface` suffix, no `log.Fatal` or `os.Exit` outside `cmd/`, no package-level database or Redis clients, no `internal/` import of the root package, and `cmd/` importing only `internal/moduleseed`. Each guard has a test that proves it fires.
+`internal/architecture` guard tests enforce the import rule per layer, the list of known layers, the reserved `shared` directories, no module-to-module imports, the import alias convention (`domainuser`, `servicerole`, `repositoryshared`, `httpshared`, ...), package name equal to directory name, constructors returning concrete types, interfaces declared by their consumer without an `Interface` suffix, no `log.Fatal` or `os.Exit` outside `cmd/`, no package-level database or Redis clients, no `internal/` import of the root package, no layer importing `internal/router`, and `cmd/` importing only `internal/moduleseed`. Each guard has a test that proves it fires.
 
 ### Public API golden file
 
