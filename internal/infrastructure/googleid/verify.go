@@ -55,30 +55,86 @@ type googleKeySet struct {
 	keys      map[string]*rsa.PublicKey
 	expiresAt time.Time
 	fetchedAt time.Time
+	failedAt  time.Time
+	flight    *flight
 	client    *http.Client
+}
+
+// flight is one fetch in progress; callers that arrive meanwhile wait for it.
+type flight struct {
+	done chan struct{}
+	err  error
 }
 
 var googleKeys = &googleKeySet{client: &http.Client{Timeout: 10 * time.Second}}
 
-// key returns the public key for kid, fetching the JWKS when the cache is empty,
-// expired or lacks the kid (at most once per minCertsRefetch).
+// ErrKeysUnavailable means Google's signing keys could not be fetched; it is a
+// server-side problem, not a bad token.
+var ErrKeysUnavailable = errors.New("googleid: signing keys unavailable")
+
+// fetchBackoff is how long after a failed fetch logins fail fast instead of
+// trying Google again.
+const fetchBackoff = 30 * time.Second
+
+// key fetches the JWKS when the cache is empty, expired or lacks the kid, at
+// most once per minCertsRefetch and not again for fetchBackoff after a failure.
+// The mutex is not held during the request; callers share one fetch.
 func (g *googleKeySet) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	now := time.Now()
 	if key, ok := g.keys[kid]; ok && now.Before(g.expiresAt) {
+		g.mu.Unlock()
 		return key, nil
 	}
-	if g.keys == nil || now.After(g.expiresAt) || now.Sub(g.fetchedAt) >= minCertsRefetch {
-		if err := g.fetch(ctx); err != nil {
-			if key, ok := g.keys[kid]; ok && g.keys != nil {
-				return key, nil // keep serving a known key through a Google outage
-			}
-			return nil, err
+	stale := g.keys == nil || now.After(g.expiresAt) || now.Sub(g.fetchedAt) >= minCertsRefetch
+	backingOff := !g.failedAt.IsZero() && now.Sub(g.failedAt) < fetchBackoff
+	if g.flight == nil && (!stale || backingOff) {
+		key, ok := g.keys[kid]
+		g.mu.Unlock()
+		switch {
+		case ok:
+			return key, nil // keep serving a known key through a Google outage
+		case backingOff:
+			return nil, ErrKeysUnavailable
+		}
+		return nil, ErrInvalidToken
+	}
+
+	f := g.flight
+	leader := f == nil
+	if leader {
+		f = &flight{done: make(chan struct{})}
+		g.flight = f
+	}
+	g.mu.Unlock()
+
+	if leader {
+		err := g.fetch(ctx)
+		g.mu.Lock()
+		if err != nil {
+			g.failedAt = time.Now()
+		} else {
+			g.failedAt = time.Time{}
+		}
+		g.flight, f.err = nil, err
+		g.mu.Unlock()
+		close(f.done)
+	} else {
+		select {
+		case <-f.done:
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
-	if key, ok := g.keys[kid]; ok {
+
+	g.mu.Lock()
+	key, ok := g.keys[kid]
+	g.mu.Unlock()
+	switch {
+	case ok:
 		return key, nil
+	case f.err != nil:
+		return nil, fmt.Errorf("%w: %w", ErrKeysUnavailable, f.err)
 	}
 	return nil, ErrInvalidToken
 }
@@ -123,7 +179,9 @@ func (g *googleKeySet) fetch(ctx context.Context) error {
 		return fmt.Errorf("google certs: no usable keys")
 	}
 	now := time.Now()
+	g.mu.Lock()
 	g.keys, g.fetchedAt, g.expiresAt = keys, now, now.Add(maxAge(resp.Header.Get("Cache-Control")))
+	g.mu.Unlock()
 	return nil
 }
 
@@ -155,7 +213,7 @@ func Verify(ctx context.Context, idToken string, clientIDs []string) (Identity, 
 		return googleKeys.key(ctx, kid)
 	}, jwt.WithValidMethods([]string{"RS256"}), jwt.WithExpirationRequired(), jwt.WithLeeway(30*time.Second))
 	if err != nil {
-		if isFetchFailure(err) {
+		if errors.Is(err, ErrKeysUnavailable) {
 			return Identity{}, err
 		}
 		return Identity{}, ErrInvalidToken
@@ -204,11 +262,6 @@ func Verify(ctx context.Context, idToken string, clientIDs []string) (Identity, 
 func claimString(claims jwt.MapClaims, key string) string {
 	v, _ := claims[key].(string)
 	return strings.TrimSpace(v)
-}
-
-// isFetchFailure tells a failed key fetch (a server problem) from a bad token.
-func isFetchFailure(err error) bool {
-	return strings.Contains(err.Error(), "google certs:")
 }
 
 func allowedAudiences(clientIDs []string) map[string]struct{} {

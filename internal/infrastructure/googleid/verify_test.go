@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -149,5 +150,72 @@ func TestVerifyLocalValidationBranches(t *testing.T) {
 	audiences := allowedAudiences([]string{"client-a", " client-b ", "", "client-c"})
 	if len(audiences) != 3 {
 		t.Fatalf("expected 3 audiences, got %#v", audiences)
+	}
+}
+
+// A slow certs endpoint must not serialize logins on the key set's mutex, and
+// concurrent logins share one fetch.
+func TestConcurrentVerifiesShareOneFetchAndDoNotHoldTheMutex(t *testing.T) {
+	f := newGoogleFixture(t)
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		f.certs.Config.Handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(slow.Close)
+	googleCertsURL = slow.URL
+	googleKeys = &googleKeySet{client: slow.Client()}
+
+	token := f.token(t, nil)
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := Verify(context.Background(), token, []string{"client-1"})
+			errs <- err
+		}()
+	}
+	time.Sleep(100 * time.Millisecond) // every caller is now waiting on the one fetch
+	if !googleKeys.mu.TryLock() {
+		t.Fatal("the mutex is held during the HTTP request")
+	}
+	googleKeys.mu.Unlock()
+	close(release)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := f.hits.Load(); n != 1 {
+		t.Fatalf("%d fetches, want 1", n)
+	}
+}
+
+// After a failed fetch, logins fail fast for a while instead of each waiting on
+// a dead endpoint.
+func TestFailedFetchBacksOff(t *testing.T) {
+	var hits atomic.Int32
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		http.Error(w, "down", http.StatusInternalServerError)
+	}))
+	t.Cleanup(down.Close)
+	f := newGoogleFixture(t)
+	googleCertsURL = down.URL
+	googleKeys = &googleKeySet{client: down.Client()}
+
+	token := f.token(t, nil)
+	for range 5 {
+		_, err := Verify(context.Background(), token, []string{"client-1"})
+		if !errors.Is(err, ErrKeysUnavailable) {
+			t.Fatalf("err = %v, want ErrKeysUnavailable", err)
+		}
+	}
+	if n := hits.Load(); n != 1 {
+		t.Fatalf("%d fetches during the backoff, want 1", n)
 	}
 }
